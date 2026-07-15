@@ -103,9 +103,25 @@ structures, edge cases, and semantics.
   would fake attention).
 - Watch-list: passive reading undercounts attended time (bsky 284s → 140);
   MED=150 near-miss for long reads — same knob, two sides; decide with more data.
+- **SPA-continuation merging DEFERRED (2026-07-15, Scott):** continuous
+  Gemini typing fragments into adjacent MEDIUM blocks (SPA URL churn >15s
+  apart splits sessions; visit-merge is LOW-only, containers need foreign
+  interruptions). Proposal on file in spec §6 (merge same-tab
+  spa_navigation-linked MEDIUM+ pairs) — deferred: only 2 SPA examples,
+  over-merge risk > fragmentation. Collect SPA endReason/band data first.
+  Sub-issue: band is duration-biased (30s of intense typing scores LOW);
+  density rescue is a future scoring knob.
 - **Blip filter (2026-07-15):** finalize discards sessions <2s with zero
   heartbeats/activity/audible — redirect hops and instant bounces are
   transition machinery, not journey.
+- **Transit filter (2026-07-15):** display-time (deliberately NOT capture
+  — auditable via Score table; promote once trusted): sessions <10s (one
+  heartbeat window = the attention quantum) with no audible and no
+  high-intent discrete signals (kbd/cut/copy/paste/download) are dropped
+  in parseSessions. Clicks/mouse/scroll don't save it (a click is how you
+  leave a page); neither does a flush-artifact heartbeat. Catches OAuth
+  hops, SSO choosers, consent bounces — no host special-casing. Cost: a
+  sub-10s purely-visual glance drops too (see passive-reading watch item).
 - **Color registry (2026-07-15):** hash assignment replaced — the 20-hue
   wheel produced near-collisions (adjacent greens/pinks on real data; more
   hues ≠ more distinguishable hues). Now a persisted first-seen registry

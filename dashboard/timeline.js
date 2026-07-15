@@ -199,8 +199,11 @@
       .filter(([, v]) => v)
       .map(([k, v]) => `${k} ${v}`)
       .join(" · ");
+    // Untitled pages fall back to the URL, which can be a 2000-char OAuth
+    // monster — cap the headline.
+    const head = e.title || e.url || "";
     return [
-      e.title || e.url,
+      head.length > 120 ? head.slice(0, 120) + "…" : head,
       `${e.host} · ${fmtClock(e.startTime)} – ${fmtClock(e.endTime)} · ${fmtDuration(e.durMs)} · attended ${attendedSeconds(e)}s`,
       e.children
         ? `container: ${e.members.length} visits + ${e.children.length} excursions inside`
@@ -214,10 +217,25 @@
       .join("\n");
   }
 
+  // Transit filter (spec §4): below one heartbeat window (our attention
+  // quantum), no audible time, and no high-intent discrete signals =
+  // navigation machinery (OAuth hops, SSO choosers, consent bounces).
+  // Clicks/mouse/scroll don't save it — a click is how you LEAVE a page —
+  // and neither does a flush-artifact heartbeat. Display-time on purpose:
+  // sessions stay in storage + Score table so the rule can be audited.
+  const TRANSIT_MS = 10_000;
+  function isTransit(s) {
+    if (s.endTime - s.startTime >= TRANSIT_MS || s.audibleMs) return false;
+    const a = s.activity || {};
+    return !(a.keyboard || a.cut || a.copy || a.paste || a.download);
+  }
+
   function parseSessions(sessions) {
     const cutoff = Date.now() - HOURS_BACK * 3600 * 1000;
+    const transits = sessions.filter((s) => s.endTime >= cutoff && s.url && isTransit(s));
+    if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
     return sessions
-      .filter((s) => s.endTime >= cutoff && s.url)
+      .filter((s) => s.endTime >= cutoff && s.url && !isTransit(s))
       .map((s) => {
         const score = scoreSession(s);
         return {
