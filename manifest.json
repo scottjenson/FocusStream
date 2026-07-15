@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "FocusStream",
+  "version": "0.1.0",
+  "description": "Lifestreams telemetry: an attention-weighted, chronological timeline of your browsing.",
+  "permissions": ["storage", "webNavigation", "tabs", "scripting", "downloads"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "FocusStream (click to dump sessions to service worker console)"
+  }
+}
