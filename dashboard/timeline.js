@@ -28,6 +28,10 @@
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
   const VISIT_GAP_MS = 5 * 60 * 1000;
+  // Container chains bridge longer gaps when both bookend fragments are
+  // audible-dominated — a meeting's own audio testifies the context never
+  // ended while the user was off on a whiteboard (spec §6 containers).
+  const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
   // generously; the debug list below is secondary. 1 hour ≈ 540px.
@@ -198,7 +202,11 @@
     return [
       e.title || e.url,
       `${e.host} · ${fmtClock(e.startTime)} – ${fmtClock(e.endTime)} · ${fmtDuration(e.durMs)} · attended ${attendedSeconds(e)}s`,
-      e.members ? `${e.members.length} pages merged` : "",
+      e.children
+        ? `container: ${e.members.length} visits + ${e.children.length} excursions inside`
+        : e.members
+          ? `${e.members.length} pages merged`
+          : "",
       parts,
       `score ${Math.round(e.score)} (${e.band})`,
     ]
@@ -255,6 +263,9 @@
           url: top.url, // click target: the visit's top-scoring page
           title: top.title,
           host: run[0].host,
+          // Containers chain by tabId; a merged visit keeps it only if
+          // unambiguous across members.
+          tabId: run.every((m) => m.tabId === run[0].tabId) ? run[0].tabId : undefined,
           startTime: run[0].startTime,
           endTime: run[run.length - 1].endTime,
           durMs, // sum of member durations (attention-honest width)
@@ -287,6 +298,104 @@
       }
     }
     flush();
+    return out;
+  }
+
+  // Container events (spec §6): a tab the user keeps RETURNING to is a
+  // journey context — returning is the strongest intent signal we have.
+  // Same-tabId fragments chain when the excursion returns within
+  // VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS when both bookends are
+  // audible-dominated. A chain whose SUMMED score reaches HIGH becomes a
+  // container: fragments merge into the anchor (width = wall-clock span),
+  // foreign events inside the span become contained children. Guards so
+  // the big-email case can never trigger this: foreign interruptions are
+  // REQUIRED (≥1 child), individually-HIGH events never chain, and a
+  // chain whose span holds a same-tab HIGH event is rejected (that event
+  // owns the story).
+  function detectContainers(events) {
+    const audibleDominated = (e) => (e.audibleMs || 0) >= 0.5 * e.durMs;
+    const open = new Map(); // tabId -> fragments of the currently open chain
+    const chains = [];
+    const close = (frags) => {
+      if (frags.length >= 2) chains.push(frags);
+    };
+    for (const e of events) {
+      if (e.tabId == null || e.band === "high") continue;
+      const frags = open.get(e.tabId);
+      if (frags) {
+        const last = frags[frags.length - 1];
+        const gap = e.startTime - last.endTime;
+        const bridged =
+          gap < VISIT_GAP_MS ||
+          (gap < AUDIO_BOOKEND_GAP_MS && audibleDominated(e) && audibleDominated(last));
+        if (bridged) {
+          frags.push(e);
+          continue;
+        }
+        close(frags);
+        open.delete(e.tabId);
+      }
+      open.set(e.tabId, [e]);
+    }
+    for (const frags of open.values()) close(frags);
+
+    const qualifying = chains
+      .map((frags) => ({ frags, score: frags.reduce((t, f) => t + f.score, 0) }))
+      .filter((c) => c.score >= HIGH_SCORE)
+      .sort((a, b) => b.score - a.score);
+
+    const containers = [];
+    const absorbed = new Set();
+    for (const c of qualifying) {
+      const from = c.frags[0].startTime;
+      const to = c.frags[c.frags.length - 1].endTime;
+      // Overlapping qualifying chains: higher sum already won (sort order).
+      if (containers.some((k) => from < k.endTime && to > k.startTime)) continue;
+      const fragSet = new Set(c.frags);
+      const children = events.filter(
+        (e) => !fragSet.has(e) && e.startTime >= from && e.endTime <= to
+      );
+      if (!children.length) continue; // no foreign interruptions
+      if (children.some((e) => e.tabId === c.frags[0].tabId && e.band === "high")) continue;
+      const activity = {};
+      let heartbeats = 0;
+      let audibleMs = 0;
+      for (const f of c.frags) {
+        heartbeats += f.heartbeats || 0;
+        audibleMs += f.audibleMs || 0;
+        for (const [k, v] of Object.entries(f.activity || {})) {
+          if (v) activity[k] = (activity[k] || 0) + v;
+        }
+      }
+      const top = c.frags.reduce((a, b) => (b.score > a.score ? b : a));
+      containers.push({
+        id: "k" + c.frags[0].id,
+        url: top.url, // click target: the anchor's top-scoring fragment
+        title: top.title,
+        host: c.frags[0].host,
+        tabId: c.frags[0].tabId,
+        startTime: from,
+        endTime: to,
+        durMs: to - from, // SPAN — the width-rule exception (spec §6)
+        heartbeats,
+        audibleMs,
+        activity,
+        score: c.score, // summed fragment scores: add up, then judge
+        band: "high",
+        members: c.frags,
+        children,
+      });
+      for (const f of c.frags) absorbed.add(f);
+      for (const ch of children) absorbed.add(ch);
+      log(
+        `container: ${c.frags[0].host} ${fmtClock(from)}–${fmtClock(to)} · ` +
+          `${c.frags.length} visits + ${children.length} excursions · score ${Math.round(c.score)}`
+      );
+    }
+    if (!containers.length) return events;
+    const out = events.filter((e) => !absorbed.has(e));
+    out.push(...containers);
+    out.sort((a, b) => a.startTime - b.startTime);
     return out;
   }
 
@@ -379,7 +488,24 @@
         for (const e of members) {
           allocGap(e.startTime);
           if (start === null) start = cursor;
-          const w = widthOf(e);
+          let w = widthOf(e);
+          // Contained children sit at their time-proportional offsets
+          // inside the span-scaled container, pushed right — and the
+          // container stretched — when min-width floors would collide
+          // (spec §6 containers, rule 6).
+          const kids = [];
+          if (e.children) {
+            const span = e.endTime - e.startTime;
+            let prevRight = -Infinity;
+            for (const k of e.children) {
+              const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
+              let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
+              if (kx < prevRight + GAP) kx = prevRight + GAP;
+              prevRight = kx + kw;
+              kids.push({ k, kx, kw });
+            }
+            w = Math.max(w, prevRight + GAP);
+          }
           segs.push({
             e,
             key: e.id,
@@ -391,6 +517,21 @@
             w,
             x: cursor,
           });
+          for (const kid of kids) {
+            segs.push({
+              e: kid.k,
+              key: kid.k.id,
+              clusterKey: null,
+              collapsed: false,
+              contained: true,
+              // Capped at MEDIUM: containment frames — never confers,
+              // never destroys. A HIGH excursion keeps width + hover
+              // truth but not the container's silhouette.
+              band: kid.k.band === "high" ? "medium" : kid.k.band,
+              w: kid.kw,
+              x: cursor + kid.kx,
+            });
+          }
           cursor += w + GAP;
           prevEnd = e.endTime;
         }
@@ -577,15 +718,19 @@
       });
       return;
     }
-    const events = mergeVisits(parseSessions(sessions));
-    claimColors(events);
+    // Claim registry colors BEFORE containment: a host whose MEDIUM block
+    // ends up contained still earned its permanent identity slot.
+    const merged = mergeVisits(parseSessions(sessions));
+    claimColors(merged);
+    const events = detectContainers(merged);
     transientSlots = new Map(); // transient colors never outlive a render
     const items = clusterEvents(events);
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
 
     // Hosts that earned an identity hue: any MEDIUM+ event qualifies the
     // whole host, so its LOW visits share the color (revisit structure).
-    const coloredHosts = new Set(events.filter((e) => e.band !== "low").map((e) => e.host));
+    // Judged pre-containment: a contained MEDIUM still qualifies its host.
+    const coloredHosts = new Set(merged.filter((e) => e.band !== "low").map((e) => e.host));
 
     const ribbon = document.getElementById("ribbon");
     const bandBottom = TITLE_AREA + BAND_H;
@@ -606,17 +751,36 @@
         blockEls.set(s.key, el);
       }
       const h = TIER_H[s.band];
-      // Identity hue for qualifying hosts; members of an OPEN fence are
-      // always colored (fence-open relaxation). Collapsed sticks and
-      // LOW-only hosts stay gray.
-      const colored = !s.collapsed && (coloredHosts.has(s.e.host) || s.clusterKey != null);
+      // Identity hue for qualifying hosts; members of an OPEN fence and
+      // contained children are always colored (relaxation rules).
+      // Collapsed sticks and LOW-only hosts stay gray.
+      const colored =
+        s.contained || (!s.collapsed && (coloredHosts.has(s.e.host) || s.clusterKey != null));
       const fill = colored ? colorOf(s.e.host) : GRAY_FILL;
-      el.style.left = s.x + "px";
-      el.style.width = s.w + "px";
+      // Children draw on top of their container; persistent els can be in
+      // any DOM order, so z-index does it (cleared when not contained).
+      el.style.zIndex = s.contained ? 2 : "";
+      // Snap to the pixel grid at paint time (layout stays fractional):
+      // sub-pixel edges anti-alias, which reads as fuzz on narrow blocks.
+      // Rounding the right edge (not the width) keeps snapped neighbors
+      // adjacent.
+      el.style.left = Math.round(s.x) + "px";
+      el.style.width = Math.round(s.x + s.w) - Math.round(s.x) + "px";
       el.style.top = bandBottom - h + "px";
       el.style.height = h + "px";
-      el.style.background = fill;
-      el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
+      // Containers: 25% wash + 2px full-strength border (.cont CSS), the
+      // border carrying identity; everything else keeps the solid fill.
+      const isCont = !!s.e.children;
+      el.classList.toggle("cont", isCont);
+      if (isCont) {
+        el.style.setProperty("--host", fill);
+        el.style.background = "";
+        el.style.borderColor = fill;
+      } else {
+        el.style.removeProperty("--host");
+        el.style.background = fill;
+        el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
+      }
       if (s.collapsed) delete el.dataset.tip;
       else el.dataset.tip = tooltip(s.e);
       // Collapsed sticks are inert; their cluster's plate is the one target.
@@ -681,7 +845,8 @@
     for (const m of hourMarks(segs, gaps)) {
       const tick = document.createElement("div");
       tick.className = "tick transient";
-      tick.style.left = m.x + "px";
+      // Snap: a 1px line on a fractional x anti-aliases into a 2px smear.
+      tick.style.left = Math.round(m.x) + "px";
       tick.style.top = bandBottom + TICK_TOP + "px";
       tick.style.height = TICK_H + "px";
       ribbon.appendChild(tick);
@@ -693,7 +858,9 @@
       ribbon.appendChild(label);
     }
 
-    for (const run of titleRuns(groupRuns(segs))) {
+    // Contained children never label (spec §6: hover only) and must not
+    // fragment their container's title run.
+    for (const run of titleRuns(groupRuns(segs.filter((s) => !s.contained)))) {
       const el = document.createElement("div");
       el.className = "rtitle transient";
       // rotate(-90deg) about the bottom-LEFT corner sweeps the glyph column
@@ -702,7 +869,11 @@
       // RIGHT of center to center the column on the run. Obvious on 3px
       // fence slivers, invisible on wide runs.
       el.style.left = run.center + 9 + "px";
-      el.style.top = TITLE_AREA - 8 + "px";
+      // The rotated text column's BOTTOM lands at top + line-height (16px,
+      // fixed in CSS). Anchor so it clears the band ceiling by 4px — HIGH
+      // blocks fill the full band, and the old -8 anchor dipped labels
+      // ~10px into them (invisible until containers made HIGH common).
+      el.style.top = TITLE_AREA - 20 + "px";
       // Rim mix, not the raw fill: dark palette entries (vivid red, strong
       // blue/violet) are illegible as text on the dark ribbon.
       el.style.color = rimOf(colorOf(run.host));

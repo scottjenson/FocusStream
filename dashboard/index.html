@@ -92,6 +92,19 @@
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred). */
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
+    /* Containers (spec §6): a 25% wash of the host color with the identity
+       carried by a 2px full-strength border — children sit on near-dark
+       ground, so the palette's dark-bg contract holds inside. Hover lifts
+       the wash instead of brightening, keeping the children stable. */
+    .blk.cont {
+      background: color-mix(in srgb, var(--host) 25%, transparent);
+      border-width: 2px;
+    }
+    .blk.cont:hover {
+      background: color-mix(in srgb, var(--host) 35%, transparent);
+      filter: none;
+      box-shadow: none;
+    }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
@@ -125,6 +138,7 @@
     .rtitle {
       position: absolute;
       font-size: 14px;
+      line-height: 16px; /* fixed: timeline.js anchors label bottoms with it */
       white-space: nowrap;
       transform: rotate(-90deg);
       transform-origin: 0 100%;

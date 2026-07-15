@@ -171,6 +171,25 @@ structures, edge cases, and semantics.
 - Score weights are provisional (inherited from Desktop4's demo-tuned values) —
   expect revision against real data; keep them named constants.
 - No zoom, single backward time window for now; paging between days later.
+- **Container events (2026-07-15):** a tab the user keeps RETURNING to is a
+  journey context (evidence: a 30-min meeting rendered as 4 disconnected
+  MEDIUMs — tab-switch fragmentation + "MEDIUM+ never merges" compose
+  wrong for recurring contexts). Same-tabId fragments chain (gap <
+  VISIT_GAP_MS, or < AUDIO_BOOKEND_GAP_MS 30min when both bookends are
+  audible-dominated ≥50% — a meeting's audio testifies through a long
+  whiteboard excursion; chosen over a background audible log: same power,
+  no capture change). Summed score ≥ HIGH → container: width = SPAN (the
+  width-rule exception), children = foreign events inside, drawn on top,
+  colored, tier capped at MEDIUM, no fences/labels inside, hover+click
+  everywhere. Guards for the big-email case: ≥1 foreign child required;
+  individually-HIGH events never chain; same-tab HIGH inside span rejects
+  the chain. Registry colors + coloredHosts judged PRE-containment.
+  Display: 25% wash of host color + 2px full-strength border (border
+  carries identity; color weight = saturation × area, and children then
+  sit on near-dark ground so the Kelly dark-bg contract holds); hover
+  lifts wash to 35% instead of brighten (children stay stable).
+  Watch: two long videos in one tab <30min apart chain ("YouTube
+  container"); title heuristic still misfires on Meet titles ("Scott").
 - **Tooltip roadmap (2026-07-15):** custom tooltip layer (uniform 300ms —
   native title warm-up timing is uncontrollable) then snapshot previews
   (captureVisibleTab on first heartbeat — capture at finalize photographs
