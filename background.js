@@ -15,6 +15,13 @@ const SPA_DEBOUNCE_MS = 15_000;
 // (redirect hops, instant bounces), not user activity — discarded at finalize.
 const BLIP_MS = 2_000;
 
+// Finalized blocks older than this are pruned at finalize: the sessions
+// array is rewritten in full on every finalize, so unbounded growth makes
+// every tab switch serialize the entire history (and walks toward the
+// storage.local quota). The dashboard shows 24h; 7 days leaves headroom
+// for future day-paging.
+const RETENTION_MS = 7 * 24 * 3600 * 1000;
+
 log("service worker starting up");
 
 // All event handlers run through this queue so async storage reads/writes
@@ -105,13 +112,18 @@ async function finalizeCurrent(endReason) {
     return;
   }
   const { sessions = [] } = await chrome.storage.local.get("sessions");
-  sessions.push(session);
-  await chrome.storage.local.set({ sessions });
+  const cutoff = Date.now() - RETENTION_MS;
+  const kept = sessions.filter((s) => s.endTime >= cutoff);
+  if (kept.length < sessions.length) {
+    log(`pruned ${sessions.length - kept.length} sessions older than 7 days`);
+  }
+  kept.push(session);
+  await chrome.storage.local.set({ sessions: kept });
   const secs = ((session.endTime - session.startTime) / 1000).toFixed(1);
   log(
     `session END [${endReason}] activity=${JSON.stringify(session.activity)} ${secs}s`,
     session.url,
-    `(${sessions.length} total stored)`
+    `(${kept.length} total stored)`
   );
 }
 

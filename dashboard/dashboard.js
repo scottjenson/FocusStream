@@ -177,11 +177,10 @@ function renderVisit(run) {
   return li;
 }
 
-async function render() {
+// Debug list + header count only — cheap enough to run on every heartbeat.
+async function renderList() {
   const { sessions = [] } = await chrome.storage.local.get("sessions");
   const { currentSession } = await chrome.storage.session.get("currentSession");
-
-  window.renderTimeline?.(sessions);
 
   const timeline = document.getElementById("timeline");
   timeline.replaceChildren();
@@ -197,6 +196,13 @@ async function render() {
   document.getElementById("count").textContent =
     `${sessions.length} sessions in ${runs.length} rows (newest first)` +
     (currentSession ? " + 1 live" : "");
+}
+
+// Full repaint: the ribbon pipeline plus the debug list.
+async function render() {
+  const { sessions = [] } = await chrome.storage.local.get("sessions");
+  window.renderTimeline?.(sessions);
+  await renderList();
 }
 
 document.getElementById("refresh").addEventListener("click", render);
@@ -257,8 +263,15 @@ document.getElementById("clear").addEventListener("click", async () => {
   render();
 });
 
-// Re-render on any storage write: finalized blocks (local) and live-session
-// heartbeat updates (session) both land here.
-chrome.storage.onChanged.addListener(render);
+// Re-render on storage writes — but session-area changes (the live session's
+// 10s heartbeat updates) refresh only the debug list: they can't change any
+// finalized block, and running the whole ribbon pipeline every 10 seconds
+// just to move the live row made an open dashboard the extension's biggest
+// CPU consumer. Local-area writes (finalize, color claims, Clear) repaint
+// everything.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "session") renderList();
+  else render();
+});
 
 render();

@@ -1,0 +1,138 @@
+# Timeline Design — Decision Log (display side)
+
+The spec (`ChromeExtensionSetup.md` §5–§6) holds the **current rules**; this file
+holds the dated decisions, the evidence that forced them, and the alternatives
+that lost — moved out of CLAUDE.md 2026-07-15 to keep it lean. The live
+watch-list is consolidated in spec §6 ("Watch list").
+
+## Score & tiers
+- Score v1 (spec §6): `attendedSeconds = max(heartbeats×10, audibleSeconds)` +
+  weighted discrete signals. Weights are provisional — inherited from Desktop4's
+  demo-tuned values; keep them named constants.
+- Score → three tiers/heights (144/115/86, bottom-flush) → picket fence.
+  Design ported from the Desktop4 project (`~/Projects/Desktop4 (lifestreams)` —
+  its plans/ dir has the rationale; its WebGL/React stack and screenshot/heatmap
+  features did NOT port).
+- Sub-issue (2026-07-15): band is duration-biased — 30s of intense typing scores
+  LOW; density rescue (keystrokes/sec) is a future scoring knob.
+- MEDIUM=150 may be too permissive on real data — thresholds deliberately held
+  until label gating is evaluated (one knob at a time).
+
+## Labels
+- **Importance-gated** (2026-07-15): MEDIUM+ runs only; collisions resolved by
+  score (higher wins, loser dropped, never nudged — a nudged label misaligns
+  with its block). Desktop4's first-occurrence-always titling is deleted —
+  wrong for the web's hostname cardinality (20+ hosts/session, not ~6 apps).
+- **Labels are title-derived site names** ("Google Maps", not google.com): most
+  common trailing title segment across a run's pages, hostname fallback.
+  Identity (color/grouping) stays hostname-keyed. Known misfire: Meet titles
+  ("Scott").
+
+## Color = identity, rationed by importance
+- Curated palette for hosts holding a MEDIUM+ block; LOW-only hosts and
+  collapsed sticks are gray. **Fence-open relaxation:** members of an expanded
+  fence get colors and label eligibility (collision rules still apply).
+- **Color registry (2026-07-15):** hash assignment replaced — the 20-hue wheel
+  produced near-collisions (adjacent greens/pinks on real data; more hues ≠
+  more distinguishable hues). Now a persisted first-seen registry
+  (`hostColorOrder` in storage.local): a host's first-ever MEDIUM+ block claims
+  the next palette slot, permanent across days ("yesterday's important pink
+  document is still pink today"). Clear data resets the registry.
+- **Palette = Kelly's max-contrast sequence, cut to 16 (2026-07-15):** a
+  hand-built 6-families × 2-lightness palette failed in a day (light/dark
+  variants adjacent; hover-brightening faked identities). Kelly's ORDER is the
+  point — first N entries always maximally contrast, matching slot claiming.
+  Removed white/black/gray + 3 darkest (browns/olive → converge on noise-gray).
+  Hover = glow + mild brighten, never a strong brightness filter; run labels
+  use the rim mix (65% color + white) for legibility.
+- **Transient colors CONTINUE the Kelly sequence** past the registry
+  (first-appearance order, per-render, never persisted) — visible colors always
+  form a Kelly prefix, mutually max-contrast by construction. Two hash-based
+  fallbacks failed in one day first (probe = funnel: linkedin/gmail/bsky all
+  drew vivid red; free-slot hash = sampled late entries, which sit close to
+  early ones: gmail's orange-yellow beside gemini's orange). **Rule: non-prefix
+  subsets of Kelly void the contrast warranty, and hashing structurally
+  produces non-prefixes.** MEDIUM+ gets hard guarantees; LOW gets best-effort.
+
+## Fences
+- Runs of ≥2 consecutive LOW collapse to 3px sticks; MEDIUM+ never fences
+  (§5 side-quest rule — nothing important is structurally hideable).
+- **Fence clicks (2026-07-15):** expanded members NAVIGATE like any block
+  (click-to-recollapse made fence contents un-clickable). Collapse = expand bar
+  (16px hit zone, 4px visual via ::after) or Escape. Click-away rejected
+  (navigate + collapse firing together is busy). Collapsing is low-priority by
+  design — day-paging will reset fences.
+- **Fence runs split at VISIT_GAP_MS** (a fence straddling a 4h absence claimed
+  the hole as "5 rapid events") — sprinkled >5-min LOWs render as singleton low
+  blocks, not fences.
+
+## Time axis
+- **Hour axis:** whole-hour labels only; ribbon left-pads from the floor hour
+  at gap scale so an 8:47 start sits proportionally after the 8am tick.
+  Tooltips carry the exact wall-clock span.
+- **Two time scales (2026-07-15):** presence at PX_PER_SEC (~540px/hr), absence
+  at GAP_HOUR_PX (44px) per absent hour (~1/12) — every gap gets width
+  proportional to true duration, ticks interpolate through gaps like through
+  blocks, hour boundaries have NO width effect, and the leading pad is
+  gap-scaled too. 4h away = 4 evenly spaced countable ticks. Superseded rules,
+  same day: tick clamping (shingled labels after a real 4h absence) →
+  break-glyph + threshold (glyphs need decoding; thresholds arbitrary) →
+  uniform 44px hour slots (binary: a 10-min pause straddling 11am outweighed an
+  invisible 40-min boundary-free errand). Label stacking structurally
+  impossible; gap hover plate (≥6px) carries the exact away-span.
+
+## Visit merging
+- (2026-07-15) Consecutive same-host LOW blocks merge into one visit block
+  scored on MERGED totals, before fencing — repairs SPA-debounce fragmentation
+  (10 Maps minutes = one MEDIUM, not 11 fenced slivers). MEDIUM+ never merges:
+  the visit splits around it (a long email inside a Gmail hour stands alone).
+  **Max-gap rule:** members must be <5 min apart (VISIT_GAP_MS) — a 2s re-peek
+  9 min later must NOT stretch the visit's span.
+
+## Container events
+- (2026-07-15) A tab the user keeps RETURNING to is a journey context
+  (evidence: a 30-min meeting rendered as 4 disconnected MEDIUMs — tab-switch
+  fragmentation + "MEDIUM+ never merges" compose wrong for recurring contexts).
+  Same-tabId fragments chain (gap < VISIT_GAP_MS, or < AUDIO_BOOKEND_GAP_MS
+  30min when both bookends are audible-dominated ≥50% — a meeting's audio
+  testifies through a long whiteboard excursion; chosen over a background
+  audible log: same power, no capture change). Summed score ≥ HIGH → container:
+  width = SPAN (the width-rule exception), children = foreign events inside,
+  drawn on top, colored, tier capped at MEDIUM, no fences/labels inside,
+  hover+click everywhere.
+- Guards for the big-email case: ≥1 foreign child required; individually-HIGH
+  events never chain; same-tab HIGH inside span rejects the chain. Registry
+  colors + coloredHosts judged PRE-containment.
+- Display: 25% wash of host color + 2px full-strength border (border carries
+  identity; color weight = saturation × area, and children then sit on
+  near-dark ground so the Kelly dark-bg contract holds); hover lifts wash to
+  35% instead of brightening (children stay stable).
+- §5 note: technically gap-tolerant merging, which §5 forbids — but §5 forbids
+  it for *hiding* interruptions; containers keep every interruption visible,
+  framed.
+
+## Transit filter (display side of capture filtering)
+- (2026-07-15) Display-time, deliberately NOT capture — auditable via the Score
+  table; promote once trusted. Sessions <10s (one heartbeat window = the
+  attention quantum) with no audible and no high-intent discrete signals
+  (kbd/cut/copy/paste/download) are dropped in parseSessions. Clicks/mouse/
+  scroll don't save it (a click is how you leave a page); neither does a
+  flush-artifact heartbeat. Catches OAuth hops, SSO choosers, consent bounces —
+  no host special-casing. Cost: a sub-10s purely-visual glance drops too.
+
+## SPA-continuation merging — DEFERRED
+- (2026-07-15, Scott) Continuous Gemini typing fragments into adjacent MEDIUM
+  blocks (SPA URL churn >15s apart splits sessions; visit-merge is LOW-only,
+  containers need foreign interruptions). Proposal on file in spec §6 (merge
+  same-tab spa_navigation-linked MEDIUM+ pairs) — deferred: only 2 SPA
+  examples, over-merge risk > fragmentation. Collect SPA endReason/band data
+  first.
+
+## Tooltips & snapshots
+- Custom tooltip layer (uniform 300ms; native title warm-up uncontrollable)
+  implemented 2026-07-15; snapshot previews approved with all knobs decided but
+  NOT built. Full roadmap: `plans/tooltip_snapshot_plan.md`.
+
+## Scope holds
+- No zoom, single backward 24h window; paging between days later.
+- `parentId` / opener-tab tracking deferred; no tree/branching view.
