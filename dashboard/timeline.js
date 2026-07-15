@@ -37,6 +37,9 @@
   const TIER_H = { high: 144, medium: 115, low: 86 }; // bottom-flush; top edge = importance contour
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
+  // Width of one whole-hour slot inside a gap (spec §6 gap hours): absence
+  // draws as countable uniform ticks, ~1/12 the width of an attended hour.
+  const GAP_HOUR_PX = 44;
   const MIN_RUN = 2; // even a pair of lows fences
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
@@ -297,6 +300,11 @@
     };
     for (const event of events) {
       if (event.band === "low") {
+        // Absence splits fences (spec §5 generalized, same constant as
+        // visit merging): events separated by a real gap aren't "rapid",
+        // and a fence spanning an away-hole hid the gap's hover plate.
+        const prev = run[run.length - 1];
+        if (prev && event.startTime - prev.endTime >= VISIT_GAP_MS) flush();
         run.push(event);
       } else {
         flush();
@@ -322,13 +330,32 @@
     const segs = [];
     const plates = [];
     const bars = [];
+    const gaps = [];
+    const HOUR = 3600 * 1000;
+    let prevEnd = null; // wall-clock end of the previously laid element
+    // Gap hours (spec §6): every whole hour falling strictly between two
+    // drawn elements gets a uniform GAP_HOUR_PX slot, tick centered — a
+    // 4-hour absence reads as four countable ticks. Runs between EVERY
+    // consecutive pair (fence sticks included: a fence run spanning an
+    // absence gets a breathing hole; its plate spans the hole). A gap
+    // crossing no hour boundary allocates nothing, as before.
+    const allocGap = (nextStart) => {
+      if (prevEnd === null) return;
+      const marks = [];
+      for (let t = prevEnd - msPastHour(prevEnd) + HOUR; t < nextStart; t += HOUR) {
+        marks.push({ t, x: cursor + (marks.length + 0.5) * GAP_HOUR_PX });
+      }
+      if (!marks.length) return;
+      gaps.push({ x: cursor, w: marks.length * GAP_HOUR_PX, from: prevEnd, to: nextStart, marks });
+      cursor += marks.length * GAP_HOUR_PX;
+    };
     const widthOf = (e) => Math.max(MIN_W, (e.durMs / 1000) * PX_PER_SEC);
     for (const item of items) {
       if (item.kind === "cluster" && !expanded.has(item.key)) {
-        const n = item.members.length;
-        const width = n * STICK_W + (n - 1) * STICK_GAP;
-        const left = cursor;
-        item.members.forEach((e, j) => {
+        let left = null;
+        for (const e of item.members) {
+          allocGap(e.startTime);
+          if (left === null) left = cursor;
           segs.push({
             e,
             key: e.id,
@@ -336,15 +363,20 @@
             collapsed: true,
             band: "low",
             w: STICK_W,
-            x: left + j * (STICK_W + STICK_GAP),
+            x: cursor,
           });
-        });
-        plates.push({ key: item.key, members: item.members, x: left, w: width });
-        cursor += width + GAP;
+          cursor += STICK_W + STICK_GAP;
+          prevEnd = e.endTime;
+        }
+        cursor -= STICK_GAP;
+        plates.push({ key: item.key, members: item.members, x: left, w: cursor - left });
+        cursor += GAP;
       } else {
         const members = item.kind === "cluster" ? item.members : [item.event];
-        const start = cursor;
+        let start = null;
         for (const e of members) {
+          allocGap(e.startTime);
+          if (start === null) start = cursor;
           const w = widthOf(e);
           segs.push({
             e,
@@ -358,42 +390,44 @@
             x: cursor,
           });
           cursor += w + GAP;
+          prevEnd = e.endTime;
         }
         if (item.kind === "cluster") {
           bars.push({ key: item.key, x: start, w: cursor - GAP - start });
         }
       }
     }
-    return { segs, plates, bars, total: Math.max(cursor - GAP, 0) };
+    return { segs, plates, bars, gaps, total: Math.max(cursor - GAP, 0) };
   }
 
   // Ribbon X is NOT linear time (widths are floored), so each whole hour is
-  // placed at the time-interpolated X within whichever block was active then,
-  // clamping to the nearest edge in gaps.
-  function hourMarks(segs) {
+  // placed at the time-interpolated X within whichever block was active
+  // then. Hours that fell between blocks already own uniform gap slots from
+  // layout — the old clamp-to-edge case (which shingled labels when a
+  // multi-hour absence stacked its hours on one x) no longer exists.
+  function hourMarks(segs, gaps) {
     if (!segs.length) return [];
     const HOUR = 3600 * 1000;
     const first = segs[0];
-    const last = segs[segs.length - 1];
+    const gapX = new Map();
+    for (const g of gaps) for (const m of g.marks) gapX.set(m.t, m.x);
     // First tick: the floor hour, sitting at the left edge of the pad — a
     // clean whole-hour label with the first block proportionally inset.
     const floorT = first.e.startTime - msPastHour(first.e.startTime);
     const marks = [{ t: floorT, x: first.x - (msPastHour(first.e.startTime) / 1000) * PX_PER_SEC }];
-    for (let t = floorT + HOUR; t <= last.e.endTime; t += HOUR) {
-      let x = null;
+    const lastEnd = segs[segs.length - 1].e.endTime;
+    for (let t = floorT + HOUR; t <= lastEnd; t += HOUR) {
+      if (gapX.has(t)) {
+        marks.push({ t, x: gapX.get(t) });
+        continue;
+      }
       for (const s of segs) {
-        if (t < s.e.startTime) {
-          x = s.x;
-          break;
-        }
-        if (t <= s.e.endTime) {
+        if (t >= s.e.startTime && t <= s.e.endTime) {
           const span = s.e.endTime - s.e.startTime;
-          x = s.x + (span > 0 ? ((t - s.e.startTime) / span) * s.w : 0);
+          marks.push({ t, x: s.x + (span > 0 ? ((t - s.e.startTime) / span) * s.w : 0) });
           break;
         }
       }
-      if (x === null) x = last.x + last.w;
-      marks.push({ t, x });
     }
     return marks;
   }
@@ -486,6 +520,50 @@
     }
   });
 
+  // --- Custom tooltip (spec §6, plans/tooltip_snapshot_plan.md Part 1).
+  // Native title tooltips have uncontrollable warm-up timing (~1s cold,
+  // near-instant warm, any click resets it) — so ribbon elements carry
+  // data-tip instead, shown by one delegated timer at a uniform delay.
+  // Text lands via textContent only: titles/URLs are page-controlled.
+  const TIP_DELAY_MS = 300;
+  const tip = document.createElement("div");
+  tip.id = "tip";
+  tip.hidden = true;
+  document.body.appendChild(tip);
+  let tipTimer = null;
+
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tipTimer = null;
+    tip.hidden = true;
+  }
+
+  {
+    const ribbonEl = document.getElementById("ribbon");
+    ribbonEl.addEventListener("pointerover", (ev) => {
+      hideTip();
+      const el = ev.target.closest("[data-tip]");
+      if (!el) return;
+      const px = ev.clientX;
+      const py = ev.clientY;
+      tipTimer = setTimeout(() => {
+        tip.textContent = el.dataset.tip;
+        tip.hidden = false;
+        // Measure after content is set; clamp to the viewport (flip above
+        // the cursor rather than run off the bottom).
+        const r = tip.getBoundingClientRect();
+        let left = px + 12;
+        let top = py + 12;
+        if (left + r.width > innerWidth - 4) left = Math.max(4, innerWidth - r.width - 4);
+        if (top + r.height > innerHeight - 4) top = Math.max(4, py - r.height - 12);
+        tip.style.left = left + "px";
+        tip.style.top = top + "px";
+      }, TIP_DELAY_MS);
+    });
+    ribbonEl.addEventListener("pointerout", hideTip);
+    ribbonEl.addEventListener("pointerdown", hideTip);
+  }
+
   function render(sessions) {
     lastSessions = sessions;
     // First render races the registry load: defer until it's in memory,
@@ -501,7 +579,7 @@
     claimColors(events);
     transientSlots = new Map(); // transient colors never outlive a render
     const items = clusterEvents(events);
-    const { segs, plates, bars, total } = layout(items, expanded);
+    const { segs, plates, bars, gaps, total } = layout(items, expanded);
 
     // Hosts that earned an identity hue: any MEDIUM+ event qualifies the
     // whole host, so its LOW visits share the color (revisit structure).
@@ -537,7 +615,8 @@
       el.style.height = h + "px";
       el.style.background = fill;
       el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
-      el.title = s.collapsed ? "" : tooltip(s.e);
+      if (s.collapsed) delete el.dataset.tip;
+      else el.dataset.tip = tooltip(s.e);
       // Collapsed sticks are inert; their cluster's plate is the one target.
       // Every visible block navigates — expanded fence members included
       // (spec §6: click means "open this page" everywhere; collapse is the
@@ -552,6 +631,21 @@
       }
     }
 
+    // Invisible hover plate over each gap region: the exact away-span, same
+    // tooltip-as-ground-truth convention as blocks. Not clickable — and
+    // appended BEFORE fence plates so a hole inside a collapsed fence still
+    // expands on click (the fence plate wins the overlap).
+    for (const g of gaps) {
+      const el = document.createElement("div");
+      el.className = "gap transient";
+      el.style.left = g.x + "px";
+      el.style.width = g.w + "px";
+      el.style.top = TITLE_AREA + "px";
+      el.style.height = BAND_H + "px";
+      el.dataset.tip = `away ${fmtClock(g.from)} – ${fmtClock(g.to)} · ${fmtDuration(g.to - g.from)}`;
+      ribbon.appendChild(el);
+    }
+
     // Invisible hit plate spanning each collapsed fence: hover + click target.
     for (const p of plates) {
       const el = document.createElement("div");
@@ -561,7 +655,7 @@
       el.style.top = TITLE_AREA + "px";
       el.style.height = BAND_H + "px";
       const active = p.members.reduce((t, m) => t + m.durMs, 0);
-      el.title = `${p.members.length} rapid events · ${fmtDuration(active)} — click to expand`;
+      el.dataset.tip = `${p.members.length} rapid events · ${fmtDuration(active)} — click to expand`;
       el.addEventListener("click", () => toggle(p.key));
       ribbon.appendChild(el);
     }
@@ -575,12 +669,12 @@
       // Hit zone starts at the band edge and fills the lane down to the
       // ticks; the 4px visual bar is the ::after in .xbar (index.html).
       el.style.top = bandBottom + "px";
-      el.title = "click to collapse";
+      el.dataset.tip = "click to collapse";
       el.addEventListener("click", () => toggle(b.key));
       ribbon.appendChild(el);
     }
 
-    for (const m of hourMarks(segs)) {
+    for (const m of hourMarks(segs, gaps)) {
       const tick = document.createElement("div");
       tick.className = "tick transient";
       tick.style.left = m.x + "px";

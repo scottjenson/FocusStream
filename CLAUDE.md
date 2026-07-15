@@ -147,7 +147,17 @@ structures, edge cases, and semantics.
   a 2s re-peek 9 min later must NOT stretch the visit's span.
 - **Hour axis:** whole-hour labels only; ribbon left-pads from the floor hour at
   the time scale so an 8:47 start sits proportionally after the 8am tick.
-  Interior gaps still compress; tooltips carry the exact wall-clock span. Detection of big-events-inside-visits rests entirely on score
+  Tooltips carry the exact wall-clock span.
+- **Gap hours (2026-07-15):** absence draws as its hour ticks at uniform
+  44px slots (GAP_HOUR_PX) — 4h away = 4 countable ticks, self-decoding
+  (replaced tick clamping, which shingled labels after a real 4h absence;
+  a fixed break-glyph + threshold was rejected: glyphs need decoding and
+  thresholds are arbitrary). Boundary-free gaps still draw nothing; label
+  stacking now structurally impossible; hover plate carries the exact
+  away-span. Fence runs split at VISIT_GAP_MS (a fence straddling a 4h
+  absence claimed the hole as "5 rapid events") — sprinkled >5-min LOWs
+  now render as singleton low blocks, not fences (honest; watch with
+  data). Detection of big-events-inside-visits rests entirely on score
   calibration — the promotion machinery itself is threshold-agnostic.
 - **Labels are title-derived site names** ("Google Maps", not google.com):
   most common trailing title segment across a run's pages, hostname fallback.
@@ -157,4 +167,12 @@ structures, edge cases, and semantics.
 - Score weights are provisional (inherited from Desktop4's demo-tuned values) —
   expect revision against real data; keep them named constants.
 - No zoom, single backward time window for now; paging between days later.
+- **Tooltip roadmap (2026-07-15):** custom tooltip layer (uniform 300ms —
+  native title warm-up timing is uncontrollable) then snapshot previews
+  (captureVisibleTab on first heartbeat — capture at finalize photographs
+  the WRONG tab; fixed ~640px width; separate snap:<id> keys, never in
+  SessionBlocks; unlimitedStorage + prune). Full reasoning + open knobs in
+  `plans/tooltip_snapshot_plan.md`. Part 1 implemented 2026-07-15; Part 2
+  knobs all decided (60s refresh last-wins, fixed ~640px, unlimitedStorage
+  + prune, JPEG q0.6) — capture code not yet built.
 - Workflow reminder: spec changes are proposed and approved BEFORE code changes.

@@ -94,6 +94,10 @@
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
+    /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
+       a whisper of background so the hover feels acknowledged. */
+    .gap { position: absolute; }
+    .gap:hover { background: rgba(255,255,255,0.04); }
     /* Collapse target: a 16px invisible hit zone; the 4px visual bar is
        drawn by ::after, sitting BAR_GAP below the band. */
     .xbar {
@@ -124,6 +128,25 @@
       white-space: nowrap;
       transform: rotate(-90deg);
       transform-origin: 0 100%;
+    }
+    /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
+       future mount point for snapshot previews. pointer-events: none so it
+       can never steal the hover that opened it. */
+    #tip {
+      position: fixed;
+      z-index: 10;
+      max-width: 480px;
+      background: #1e2126;
+      border: 1px solid #454b55;
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: #d8dce2;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-line;
+      overflow-wrap: break-word;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
     }
   </style>
 </head>
