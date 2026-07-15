@@ -148,14 +148,18 @@ structures, edge cases, and semantics.
 - **Hour axis:** whole-hour labels only; ribbon left-pads from the floor hour at
   the time scale so an 8:47 start sits proportionally after the 8am tick.
   Tooltips carry the exact wall-clock span.
-- **Gap hours (2026-07-15):** absence draws as its hour ticks at uniform
-  44px slots (GAP_HOUR_PX) — 4h away = 4 countable ticks, self-decoding
-  (replaced tick clamping, which shingled labels after a real 4h absence;
-  a fixed break-glyph + threshold was rejected: glyphs need decoding and
-  thresholds are arbitrary). Boundary-free gaps still draw nothing; label
-  stacking now structurally impossible; hover plate carries the exact
-  away-span. Fence runs split at VISIT_GAP_MS (a fence straddling a 4h
-  absence claimed the hole as "5 rapid events") — sprinkled >5-min LOWs
+- **Two time scales (2026-07-15):** presence at PX_PER_SEC (~540px/hr),
+  absence at GAP_HOUR_PX (44px) per absent hour (~1/12) — every gap gets
+  width proportional to true duration, ticks interpolate through gaps like
+  through blocks, hour boundaries have NO width effect, and the leading
+  pad is gap-scaled too. 4h away = 4 evenly spaced countable ticks.
+  Superseded rules, same day: tick clamping (shingled labels after a real
+  4h absence) → break-glyph + threshold (glyphs need decoding; thresholds
+  arbitrary) → uniform 44px hour slots (binary: a 10-min pause straddling
+  11am outweighed an invisible 40-min boundary-free errand). Label
+  stacking structurally impossible; gap hover plate (≥6px) carries the
+  exact away-span. Fence runs split at VISIT_GAP_MS (a fence straddling a
+  4h absence claimed the hole as "5 rapid events") — sprinkled >5-min LOWs
   now render as singleton low blocks, not fences (honest; watch with
   data). Detection of big-events-inside-visits rests entirely on score
   calibration — the promotion machinery itself is threshold-agnostic.

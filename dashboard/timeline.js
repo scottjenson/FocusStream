@@ -23,6 +23,7 @@
   const HIGH_SCORE = 1000;
   const MED_SCORE = 150;
 
+  const HOUR = 3600 * 1000;
   const HOURS_BACK = 24; // single backward look; paging between days is later
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
@@ -37,8 +38,10 @@
   const TIER_H = { high: 144, medium: 115, low: 86 }; // bottom-flush; top edge = importance contour
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
-  // Width of one whole-hour slot inside a gap (spec §6 gap hours): absence
-  // draws as countable uniform ticks, ~1/12 the width of an attended hour.
+  // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
+  // renders at GAP_HOUR_PX per absent hour (~1/12 speed). Proportional
+  // everywhere — hour boundaries have no effect on width; ticks just
+  // interpolate through gaps like they do through blocks.
   const GAP_HOUR_PX = 44;
   const MIN_RUN = 2; // even a pair of lows fences
   const TITLE_AREA = 170; // space above the band for rotated run titles
@@ -322,32 +325,31 @@
   }
 
   function layout(items, expanded) {
-    // Left-pad from the floor hour at the normal time scale, so a session
-    // starting at 8:47 sits ~78% of the way from the "8am" tick (spec §6:
-    // hour labels stay clean whole hours; the pad does the honesty).
+    // Leading pad from the floor hour at GAP scale — absence is absence,
+    // including the absence before the first block (spec §6: hour labels
+    // stay clean whole hours; the pad does the honesty).
     const first = items[0] && (items[0].kind === "cluster" ? items[0].members[0] : items[0].event);
-    let cursor = first ? (msPastHour(first.startTime) / 1000) * PX_PER_SEC : 0;
+    let cursor = first ? (msPastHour(first.startTime) / HOUR) * GAP_HOUR_PX : 0;
     const segs = [];
     const plates = [];
     const bars = [];
     const gaps = [];
-    const HOUR = 3600 * 1000;
     let prevEnd = null; // wall-clock end of the previously laid element
-    // Gap hours (spec §6): every whole hour falling strictly between two
-    // drawn elements gets a uniform GAP_HOUR_PX slot, tick centered — a
-    // 4-hour absence reads as four countable ticks. Runs between EVERY
-    // consecutive pair (fence sticks included: a fence run spanning an
-    // absence gets a breathing hole; its plate spans the hole). A gap
-    // crossing no hour boundary allocates nothing, as before.
+    // Absence at gap scale (spec §6 two time scales): every gap between
+    // drawn elements — fence sticks included — gets width proportional to
+    // its true duration, ticks interpolated linearly inside. No hour-
+    // boundary special case; a 30s tab-hop allocates a fraction of a px.
     const allocGap = (nextStart) => {
       if (prevEnd === null) return;
+      const w = ((nextStart - prevEnd) / HOUR) * GAP_HOUR_PX;
       const marks = [];
       for (let t = prevEnd - msPastHour(prevEnd) + HOUR; t < nextStart; t += HOUR) {
-        marks.push({ t, x: cursor + (marks.length + 0.5) * GAP_HOUR_PX });
+        marks.push({ t, x: cursor + ((t - prevEnd) / HOUR) * GAP_HOUR_PX });
       }
-      if (!marks.length) return;
-      gaps.push({ x: cursor, w: marks.length * GAP_HOUR_PX, from: prevEnd, to: nextStart, marks });
-      cursor += marks.length * GAP_HOUR_PX;
+      if (w > 0 || marks.length) {
+        gaps.push({ x: cursor, w, from: prevEnd, to: nextStart, marks });
+        cursor += w;
+      }
     };
     const widthOf = (e) => Math.max(MIN_W, (e.durMs / 1000) * PX_PER_SEC);
     for (const item of items) {
@@ -407,14 +409,14 @@
   // multi-hour absence stacked its hours on one x) no longer exists.
   function hourMarks(segs, gaps) {
     if (!segs.length) return [];
-    const HOUR = 3600 * 1000;
     const first = segs[0];
     const gapX = new Map();
     for (const g of gaps) for (const m of g.marks) gapX.set(m.t, m.x);
-    // First tick: the floor hour, sitting at the left edge of the pad — a
-    // clean whole-hour label with the first block proportionally inset.
+    // First tick: the floor hour, sitting at the left edge of the pad (the
+    // pad is absence, so it's gap-scaled) — a clean whole-hour label with
+    // the first block proportionally inset.
     const floorT = first.e.startTime - msPastHour(first.e.startTime);
-    const marks = [{ t: floorT, x: first.x - (msPastHour(first.e.startTime) / 1000) * PX_PER_SEC }];
+    const marks = [{ t: floorT, x: first.x - (msPastHour(first.e.startTime) / HOUR) * GAP_HOUR_PX }];
     const lastEnd = segs[segs.length - 1].e.endTime;
     for (let t = floorT + HOUR; t <= lastEnd; t += HOUR) {
       if (gapX.has(t)) {
@@ -634,8 +636,10 @@
     // Invisible hover plate over each gap region: the exact away-span, same
     // tooltip-as-ground-truth convention as blocks. Not clickable — and
     // appended BEFORE fence plates so a hole inside a collapsed fence still
-    // expands on click (the fence plate wins the overlap).
+    // expands on click (the fence plate wins the overlap). Sliver gaps
+    // (<6px) skip the plate: untargetable, and they'd shadow neighbors.
     for (const g of gaps) {
+      if (g.w < 6) continue;
       const el = document.createElement("div");
       el.className = "gap transient";
       el.style.left = g.x + "px";
