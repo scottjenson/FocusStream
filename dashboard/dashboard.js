@@ -250,8 +250,10 @@ document.getElementById("scores").addEventListener("click", async () => {
 
 document.getElementById("clear").addEventListener("click", async () => {
   if (!confirm("Delete all recorded sessions?")) return;
-  await chrome.storage.local.remove("sessions");
-  log("cleared stored sessions");
+  // hostColorOrder goes too: Clear is a full experiment reset, and stale
+  // color claims would silently skew the next palette evaluation.
+  await chrome.storage.local.remove(["sessions", "hostColorOrder"]);
+  log("cleared stored sessions and color registry");
   render();
 });
 

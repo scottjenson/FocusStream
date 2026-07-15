@@ -89,16 +89,28 @@
       cursor: pointer;
       transition: left 0.3s, width 0.3s, top 0.3s, height 0.3s;
     }
-    .blk:hover { filter: brightness(1.4); }
+    /* Lit up, not recolored: a strong brightness filter made dark palette
+       entries impersonate their light neighbors (identity is sacred). */
+    .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
+    /* Collapse target: a 16px invisible hit zone; the 4px visual bar is
+       drawn by ::after, sitting BAR_GAP below the band. */
     .xbar {
       position: absolute;
+      height: 16px;
+      cursor: pointer;
+    }
+    .xbar::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0;
+      top: 4px;
       height: 4px;
       background: rgba(255,255,255,0.45);
       border-radius: 2px;
-      cursor: pointer;
     }
+    .xbar:hover::after { background: rgba(255,255,255,0.75); }
     .tick { position: absolute; width: 1px; background: #fff; }
     .hlabel {
       position: absolute;

@@ -105,8 +105,34 @@ structures, edge cases, and semantics.
   MED=150 near-miss for long reads — same knob, two sides; decide with more data.
 - **Blip filter (2026-07-15):** finalize discards sessions <2s with zero
   heartbeats/activity/audible — redirect hops and instant bounces are
-  transition machinery, not journey. Palette expanded to ~20 hues (collisions
-  only matter between temporally-near blocks; visiting is local).
+  transition machinery, not journey.
+- **Color registry (2026-07-15):** hash assignment replaced — the 20-hue
+  wheel produced near-collisions (adjacent greens/pinks on real data; more
+  hues ≠ more distinguishable hues). Now a persisted first-seen registry
+  (`hostColorOrder` in storage.local): a host's first-ever MEDIUM+ block
+  claims the next palette slot, permanent across days. Open-fence LOW-only
+  hosts get a transient hash fallback; Clear data resets the registry.
+- **Palette = Kelly's max-contrast sequence, cut to 16 (2026-07-15):** a
+  hand-built 6-families × 2-lightness palette failed in a day (light/dark
+  variants adjacent; hover-brightening faked identities). Kelly's ORDER is
+  the point — first N entries always maximally contrast, matching slot
+  claiming. Removed white/black/gray + 3 darkest (browns/olive → converge
+  on noise-gray). Buff on watch. Hover = glow + mild brighten, never a
+  strong brightness filter; run labels use the rim mix for legibility.
+  Wrap collisions start at colored-host #17 (watch with data). Open-fence
+  transient colors CONTINUE the Kelly sequence past the registry
+  (first-appearance order, per-render, never persisted) — visible colors
+  always form a Kelly prefix, mutually max-contrast by construction. Two
+  hash-based fallbacks failed in one day first (probe = funnel; free-slot
+  hash = sampled late entries, which sit close to early ones). Rule:
+  non-prefix subsets of Kelly void the contrast warranty, and hashing
+  structurally produces non-prefixes. MEDIUM+ gets hard guarantees; LOW
+  gets best-effort.
+- **Fence clicks (2026-07-15):** expanded members NAVIGATE like any block
+  (click-to-recollapse made fence contents un-clickable). Collapse = expand
+  bar (16px hit zone, 4px visual via ::after) or Escape. Click-away
+  rejected (navigate + collapse firing together is busy). Collapsing is
+  low-priority by design — day-paging will reset fences.
 - Decided 2026-07-15: only http/https/file URLs are captured — browser-internal
   pages (chrome://newtab etc.) are skipped at capture (content scripts can't run
   there → guaranteed zero-attention noise; browser-UI time renders as a gap).

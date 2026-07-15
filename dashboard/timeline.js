@@ -41,8 +41,7 @@
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
   // expand bars snug under the band, then a clear gap, then ticks + labels.
-  const BAR_GAP = 4; // band bottom → expand bar
-  const TICK_TOP = 16; // band bottom → tick/label lane
+  const TICK_TOP = 16; // band bottom → tick/label lane (expand-bar hit zone fills the gap)
   const TICK_H = 12;
   const AXIS_AREA = 46;
   const TITLE_CLEARANCE = 20; // min horizontal px between rotated title anchors
@@ -82,44 +81,93 @@
   // Color = identity, rationed by importance (spec §6): only hosts that
   // earned a MEDIUM+ block get an identity hue — LOW-only hosts render
   // neutral gray so the day's noise is quiet texture. Hue shows what height
-  // can't: revisit structure. A small curated palette beats raw HSL hashing
-  // at this cardinality (better contrast, no muddy accidents); hash-assigned
-  // so a host keeps its color across days. Self-legending via labels.
-  // ~20 hues around the wheel: collisions still possible, but visiting
-  // behavior is temporally local (a handful of sites at a time), so only
-  // NEARBY colored blocks need distinct hues — 20 slots keeps that rare.
+  // can't: revisit structure. Self-legending via labels.
+  //
+  // Assignment is a persisted FIRST-SEEN REGISTRY, not a hash: the first
+  // time a host ever earns MEDIUM+, it claims the next palette slot,
+  // round-robin, forever (chrome.storage.local "hostColorOrder"). Hashing
+  // clumped on real data (google/linkedin/bsky drew three adjacent greens —
+  // no exact collision needed for a clash); window-relative rotation would
+  // reshuffle identities as the window slides. First-seen order gives
+  // locality (first 16 colored hosts ever are mutually distinct) AND
+  // cross-day permanence. Wrap collisions start at colored-host #17 —
+  // oldest assignments, temporally distant in practice; revisit with data.
+  //
+  // Kelly's 22 colors of maximum contrast, in Kelly's ORDER (the sequence
+  // is the point: the first N entries are always maximally contrasting, a
+  // perfect match for slot claiming). White/black/gray removed, plus the
+  // three darkest (reddish/yellowish brown, dark olive) — low-saturation
+  // darks converge on the noise-gray and read as unimportant. 16 remain.
+  // Buff is on watch: grayish by design but light; cut to 15 if it muddies.
   const PALETTE = [
-    "#e05252", // red
-    "#e0704d", // burnt orange
-    "#f28c33", // orange
-    "#e3b341", // gold
-    "#c9cf3a", // yellow-green
-    "#8ed14b", // lime
-    "#43c463", // green
-    "#3dc98a", // spring green
-    "#2ec4b6", // teal
-    "#4fd0e0", // cyan
-    "#4db3f0", // sky
-    "#4f9cf0", // blue
-    "#6f83f2", // indigo
-    "#9d6ff2", // purple
-    "#b45ef0", // violet
-    "#d84fd0", // magenta
-    "#e353b0", // pink-magenta
-    "#f26d9a", // pink
-    "#eb5f78", // rose
-    "#c98a5e", // tan
+    "#F3C300", // vivid yellow
+    "#875692", // strong purple
+    "#F38400", // vivid orange
+    "#A1CAF1", // light blue
+    "#BE0032", // vivid red
+    "#C2B280", // buff
+    "#008856", // vivid green
+    "#E68FAC", // purplish pink
+    "#0067A5", // strong blue
+    "#F99379", // yellowish pink
+    "#604E97", // strong violet
+    "#F6A600", // orange yellow
+    "#B3446C", // purplish red
+    "#DCD300", // greenish yellow
+    "#8DB600", // yellow green
+    "#E25822", // reddish orange
   ];
   const GRAY_FILL = "#3e434c";
   const GRAY_RIM = "#5b616c";
 
-  function hashOf(host) {
-    let h = 0;
-    for (const ch of host) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return h;
+  // Claim order of every host that ever earned a color; index % 12 = slot.
+  // null until loaded from storage (render defers until then). The dashboard
+  // page is the only writer, so an in-memory copy + fire-and-forget set is
+  // race-free.
+  let hostOrder = null;
+
+  function claimColors(events) {
+    let changed = false;
+    for (const e of events) {
+      if (e.band !== "low" && !hostOrder.includes(e.host)) {
+        log(`color slot ${hostOrder.length % PALETTE.length} claimed by ${e.host}`);
+        hostOrder.push(e.host);
+        changed = true;
+      }
+    }
+    if (changed) chrome.storage.local.set({ hostColorOrder: hostOrder });
   }
-  const colorOf = (host) => PALETTE[hashOf(host) % PALETTE.length];
+
+  // Unregistered hosts (open-fence members of LOW-only hosts, spec §6
+  // fence-open relaxation) CONTINUE the Kelly sequence past the registry:
+  // first-appearance order, rebuilt every render, never persisted. So
+  // everything visible is a Kelly PREFIX — registered + transient are
+  // mutually max-contrast by construction. Hashing is gone: Kelly's
+  // guarantee is prefix-only, and hashed fallbacks sampled LATE entries,
+  // which sit intentionally close to early ones (orange-yellow drew next
+  // to a claimed orange) — three collision bugs in two days, all hashing.
+  let transientSlots = new Map();
+
+  function colorOf(host) {
+    const idx = hostOrder ? hostOrder.indexOf(host) : -1;
+    if (idx !== -1) return PALETTE[idx % PALETTE.length];
+    // Lazy claim: colorOf is only reached for hosts being drawn in color,
+    // and blocks draw chronologically, so first call = first appearance.
+    if (!transientSlots.has(host)) {
+      transientSlots.set(host, (hostOrder || []).length + transientSlots.size);
+    }
+    return PALETTE[transientSlots.get(host) % PALETTE.length];
+  }
   const rimOf = (color) => `color-mix(in srgb, ${color} 65%, white)`;
+
+  // Keep the in-memory registry in sync with storage — covers "Clear data"
+  // (dashboard.js removes the key) without a page reload. Our own writes
+  // land here too; reassigning identical content is harmless.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && "hostColorOrder" in changes) {
+      hostOrder = changes.hostColorOrder.newValue || [];
+    }
+  });
 
   function fmtDuration(ms) {
     const secs = Math.round(ms / 1000);
@@ -440,7 +488,18 @@
 
   function render(sessions) {
     lastSessions = sessions;
+    // First render races the registry load: defer until it's in memory,
+    // then re-enter (idempotent; extra calls just repaint).
+    if (!hostOrder) {
+      chrome.storage.local.get("hostColorOrder").then(({ hostColorOrder = [] }) => {
+        hostOrder = hostColorOrder;
+        render(lastSessions);
+      });
+      return;
+    }
     const events = mergeVisits(parseSessions(sessions));
+    claimColors(events);
+    transientSlots = new Map(); // transient colors never outlive a render
     const items = clusterEvents(events);
     const { segs, plates, bars, total } = layout(items, expanded);
 
@@ -480,12 +539,11 @@
       el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
       el.title = s.collapsed ? "" : tooltip(s.e);
       // Collapsed sticks are inert; their cluster's plate is the one target.
+      // Every visible block navigates — expanded fence members included
+      // (spec §6: click means "open this page" everywhere; collapse is the
+      // expand bar or Escape).
       el.style.pointerEvents = s.collapsed ? "none" : "auto";
-      el.onclick = s.collapsed
-        ? null
-        : s.clusterKey
-          ? () => toggle(s.clusterKey) // expanded member: click re-collapses
-          : () => chrome.tabs.create({ url: s.e.url });
+      el.onclick = s.collapsed ? null : () => chrome.tabs.create({ url: s.e.url });
     }
     for (const [key, el] of blockEls) {
       if (!seen.has(key)) {
@@ -514,7 +572,9 @@
       el.className = "xbar transient";
       el.style.left = b.x + "px";
       el.style.width = b.w + "px";
-      el.style.top = bandBottom + BAR_GAP + "px";
+      // Hit zone starts at the band edge and fills the lane down to the
+      // ticks; the 4px visual bar is the ::after in .xbar (index.html).
+      el.style.top = bandBottom + "px";
       el.title = "click to collapse";
       el.addEventListener("click", () => toggle(b.key));
       ribbon.appendChild(el);
@@ -545,7 +605,9 @@
       // fence slivers, invisible on wide runs.
       el.style.left = run.center + 9 + "px";
       el.style.top = TITLE_AREA - 8 + "px";
-      el.style.color = colorOf(run.host);
+      // Rim mix, not the raw fill: dark palette entries (vivid red, strong
+      // blue/violet) are illegible as text on the dark ribbon.
+      el.style.color = rimOf(colorOf(run.host));
       const name = siteNameOf(run.titles) || run.host;
       el.textContent =
         name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;
