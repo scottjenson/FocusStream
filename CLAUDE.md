@@ -57,8 +57,11 @@ alternatives, dated history) lives in `plans/` — see the index below.
   registry + Kelly-16 palette, fences incl. singletons, visit merging, containers,
   two time scales, day paging, custom tooltips, transit filter, importance-gated
   labels).
-- **Snapshot previews:** Part 1 (tooltip layer) done; Part 2 approved with all knobs
-  decided, NOT built — `plans/tooltip_snapshot_plan.md`.
+- **Snapshot previews live (2026-07-16):** capture on first heartbeat only (never on
+  flush-on-hidden — wrong-tab trap), 640px JPEG `data:` URLs under `snap:<id>` keys,
+  tooltip image with decode-then-position, two-layer cleanup (finalize prune + startup
+  orphan sweep via `getKeys()`, never `get(null)`). Spec §6 has the condensed rules;
+  as-built details in `plans/snapshot_implementation.md`.
 - **Deferred:** SPA-continuation merging (collect more SPA data first — spec §6),
   `parentId`/opener tracking, zoom, date-picker day jumping (‹/› paging is live).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
@@ -72,7 +75,10 @@ alternatives, dated history) lives in `plans/` — see the index below.
   filter, SPA-merge deferral.
 - `plans/capture_design.md` — capture-side decision log: session model, heartbeat
   hybrid counting, filters, audible, SPA debounce, injection hardening, retention.
-- `plans/tooltip_snapshot_plan.md` — custom tooltip (done) + snapshot previews
-  (approved, unbuilt).
+- `plans/tooltip_snapshot_plan.md` — custom tooltip + snapshot previews: the original
+  reasoning and decided knobs (both parts live as of 2026-07-16).
+- `plans/snapshot_implementation.md` — snapshot previews as built: the five file
+  changes, the review fixes (flush-on-hidden trap, `getKeys()`, decode-then-position,
+  chunked base64), and the two-layer cleanup.
 - `plans/code_review_2026-07-15.md` — prioritized code/doc review; P0s + P1s fixed
   2026-07-15, P2s deliberately skipped for the demo.

@@ -155,9 +155,28 @@ watch-list is consolidated in spec §6 ("Watch list").
   width = SPAN (the width-rule exception), children = foreign events inside,
   drawn on top, colored, tier capped at MEDIUM, no fences/labels inside,
   hover+click everywhere.
-- Guards for the big-email case: ≥1 foreign child required; individually-HIGH
-  events never chain; same-tab HIGH inside span rejects the chain. Registry
-  colors + coloredHosts judged PRE-containment.
+- Guards for the big-email case: ≥1 interruption required (see revision below);
+  individually-HIGH events never chain; same-tab HIGH inside span rejects the
+  chain. Registry colors + coloredHosts judged PRE-containment.
+- **(2026-07-16) Guard 1 revised: departure-boundaries count as interruptions.**
+  Evidence: a real 43-min Jitsi meeting — 14 same-tab fragments, every gap
+  < 5 min, summed score 2492 — chained perfectly and died on "≥1 foreign
+  child": every tab-away went to another app or the extension's own dashboard,
+  both invisible by design (finalize as `tab_hidden`, render as gaps, not
+  events). The old rationale ("else visit-merging applies") was false for
+  MEDIUM fragments — visit-merging refuses MEDIUM+ — so meetings fragmented
+  into MEDIUMs fell into a structural crack between the two mechanisms. And
+  the chain already *proves* the interruptions: 13 departures-and-returns,
+  returning being the intent signal. New rule: interruption = foreign child
+  OR a non-final fragment ending `tab_hidden`. `spa_navigation`/`navigated`
+  boundaries never count (attention stayed; the page turned over), so
+  continuous same-tab reading still can't self-containerize — verified with
+  a control replay (same 14 fragments, spa_navigation reasons → 0 containers;
+  the real reasons → 1 container). Merged visits now carry their last
+  member's `endReason` so merged-LOW fragments testify too. Zero-children
+  containers tooltip as "(interruptions outside the browser)". This also
+  resolved the watch-list "all-transit-interruptions gap" — the stronger
+  specimen (zero visible events at all) arrived first.
 - Display: 25% wash of host color + 2px full-strength border (border carries
   identity; color weight = saturation × area, and children then sit on
   near-dark ground so the Kelly dark-bg contract holds); hover lifts wash to

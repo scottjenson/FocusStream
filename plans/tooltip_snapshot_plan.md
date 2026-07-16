@@ -1,8 +1,10 @@
 # Tooltip Roadmap: Custom Tooltip Layer + Snapshot Previews
 
-Status: **approved 2026-07-15, all knobs decided (see below). Part 1 implemented 2026-07-15.**
-Part 1 is a prerequisite for Part 2. Spec §6 gets the condensed rules when each part
-is implemented; this doc carries the full reasoning.
+Status: **approved 2026-07-15, all knobs decided (see below). Part 1 implemented
+2026-07-15. Part 2 implemented 2026-07-16** — as-built details, plus the fixes
+found in review (flush-on-hidden capture trap, `getKeys()` cleanup, decode-then-
+position), live in `plans/snapshot_implementation.md`. Spec §6 carries the
+condensed rules; this doc carries the original reasoning.
 
 ## Why
 
@@ -92,7 +94,11 @@ implementation.
 
 ## Knobs (decided by Scott, 2026-07-15)
 
-1. **Capture cadence:** first heartbeat + refresh every ~60s, last wins. ✅
+1. **Capture cadence:** ~~first heartbeat + refresh every ~60s, last wins~~
+   **Superseded 2026-07-16: first heartbeat ONLY, no refresh** — most sessions
+   are open just a few minutes, so a refresh buys little and reopened the
+   "every N active windows vs every 60s wall-clock" ambiguity. Revisit if an
+   SPA specimen shows a badly stale early frame. ✅
 2. **Size:** fixed ~640px width. ✅
 3. **`unlimitedStorage` permission:** yes, with the prune policy. ✅
 4. **JPEG quality:** start 0.6, tune by eye against disk cost.

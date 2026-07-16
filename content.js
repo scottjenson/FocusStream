@@ -94,6 +94,10 @@
       signals: snapshot,
       // Recomputed each heartbeat: SPAs change page height (spec Edge Case 2).
       scrollable: document.documentElement.scrollHeight > window.innerHeight,
+      // "interval" | "flush-on-hidden" — the background must NOT snapshot on
+      // flush: it fires exactly while the next tab becomes visible, and
+      // captureVisibleTab would photograph the wrong page (spec §6 snapshots).
+      reason: why,
     };
     try {
       chrome.runtime.sendMessage(message).then(

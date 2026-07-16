@@ -22,6 +22,13 @@ const BLIP_MS = 2_000;
 // for future day-paging.
 const RETENTION_MS = 7 * 24 * 3600 * 1000;
 
+// Snapshot previews (spec §6): one screenshot per attended session, taken on
+// the first interval heartbeat, downscaled here in the worker, stored as a
+// data: URL under snap:<sessionId> (never inside SessionBlocks — those are
+// read in full on every render).
+const SNAP_WIDTH = 640; // fixed target width: predictable disk (~20-40KB), not screen-relative
+const SNAP_QUALITY = 0.6; // JPEG quality; tune by eye against disk cost
+
 log("service worker starting up");
 
 // All event handlers run through this queue so async storage reads/writes
@@ -115,7 +122,14 @@ async function finalizeCurrent(endReason) {
   const cutoff = Date.now() - RETENTION_MS;
   const kept = sessions.filter((s) => s.endTime >= cutoff);
   if (kept.length < sessions.length) {
-    log(`pruned ${sessions.length - kept.length} sessions older than 7 days`);
+    // Snapshots (and capture-error breadcrumbs) die with their sessions
+    // (spec §6): drop the matching keys in the same pass. Removing keys
+    // that never existed is a no-op.
+    const dropped = sessions.filter((s) => s.endTime < cutoff);
+    await chrome.storage.local.remove(
+      dropped.flatMap((s) => ["snap:" + s.id, "snapErr:" + s.id])
+    );
+    log(`pruned ${dropped.length} sessions older than 7 days (+ their snapshots)`);
   }
   kept.push(session);
   await chrome.storage.local.set({ sessions: kept });
@@ -134,6 +148,76 @@ async function ensureSession() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   log("ensureSession: adopting active tab", tab?.id, tab?.url);
   await startSession(tab);
+}
+
+// ---------------------------------------------------------------------------
+// Snapshots (spec §6 snapshot previews). Everything here is best-effort —
+// every failure path logs and returns, and the tooltip just shows text.
+// ---------------------------------------------------------------------------
+
+// Base64 in chunks: String.fromCharCode(...40KB of args) can blow the
+// argument-count limit — works in testing, dies on a taller screenshot.
+// (FileReader doesn't exist in workers, hence the manual encode.)
+async function blobToDataUrl(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return `data:${blob.type};base64,` + btoa(bin);
+}
+
+async function captureSnapshot(sessionId, windowId) {
+  try {
+    // captureVisibleTab photographs the currently visible tab — exactly the
+    // tracked tab, since only visible tabs send interval heartbeats (flush
+    // beats are excluded by the caller). Double JPEG encode (q90 → 0.6) is
+    // deliberate: generational loss is invisible at 640px, and a PNG
+    // intermediate of a large screen is a multi-MB string.
+    const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 90 });
+    const bmp = await createImageBitmap(await (await fetch(dataUrl)).blob());
+    const w = Math.min(SNAP_WIDTH, bmp.width);
+    const h = Math.round(bmp.height * (w / bmp.width));
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    bmp.close();
+    const small = await canvas.convertToBlob({ type: "image/jpeg", quality: SNAP_QUALITY });
+    const stored = await blobToDataUrl(small);
+    await chrome.storage.local.set({ ["snap:" + sessionId]: stored });
+    log(`snapshot stored snap:${sessionId} (${Math.round(stored.length / 1024)}KB)`);
+  } catch (e) {
+    // Minimized window, locked screen, DRM-black frames, file:// without the
+    // toggle — all soft-fail: the tooltip just lacks an image (spec §6).
+    // Breadcrumb to storage (2026-07-16): the worker console rarely survives
+    // long enough to be read (workers die ~30s idle), so missing-screenshot
+    // diagnosis needs the reason on disk. Same lifecycle as snap: keys.
+    log("snapshot skipped:", e.message);
+    chrome.storage.local.set({
+      ["snapErr:" + sessionId]: { when: Date.now(), message: e.message },
+    });
+  }
+}
+
+// Orphan sweep (spec §2 retention): finalize-time pruning only fires on tab
+// switches, so snapshots whose sessions aged out while the browser was closed
+// — or that lost their session any other way — would otherwise be immortal.
+// getKeys(), never get(null): listing names must not deserialize ~20MB of
+// stored images.
+async function sweepOrphanSnapshots() {
+  const keys = await chrome.storage.local.getKeys();
+  const snapKeys = keys.filter((k) => k.startsWith("snap:") || k.startsWith("snapErr:"));
+  if (!snapKeys.length) return;
+  const { sessions = [] } = await chrome.storage.local.get("sessions");
+  const liveIds = new Set(sessions.map((s) => s.id));
+  // The unfinalized session isn't in "sessions" yet but may already have a
+  // snapshot — it is not an orphan.
+  const current = await getCurrent();
+  if (current) liveIds.add(current.id);
+  const orphans = snapKeys.filter((k) => !liveIds.has(k.slice(k.indexOf(":") + 1)));
+  if (orphans.length) {
+    await chrome.storage.local.remove(orphans);
+    log(`swept ${orphans.length} orphaned snapshots`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -162,12 +246,16 @@ chrome.runtime.onInstalled.addListener(() => {
   enqueue("onInstalled", async () => {
     await injectIntoExistingTabs();
     await ensureSession();
+    await sweepOrphanSnapshots();
   });
 });
 
 chrome.runtime.onStartup.addListener(() => {
   log("onStartup");
-  enqueue("onStartup", ensureSession);
+  enqueue("onStartup", async () => {
+    await ensureSession();
+    await sweepOrphanSnapshots();
+  });
 });
 
 // Tab switch: finalize the old session, start one for the newly active tab.
@@ -301,6 +389,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // counts and add; continuous signals arrive as booleans and count the
     // window (+1). Unknown keys flow through, so new signals need no change.
     current.heartbeats = (current.heartbeats || 0) + 1;
+    // Snapshot on the FIRST heartbeat only (spec §6): ~10s in, page painted,
+    // user demonstrably attending — and never on flush-on-hidden, which fires
+    // exactly while the NEXT tab becomes visible (captureVisibleTab would
+    // photograph the wrong page). Fire-and-forget: a failed or slow capture
+    // must never delay a heartbeat.
+    if (current.heartbeats === 1 && msg.reason !== "flush-on-hidden") {
+      captureSnapshot(current.id, sender.tab.windowId);
+    }
     const signals = msg.signals || {};
     for (const [key, value] of Object.entries(signals)) {
       const inc = typeof value === "number" ? value : value ? 1 : 0;

@@ -215,7 +215,10 @@
       head.length > 120 ? head.slice(0, 120) + "…" : head,
       `${e.host} · ${fmtClock(e.startTime)} – ${fmtClock(e.endTime)} · ${fmtDuration(e.durMs)} · attended ${attendedSeconds(e)}s`,
       e.children
-        ? `container: ${e.members.length} visits + ${e.children.length} excursions inside`
+        ? `container: ${e.members.length} visits` +
+          (e.children.length
+            ? ` + ${e.children.length} excursions inside`
+            : " (interruptions outside the browser)")
         : e.members
           ? `${e.members.length} pages merged`
           : "",
@@ -306,11 +309,18 @@
         const merged = {
           id: "v" + run[0].id,
           url: top.url, // click target: the visit's top-scoring page
+          // Snapshot candidates in score order (spec §6): the tooltip shows
+          // the best member that HAS a picture — sub-10s stubs can win the
+          // top score (flush-inflated attended) yet are never photographed.
+          snapIds: [...run].sort((a, b) => b.score - a.score).map((m) => m.id),
           title: top.title,
           host: run[0].host,
           // Containers chain by tabId; a merged visit keeps it only if
           // unambiguous across members.
           tabId: run.every((m) => m.tabId === run[0].tabId) ? run[0].tabId : undefined,
+          // The LAST member's exit is the visit's exit — container guard 1
+          // reads it to recognize departure-boundaries (spec §6).
+          endReason: run[run.length - 1].endReason,
           startTime: run[0].startTime,
           endTime: run[run.length - 1].endTime,
           durMs, // sum of member durations (attention-honest width)
@@ -403,7 +413,18 @@
       const children = events.filter(
         (e) => !fragSet.has(e) && e.startTime >= from && e.endTime <= to
       );
-      if (!children.length) continue; // no foreign interruptions
+      // Guard 1 (spec §6, revised 2026-07-16): interruptions are required,
+      // but a departure-boundary counts — a non-final fragment that ended
+      // tab_hidden means the user left and RETURNED, even when the
+      // destination is invisible by design (another app, a browser-internal
+      // page — both finalize as tab_hidden and render as gaps, not events).
+      // spa_navigation/navigated boundaries never count: attention stayed,
+      // the page turned over — continuous same-tab reading can't
+      // self-containerize.
+      const departures = c.frags.filter(
+        (f, i) => i < c.frags.length - 1 && f.endReason === "tab_hidden"
+      ).length;
+      if (!children.length && !departures) continue; // no interruptions at all
       if (children.some((e) => e.tabId === c.frags[0].tabId && e.band === "high")) continue;
       const activity = {};
       let heartbeats = 0;
@@ -419,6 +440,12 @@
       containers.push({
         id: "k" + c.frags[0].id,
         url: top.url, // click target: the anchor's top-scoring fragment
+        // Snapshot candidates in score order (spec §6). A fragment can
+        // itself be a merged visit whose synthetic "v…" id has no snapshot —
+        // flatten through ITS snapIds to the underlying raw sessions.
+        snapIds: [...c.frags]
+          .sort((a, b) => b.score - a.score)
+          .flatMap((f) => f.snapIds || [f.id]),
         title: top.title,
         host: c.frags[0].host,
         tabId: c.frags[0].tabId,
@@ -755,12 +782,28 @@
   const tip = document.createElement("div");
   tip.id = "tip";
   tip.hidden = true;
+  // Snapshot slot above the text lines (spec §6 snapshot previews). Fixed
+  // children — only their content changes, so page-controlled strings still
+  // land via textContent only.
+  const tipImg = document.createElement("img");
+  tipImg.id = "tip-img";
+  tipImg.alt = "";
+  tipImg.hidden = true;
+  const tipText = document.createElement("div");
+  tipText.id = "tip-text";
+  tip.appendChild(tipImg);
+  tip.appendChild(tipText);
   document.body.appendChild(tip);
   let tipTimer = null;
+  // Bumped on every hide: async continuations below (storage fetch, image
+  // decode) compare against it, so a stale hover can never resurrect a
+  // dismissed tooltip or paint into a newer one.
+  let tipSeq = 0;
 
   function hideTip() {
     clearTimeout(tipTimer);
     tipTimer = null;
+    tipSeq++;
     tip.hidden = true;
   }
 
@@ -772,8 +815,30 @@
       if (!el) return;
       const px = ev.clientX;
       const py = ev.clientY;
-      tipTimer = setTimeout(() => {
-        tip.textContent = el.dataset.tip;
+      const seq = tipSeq;
+      tipTimer = setTimeout(async () => {
+        tipText.textContent = el.dataset.tip;
+        tipImg.hidden = true;
+        tipImg.removeAttribute("src"); // never flash the previous page's snapshot
+        // Lazy snapshot fetch, decoded BEFORE showing (spec §6): the tooltip
+        // is measured and viewport-clamped exactly once, at its final size —
+        // an image popping in later would grow it past the clamp. One get()
+        // for every candidate; the best-scoring member that HAS a picture
+        // wins (top members can be unphotographed pre-navigation stubs).
+        const ids = (el.dataset.snapIds || "").split(",").filter(Boolean);
+        if (ids.length) {
+          const keys = ids.map((id) => "snap:" + id);
+          const r = await chrome.storage.local.get(keys).catch(() => ({}));
+          const stored = keys.map((k) => r[k]).find(Boolean);
+          if (stored && seq === tipSeq) {
+            tipImg.src = stored;
+            try {
+              await tipImg.decode();
+              tipImg.hidden = false;
+            } catch {} // undecodable stored data: text-only
+          }
+        }
+        if (seq !== tipSeq) return; // hover ended during the awaits
         tip.hidden = false;
         // Measure after content is set; clamp to the viewport (flip above
         // the cursor rather than run off the bottom).
@@ -865,8 +930,19 @@
         el.style.background = fill;
         el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
       }
-      if (s.collapsed) delete el.dataset.tip;
-      else el.dataset.tip = tooltip(s.e);
+      if (s.collapsed) {
+        // Collapsed sticks carry neither text nor snapshot (spec §6: the
+        // expand toggle doubles as the snapshot gate).
+        delete el.dataset.tip;
+        delete el.dataset.snapIds;
+      } else {
+        el.dataset.tip = tooltip(s.e);
+        // Snapshot candidates, best first: merges/containers carry snapIds
+        // (members in score order); raw blocks, contained children, and
+        // expanded fence members are their own only candidate. Ids are
+        // UUIDs — comma-join is unambiguous.
+        el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
+      }
       // Collapsed sticks are inert; their cluster's plate is the one target.
       // Every visible block navigates — expanded fence members included
       // (spec §6: click means "open this page" everywhere; collapse is the
