@@ -68,8 +68,21 @@ watch-list is consolidated in spec §6 ("Watch list").
   produces non-prefixes.** MEDIUM+ gets hard guarantees; LOW gets best-effort.
 
 ## Fences
-- Runs of ≥2 consecutive LOW collapse to 3px sticks; MEDIUM+ never fences
-  (§5 side-quest rule — nothing important is structurally hideable).
+- EVERY run of consecutive LOW collapses to 3px sticks — including singletons
+  (2026-07-16, was ≥2); MEDIUM+ never fences (§5 side-quest rule — nothing
+  important is structurally hideable).
+- **Singleton fences (2026-07-16):** the original MIN_RUN=2 rationale ("a
+  singleton low is visible without a click") proved to be the noise itself —
+  a real day showed isolated LOWs at full height and identity color (worst
+  specimen: a score-0, attended-0s 2-min calendar glance drawn as a full blue
+  block beside the meeting container; it was a singleton because a >5-min gap
+  split on one side and the container flushed the run on the other). Guideline
+  adopted (Scott): **opinionated demoting with user exploration** — demoting
+  too much occasionally is fine as long as the event stays findable (stick
+  keeps hover plate + click-to-expand). Replay of the real day: 7 → 17 fences,
+  10 formerly-full LOW blocks now lone sticks. Singleton plates tooltip the
+  host, not "1 rapid events". Revert = MIN_RUN back to 2. Watch: whether lone
+  sticks feel too quiet.
 - **Fence clicks (2026-07-15):** expanded members NAVIGATE like any block
   (click-to-recollapse made fence contents un-clickable). Collapse = expand bar
   (16px hit zone, 4px visual via ::after) or Escape. Click-away rejected
@@ -83,6 +96,35 @@ watch-list is consolidated in spec §6 ("Watch list").
 - **Hour axis:** whole-hour labels only; ribbon left-pads from the floor hour
   at gap scale so an 8:47 start sits proportionally after the 8am tick.
   Tooltips carry the exact wall-clock span.
+- **PX_PER_SEC recalibrated 0.15 → 0.075 (2026-07-16):** 540px/hr was never
+  chosen — it was whatever made the first render legible, and that render was
+  a light day (~91 min presence). Scott's thesis, confirmed by projection: the
+  lightness was elevating small events, and a normal 3–4-meeting day
+  (~4–6h presence) hits 2,500–3,500px. Guideline: **size the scale to a
+  normal day so a light day reads light.** Key architectural point: "width =
+  time" is a proportionality thesis, not a scale — everything (ticks, gap
+  plates, container children) is linear in this one constant. Rejected:
+  per-day fit-to-viewport (inflates light days by design — the exact
+  complaint — and widths stop meaning the same thing across days, plus live
+  re-compression as the day accrues); nonlinear width (log/sqrt breaks tick
+  interpolation and width comparability). MIN_W=8 absorbs the small end
+  (<~107s renders at the floor). GAP_HOUR_PX held at 44 — one knob at a
+  time; presence:absence is now 6:1, watch gap loudness (revert: 44 → 22).
+
+## Day paging
+- (2026-07-16) The ribbon is bounded to ONE local calendar day, replacing the
+  rolling 24h window — required the moment a second day of data existed
+  (a rolling window splices yesterday evening onto this morning). ‹ Today ›
+  control in the header; bounds = [oldest stored session's day, today]
+  (paging reach = the 7-day retention window, by construction). A session
+  belongs to the day it ENDS in (midnight-straddlers are rare and short —
+  tab switches finalize). The axis still spans first→last activity of the
+  viewed day, never a forced midnight-to-midnight canvas. Paging resets open
+  fences — anticipated by the fence design ("day-paging naturally resets
+  fences"). Viewing today live-updates; a past day stays put across
+  re-renders. Deferred: date-picker jumping; skipping empty days (day-by-day
+  stepping shows "No sessions on this day" — honest, and empty days within
+  a 7-day window are rare).
 - **Two time scales (2026-07-15):** presence at PX_PER_SEC (~540px/hr), absence
   at GAP_HOUR_PX (44px) per absent hour (~1/12) — every gap gets width
   proportional to true duration, ticks interpolate through gaps like through
@@ -168,5 +210,6 @@ watch-list is consolidated in spec §6 ("Watch list").
   NOT built. Full roadmap: `plans/tooltip_snapshot_plan.md`.
 
 ## Scope holds
-- No zoom, single backward 24h window; paging between days later.
+- No zoom; day paging shipped 2026-07-16 (see "Day paging"), date-picker
+  jumping still deferred.
 - `parentId` / opener-tab tracking deferred; no tree/branching view.

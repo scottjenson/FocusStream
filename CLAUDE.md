@@ -54,12 +54,13 @@ alternatives, dated history) lives in `plans/` — see the index below.
 ## Status (2026-07-15)
 - **Phases 1–3b live:** capture loop + edge cases (SPA debounce + noise filter, media,
   audible, downloads, blip filter, auto-inject) and the horizontal timeline (color
-  registry + Kelly-16 palette, fences, visit merging, containers, two time scales,
-  custom tooltips, transit filter, importance-gated labels).
+  registry + Kelly-16 palette, fences incl. singletons, visit merging, containers,
+  two time scales, day paging, custom tooltips, transit filter, importance-gated
+  labels).
 - **Snapshot previews:** Part 1 (tooltip layer) done; Part 2 approved with all knobs
   decided, NOT built — `plans/tooltip_snapshot_plan.md`.
 - **Deferred:** SPA-continuation merging (collect more SPA data first — spec §6),
-  `parentId`/opener tracking, zoom, day paging.
+  `parentId`/opener tracking, zoom, date-picker day jumping (‹/› paging is live).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
   "watch with data" item.
 - Old-schema data (pre-`heartbeats`) scores attended-time 0 — clear stored data when

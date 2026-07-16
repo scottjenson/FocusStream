@@ -30,7 +30,6 @@
   const MED_SCORE = 150;
 
   const HOUR = 3600 * 1000;
-  const HOURS_BACK = 24; // single backward look; paging between days is later
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
   const VISIT_GAP_MS = 5 * 60 * 1000;
@@ -40,8 +39,10 @@
   const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
-  // generously; the debug list below is secondary. 1 hour ≈ 540px.
-  const PX_PER_SEC = 0.15;
+  // for a NORMAL day (spec §6, recalibrated 2026-07-16): 1 hour ≈ 270px
+  // fits a 4-meeting day in ~1600px, and a light day reads light instead
+  // of inflating its small events to fill the screen.
+  const PX_PER_SEC = 0.075;
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
@@ -49,11 +50,12 @@
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
   // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
-  // renders at GAP_HOUR_PX per absent hour (~1/12 speed). Proportional
-  // everywhere — hour boundaries have no effect on width; ticks just
-  // interpolate through gaps like they do through blocks.
+  // renders at GAP_HOUR_PX per absent hour (~1/6 speed since the 2026-07-16
+  // recalibration; held at 44 — one knob at a time, watch gap loudness).
+  // Proportional everywhere — hour boundaries have no effect on width;
+  // ticks just interpolate through gaps like they do through blocks.
   const GAP_HOUR_PX = 44;
-  const MIN_RUN = 2; // even a pair of lows fences
+  const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
   // expand bars snug under the band, then a clear gap, then ticks + labels.
@@ -237,12 +239,30 @@
     return !(a.keyboard || a.cut || a.copy || a.paste || a.download);
   }
 
+  // Day window (spec §6, 2026-07-16): the ribbon shows ONE local calendar
+  // day. A session belongs to the day it ENDS in — midnight-straddlers are
+  // rare and short, since tab switches finalize. setHours (not epoch math)
+  // keeps midnights honest across DST.
+  function dayStartOf(t) {
+    const d = new Date(t);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  function nextDayStart(t) {
+    const d = new Date(t);
+    d.setHours(24, 0, 0, 0);
+    return d.getTime();
+  }
+  let viewDayStart = dayStartOf(Date.now());
+
   function parseSessions(sessions) {
-    const cutoff = Date.now() - HOURS_BACK * 3600 * 1000;
-    const transits = sessions.filter((s) => s.endTime >= cutoff && s.url && isTransit(s));
+    const from = viewDayStart;
+    const to = nextDayStart(viewDayStart);
+    const inDay = sessions.filter((s) => s.endTime >= from && s.endTime < to && s.url);
+    const transits = inDay.filter(isTransit);
     if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
-    return sessions
-      .filter((s) => s.endTime >= cutoff && s.url && !isTransit(s))
+    return inDay
+      .filter((s) => !isTransit(s))
       .map((s) => {
         const score = scoreSession(s);
         return {
@@ -429,8 +449,9 @@
   }
 
   // Runs of MIN_RUN+ consecutive LOW events fence; everything else lays out
-  // as a plain block. A fragment shorter than MIN_RUN falls back to ordinary
-  // blocks — a singleton low is visible without a click.
+  // as a plain block. MIN_RUN=1: even a singleton LOW collapses to a stick
+  // (spec §6, 2026-07-16 — opinionated demoting; hover + expand keep it
+  // findable). The run machinery is kept as-is so the revert is one constant.
   function clusterEvents(events) {
     const items = [];
     let run = [];
@@ -692,6 +713,39 @@
     }
   });
 
+  // --- Day paging (spec §6, 2026-07-16): ‹/› in the header page the viewed
+  // day within [oldest stored session's day, today]. Paging resets fences
+  // (expansion is a per-look act, not per-day state).
+  const oldestDayStart = () =>
+    lastSessions.length
+      ? dayStartOf(Math.min(...lastSessions.map((s) => s.startTime)))
+      : dayStartOf(Date.now());
+
+  function pageDay(dir) {
+    const target = dir < 0 ? dayStartOf(viewDayStart - 1) : nextDayStart(viewDayStart);
+    if (target < oldestDayStart() || target > dayStartOf(Date.now())) return;
+    viewDayStart = target;
+    expanded.clear();
+    log(`paged to ${new Date(target).toDateString()}`);
+    render(lastSessions);
+  }
+  document.getElementById("day-prev").addEventListener("click", () => pageDay(-1));
+  document.getElementById("day-next").addEventListener("click", () => pageDay(1));
+
+  function updateDayNav() {
+    const today = dayStartOf(Date.now());
+    document.getElementById("day-label").textContent =
+      viewDayStart === today
+        ? "Today"
+        : new Date(viewDayStart).toLocaleDateString([], {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+          });
+    document.getElementById("day-prev").disabled = viewDayStart <= oldestDayStart();
+    document.getElementById("day-next").disabled = viewDayStart >= today;
+  }
+
   // --- Custom tooltip (spec §6, plans/tooltip_snapshot_plan.md Part 1).
   // Native title tooltips have uncontrollable warm-up timing (~1s cold,
   // near-instant warm, any click resets it) — so ribbon elements carry
@@ -747,6 +801,7 @@
       });
       return;
     }
+    updateDayNav();
     // Claim registry colors BEFORE containment: a host whose MEDIUM block
     // ends up contained still earned its permanent identity slot.
     const merged = mergeVisits(parseSessions(sessions));
@@ -852,7 +907,11 @@
       el.style.top = TITLE_AREA + "px";
       el.style.height = BAND_H + "px";
       const active = p.members.reduce((t, m) => t + m.durMs, 0);
-      el.dataset.tip = `${p.members.length} rapid events · ${fmtDuration(active)} — click to expand`;
+      // A singleton stick isn't a burst of "rapid events" — name the page.
+      el.dataset.tip =
+        p.members.length === 1
+          ? `${p.members[0].host} · ${fmtDuration(active)} — click to expand`
+          : `${p.members.length} rapid events · ${fmtDuration(active)} — click to expand`;
       el.addEventListener("click", () => toggle(p.key));
       ribbon.appendChild(el);
     }
