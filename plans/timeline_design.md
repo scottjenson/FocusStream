@@ -15,6 +15,19 @@ watch-list is consolidated in spec §6 ("Watch list").
   features did NOT port).
 - Sub-issue (2026-07-15): band is duration-biased — 30s of intense typing scores
   LOW; density rescue (keystrokes/sec) is a future scoring knob.
+- **W_SCROLL=5, gated on scrollable (2026-07-15) — "the read":** §5's missing
+  fourth taxonomy member (quickly-consumed article the user wants findable
+  later; specimen: Time article, scroll 11/11 windows, score 110 LOW). First
+  weight tuned with the data-first method: scroll/click/mouse/scrollable
+  columns added to the Score table, a full real day (119 sessions) pasted and
+  re-scored offline — W=5 flipped exactly one block (the article, 110→165);
+  W=3 rescued nothing; W=10 added nothing. The scrollable gate proved
+  load-bearing: app-style SPAs scroll inner containers (documentElement never
+  grows) so LinkedIn/Phanpy feeds, Gemini churn, and all Maps wheel-zoom read
+  scrollable=false and stayed LOW — the exact feared false positives, excluded
+  by architecture. Merged visits + containers inherit scrollable as OR of
+  members. Watch: bsky.app scrolls the document, so long grazes there earn
+  the premium.
 - MEDIUM=150 may be too permissive on real data — thresholds deliberately held
   until label gating is evaluated (one knob at a time).
 
@@ -110,6 +123,27 @@ watch-list is consolidated in spec §6 ("Watch list").
 - §5 note: technically gap-tolerant merging, which §5 forbids — but §5 forbids
   it for *hiding* interruptions; containers keep every interruption visible,
   framed.
+
+## Resumed-read containers — PROPOSED/DEFERRED (2026-07-16)
+- The out-and-back read (article-M → detour → same-article-M) as a second
+  container trigger. Key insight (Scott): containers map the **journey's
+  shape**, tier maps importance — orthogonal axes, so sub-HIGH containers are
+  legitimate. Rule on file in spec §6: same tabId + same URL anchor (a
+  document, not a site — tabId alone over-collapses news-portal daisy-chains),
+  ≥2 MEDIUM+ fragments, <5-min gaps, ≥1 foreign child, **anchor dominance**
+  (anchor sum > children sum — when detours outweigh the anchor, the anchor is
+  a launcher and the children are the story). Tier = bandFor(sum), floor
+  MEDIUM. Dominance deliberately NOT retrofitted onto the HIGH/meeting path.
+- Method note: first rule designed AND validated entirely offline — chain
+  columns (tabId/start/reason/url) added to the Score table, a real day
+  replayed. Zero fires, zero misfires; one genuine launcher specimen
+  (email → keltas purchase flow → email) dominance-rejected 162-vs-21.
+- Deferred for lack of a positive specimen (SPA-merge precedent). Also on
+  record: a false alarm during this analysis — the replay script tested the
+  candidate rule and its failure was wrongly extrapolated to the live rule;
+  running the REAL pipeline showed the audio-bookend bridge containerizing
+  the 2026-07-15 meeting correctly (5 visits + 6 excursions). Lesson: replay
+  the actual pipeline, not a reimplementation, before claiming a defect.
 
 ## Transit filter (display side of capture filtering)
 - (2026-07-15) Display-time, deliberately NOT capture — auditable via the Score

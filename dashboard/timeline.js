@@ -20,6 +20,12 @@
   const W_PASTE = 80;
   const W_DOWNLOAD = 200;
   const KBD_CAP = 200; // 1 point per keystroke, capped: composition ≈ copy-tier
+  // "The read" premium (spec §6, 2026-07-15): per active scroll window, ONLY
+  // on scrollable pages — app-style SPAs (feeds, Maps, Gemini) scroll inner
+  // containers and read scrollable=false, so the gate excludes exactly the
+  // grazing/churn false positives. Tuned offline against a real day: W=5
+  // promoted one block (a read article); W=3 rescued nothing.
+  const W_SCROLL = 5;
   const HIGH_SCORE = 1000;
   const MED_SCORE = 150;
 
@@ -71,7 +77,8 @@
       W_CUT * (a.cut || 0) +
       W_PASTE * (a.paste || 0) +
       W_DOWNLOAD * (a.download || 0) +
-      Math.min(a.keyboard || 0, KBD_CAP)
+      Math.min(a.keyboard || 0, KBD_CAP) +
+      (s.scrollable ? W_SCROLL * (a.scroll || 0) : 0)
     );
   }
 
@@ -290,6 +297,9 @@
           heartbeats,
           audibleMs,
           activity,
+          // OR of members: the merged score must keep the scroll premium a
+          // member earned (the gate would otherwise silently drop it).
+          scrollable: run.some((m) => m.scrollable),
           members: run,
         };
         merged.score = scoreSession(merged);
@@ -398,6 +408,7 @@
         heartbeats,
         audibleMs,
         activity,
+        scrollable: c.frags.some((f) => f.scrollable),
         score: c.score, // summed fragment scores: add up, then judge
         band: "high",
         members: c.frags,

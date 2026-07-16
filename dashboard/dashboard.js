@@ -230,8 +230,23 @@ document.getElementById("scores").addEventListener("click", async () => {
         cut: a.cut || 0,
         paste: a.paste || 0,
         dl: a.download || 0,
+        // Continuous signals + scrollable (added 2026-07-15): needed to
+        // evaluate scroll-weight candidates offline — scroll counts active
+        // windows, and a scroll term would be gated on scrollable=y.
+        click: a.click || 0,
+        mouse: a.mouse || 0,
+        scroll: a.scroll || 0,
+        scr: s.scrollable === undefined ? "?" : s.scrollable ? "y" : "n",
         score: Math.round(score),
         band: S.bandFor(score),
+        // Chain-analysis columns (added 2026-07-15): same-URL return
+        // containers are detected via tabId + URL + timing + endReason, so
+        // candidate rules need them replayable offline. start is epoch ms —
+        // exact gaps matter more than readability here.
+        tabId: s.tabId,
+        start: s.startTime,
+        reason: s.endReason,
+        url: (s.url || "").slice(0, 80),
       };
     })
     .sort((x, y) => y.score - x.score);
@@ -241,7 +256,7 @@ document.getElementById("scores").addEventListener("click", async () => {
   );
   console.log("[FS dash] bands:", bands.join(" / "), `of ${rows.length}`);
 
-  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "score", "band"];
+  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "click", "mouse", "scroll", "scr", "score", "band", "tabId", "start", "reason", "url"];
   const tsv = [header.join("\t"), ...rows.map((r) => header.map((h) => r[h]).join("\t"))].join("\n");
   const btn = document.getElementById("scores");
   try {
