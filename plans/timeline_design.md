@@ -110,6 +110,39 @@ watch-list is consolidated in spec §6 ("Watch list").
   interpolation and width comparability). MIN_W=8 absorbs the small end
   (<~107s renders at the floor). GAP_HOUR_PX held at 44 — one knob at a
   time; presence:absence is now 6:1, watch gap loudness (revert: 44 → 22).
+- **Both scales halved: PX_PER_SEC 0.075 → 0.0375, GAP_HOUR_PX 44 → 22
+  (2026-07-17):** first full REAL day showed 270px/hr still oversized for a
+  one-glance day overview — a 21m35s Gemini block rendered ~97px and read
+  much too wide (Scott). Halving both together is a pure 2× zoom-out of the
+  layout validated the day before: presence:absence stays 6:1, so the
+  gap-loudness watch carries over instead of resetting (the pre-agreed
+  44 → 22 knob spent as a ratio-preserver, not a revert). Analysis surfaced
+  in discussion: the busy-section dilation Scott flagged is mostly FIXED
+  overhead — MIN_W 8 + GAP 2 per floored block, STICK_W 3 + STICK_GAP 1 per
+  fence stick — which px/hour cannot shrink, so busy sections compress
+  sublinearly and overhead's share of ribbon width grows; if dense stretches
+  still read wide, the next knob is overhead, not scale. Floor threshold
+  doubles to ~213s (3m33s). Rejected: single-knob 0.05 (absence at 4:1 —
+  louder gaps for less zoom-out); shrinking MIN_W/STICK_W in the same change
+  (6px blocks hurt hoverability; one step at a time).
+- **Crowded hour labels drop the meridiem (2026-07-17):** direct fallout of
+  the halving — a 22px gap slot can't hold "12pm" (~28px at 12px font), so
+  every multi-hour absence shingled its labels. Noon flips in crowded runs
+  are implied by context (Scott). Backstop: greedy left-to-right label
+  thinning — a label overlapping the last survivor (+LABEL_CLEARANCE) is
+  dropped, never nudged (block-title philosophy on the axis). Ticks are
+  never thinned (countable hours are tick-borne). Rejected: tick-only gaps
+  (long absences go mute, Scott's first idea, superseded by his bare-number
+  refinement); bare numbers axis-wide with 12am/12pm anchors (axis-wide
+  format change for a gap-local problem).
+  **Revised same day — room-keyed, not gap-keyed:** the first cut labeled
+  bare whenever the hour landed in a gap slot; real data immediately showed
+  the flaw (four instances): a 10-min tab-away puts an hour in a "gap" that
+  has a full presence-hour of empty axis around it — region type isn't room.
+  Now every mark tries the full form and drops to bare only when its
+  MEASURED width + LABEL_CLEARANCE would cross the next mark's label
+  position (last mark always full). No gap tag, no new constants; geometry
+  recomputed per render, so future scale turns need no axis changes.
 
 ## Day paging
 - (2026-07-16) The ribbon is bounded to ONE local calendar day, replacing the

@@ -39,10 +39,10 @@
   const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
-  // for a NORMAL day (spec §6, recalibrated 2026-07-16): 1 hour ≈ 270px
-  // fits a 4-meeting day in ~1600px, and a light day reads light instead
-  // of inflating its small events to fill the screen.
-  const PX_PER_SEC = 0.075;
+  // for a NORMAL day (spec §6, halved again 2026-07-17 on real data):
+  // 1 hour ≈ 135px, so a full day reads as a one-glance overview and a
+  // light day reads light instead of inflating its small events.
+  const PX_PER_SEC = 0.0375;
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
@@ -50,11 +50,11 @@
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
   // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
-  // renders at GAP_HOUR_PX per absent hour (~1/6 speed since the 2026-07-16
-  // recalibration; held at 44 — one knob at a time, watch gap loudness).
+  // renders at GAP_HOUR_PX per absent hour (~1/6 speed — halved together
+  // with PX_PER_SEC 2026-07-17 to preserve the ratio; watch gap loudness).
   // Proportional everywhere — hour boundaries have no effect on width;
   // ticks just interpolate through gaps like they do through blocks.
-  const GAP_HOUR_PX = 44;
+  const GAP_HOUR_PX = 22;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
@@ -63,6 +63,7 @@
   const TICK_H = 12;
   const AXIS_AREA = 46;
   const TITLE_CLEARANCE = 20; // min horizontal px between rotated title anchors
+  const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
   const TITLE_MAX_CHARS = 20;
 
   // Measured attention: active windows OR audible playback (max, not sum —
@@ -194,9 +195,13 @@
     return Math.floor(secs / 60) + "m" + String(secs % 60).padStart(2, "0") + "s";
   }
 
-  function fmtHour(t) {
+  function hourNum(t) {
     const h = new Date(t).getHours();
-    return `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? "am" : "pm"}`;
+    return h % 12 === 0 ? 12 : h % 12;
+  }
+
+  function fmtHour(t) {
+    return `${hourNum(t)}${new Date(t).getHours() < 12 ? "am" : "pm"}`;
   }
 
   function fmtClock(t) {
@@ -839,6 +844,11 @@
           }
         }
         if (seq !== tipSeq) return; // hover ended during the awaits
+        // Measure at the origin: a fixed-position box shrink-to-fits against
+        // the viewport edge, so measuring at the previous hover's leftover
+        // `left` squeezes the tooltip (and its snapshot) near the right edge.
+        tip.style.left = "0px";
+        tip.style.top = "0px";
         tip.hidden = false;
         // Measure after content is set; clamp to the viewport (flip above
         // the cursor rather than run off the bottom).
@@ -1006,7 +1016,10 @@
       ribbon.appendChild(el);
     }
 
-    for (const m of hourMarks(segs, gaps)) {
+    const marks = hourMarks(segs, gaps);
+    let lastLabelRight = -Infinity;
+    for (let i = 0; i < marks.length; i++) {
+      const m = marks[i];
       const tick = document.createElement("div");
       tick.className = "tick transient";
       // Snap: a 1px line on a fractional x anti-aliases into a 2px smear.
@@ -1018,8 +1031,21 @@
       label.className = "hlabel transient";
       label.style.left = m.x + 5 + "px";
       label.style.top = bandBottom + TICK_TOP + "px";
+      // Room-keyed format (spec §6): try the full "9am" form; drop to the
+      // bare number only when its MEASURED width would crowd the next
+      // mark's label. Room is geometry, not gap membership — an hour in a
+      // 10-min gap with no neighbor for a presence-hour keeps its meridiem.
       label.textContent = fmtHour(m.t);
       ribbon.appendChild(label);
+      const next = marks[i + 1];
+      if (next && m.x + label.getBoundingClientRect().width + LABEL_CLEARANCE > next.x) {
+        label.textContent = String(hourNum(m.t));
+      }
+      // Thinning backstop (spec §6): a label overlapping the last survivor
+      // drops, never nudges. Ticks are never thinned — the countable-hours
+      // property is tick-borne.
+      if (m.x + 5 < lastLabelRight + LABEL_CLEARANCE) label.remove();
+      else lastLabelRight = m.x + 5 + label.getBoundingClientRect().width;
     }
 
     // Contained children never label (spec §6: hover only) and must not
