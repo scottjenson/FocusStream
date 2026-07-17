@@ -20,20 +20,10 @@
       position: sticky;
       top: 0;
     }
-    h1 { font-size: 16px; margin: 0; }
-    /* Day paging (spec §6): ‹ today › — buttons disable at the bounds
-       (oldest stored day / today). */
-    #day-nav { display: flex; align-items: center; gap: 4px; align-self: center; }
-    #day-nav button { width: 26px; }
-    #day-nav button:disabled { opacity: 0.4; }
-    #day-label {
-      font-size: 13px;
-      font-weight: 600;
-      min-width: 7.5em;
-      text-align: center;
-      font-variant-numeric: tabular-nums;
-    }
-    header .note { color: #888; font-size: 12px; flex: 1; }
+    /* Title left; session count + debug buttons cluster right (the week
+       strip below is the only day picker — spec §6, 2026-07-17). */
+    h1 { font-size: 16px; margin: 0; flex: 1; }
+    header .note { color: #888; font-size: 12px; }
     button { font-size: 12px; }
     /* Week strip (spec §6, 2026-07-17): one skyline cell per stored day —
        the ribbon's importance contour on linear time. Height is the only
@@ -165,11 +155,6 @@
 <body>
   <header>
     <h1>FocusStream</h1>
-    <nav id="day-nav">
-      <button id="day-prev" title="Previous day">&lsaquo;</button>
-      <span id="day-label">Today</span>
-      <button id="day-next" title="Next day">&rsaquo;</button>
-    </nav>
     <span class="note" id="count">loading…</span>
     <button id="scores">Score table</button>
     <button id="refresh">Refresh</button>

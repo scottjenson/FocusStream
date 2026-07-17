@@ -772,42 +772,18 @@
     }
   });
 
-  // --- Day paging (spec §6, 2026-07-16): ‹/› in the header page the viewed
-  // day within [oldest stored session's day, today]. Paging resets fences
-  // (expansion is a per-look act, not per-day state).
+  // --- Day paging (spec §6; ‹/› header nav removed 2026-07-17): the week
+  // strip is the only day picker — with 7-day retention every reachable day
+  // always has a cell. Paging resets fences (expansion is a per-look act,
+  // not per-day state).
   const oldestDayStart = () =>
     lastSessions.length
       ? dayStartOf(Math.min(...lastSessions.map((s) => s.startTime)))
       : dayStartOf(Date.now());
 
-  function pageDay(dir) {
-    const target = dir < 0 ? dayStartOf(viewDayStart - 1) : nextDayStart(viewDayStart);
-    if (target < oldestDayStart() || target > dayStartOf(Date.now())) return;
-    viewDayStart = target;
-    expanded.clear();
-    log(`paged to ${new Date(target).toDateString()}`);
-    render(lastSessions);
-  }
-  document.getElementById("day-prev").addEventListener("click", () => pageDay(-1));
-  document.getElementById("day-next").addEventListener("click", () => pageDay(1));
-
-  function updateDayNav() {
-    const today = dayStartOf(Date.now());
-    document.getElementById("day-label").textContent =
-      viewDayStart === today
-        ? "Today"
-        : new Date(viewDayStart).toLocaleDateString([], {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          });
-    document.getElementById("day-prev").disabled = viewDayStart <= oldestDayStart();
-    document.getElementById("day-next").disabled = viewDayStart >= today;
-  }
-
   // --- Week strip (spec §6, 2026-07-17): one skyline cell per day, oldest →
-  // today, above the ribbon; click a cell to jump day paging there (‹/›
-  // stay). Per 15-min bin, a bottom-flush bar at the MAX band of any session
+  // today, above the ribbon; click a cell to jump the viewed day there.
+  // Per 15-min bin, a bottom-flush bar at the MAX band of any session
   // overlapping the bin — max, not time-dominant: that is what the ribbon's
   // top edge is at any x. Raw per-session bands via the §6 formula — the
   // display pipeline (visit merging, containers) is deliberately NOT invoked,
@@ -846,11 +822,15 @@
       cell.className = "wday" + (day === viewDayStart ? " selected" : "");
       const label = document.createElement("div");
       label.className = "wday-label";
-      label.textContent = new Date(day).toLocaleDateString([], {
-        weekday: "short",
-        month: "numeric",
-        day: "numeric",
-      });
+      // Day-first "Wed 15 Jul": unambiguous across US/European readers
+      // (7/15 is not), month/weekday names still follow the user's locale.
+      const d = new Date(day);
+      label.textContent =
+        d.toLocaleDateString([], { weekday: "short" }) +
+        " " +
+        d.getDate() +
+        " " +
+        d.toLocaleDateString([], { month: "short" });
       const sky = document.createElement("div");
       sky.className = "wday-sky";
       sky.style.width = bins * STRIP_BIN_PX + "px";
@@ -996,7 +976,6 @@
       });
       return;
     }
-    updateDayNav();
     renderWeekStrip(sessions);
     // Claim registry colors BEFORE containment: a host whose MEDIUM block
     // ends up contained still earned its permanent identity slot.
