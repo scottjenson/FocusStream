@@ -16,7 +16,6 @@
       align-items: baseline;
       gap: 12px;
       padding: 12px 16px;
-      border-bottom: 1px solid #2a2e35;
       background: #1a1d22;
       position: sticky;
       top: 0;
@@ -40,13 +39,14 @@
        the ribbon's importance contour on linear time. Height is the only
        encoding: single neutral color, no per-host hue at this size. Click
        a cell to jump day paging there. */
+    /* Header + strip share one slightly-lighter band; the ribbon below sits
+       on the plain page ground with no separating borders. */
     #week-strip {
       display: flex;
       align-items: flex-end;
       gap: 10px;
-      padding: 10px 16px 8px;
-      background: #14161a;
-      border-bottom: 1px solid #2a2e35;
+      padding: 10px 16px 12px;
+      background: #1a1d22;
       overflow-x: auto;
     }
     .wday { cursor: pointer; flex: none; }
@@ -72,7 +72,6 @@
     #ribbon-wrap {
       background: #14161a;
       overflow-x: auto;
-      border-bottom: 1px solid #2a2e35;
       padding: 8px 16px;
     }
     #ribbon { position: relative; min-width: 100%; }
