@@ -128,6 +128,9 @@
       white-space: nowrap;
       transform: rotate(-90deg);
       transform-origin: 0 100%;
+      /* Glide with the blocks (same 0.3s as .blk); opacity handles the
+         fade-in of fence-member titles and the fade-out of departed ones. */
+      transition: left 0.3s, opacity 0.3s;
     }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it

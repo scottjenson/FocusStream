@@ -696,6 +696,10 @@
         last.titles.push(...titlesOf(seg));
       } else {
         runs.push({
+          // Stable identity across expand/collapse (the first member's seg
+          // key survives the toggle) so the title element can persist and
+          // animate rather than being rebuilt.
+          key: seg.e.host + ":" + seg.key,
           host: seg.e.host,
           start: seg.x,
           end: seg.x + seg.w,
@@ -748,8 +752,11 @@
 
   // --- Rendering. Block elements persist across expand/collapse keyed by
   // session id, so CSS transitions animate the fence stretching open in
-  // place; everything else (plates, bars, ticks, titles) is rebuilt.
+  // place. Run titles persist too (2026-07-17), keyed by host + first
+  // member, so they glide with their blocks instead of jumping; everything
+  // else (plates, bars, ticks) is rebuilt.
   const blockEls = new Map();
+  const titleEls = new Map();
   let expanded = new Set();
   let lastSessions = [];
 
@@ -1187,27 +1194,52 @@
 
     // Contained children never label (spec §6: hover only) and must not
     // fragment their container's title run.
+    // Persistent titles (2026-07-17): an existing title GLIDES to its new
+    // left in sync with the blocks; a brand-new one (fence members on
+    // expand) fades in at its final position; a departed one fades out.
+    const liveTitles = new Set();
     for (const run of titleRuns(groupRuns(segs.filter((s) => !s.contained)))) {
-      const el = document.createElement("div");
-      el.className = "rtitle transient";
+      liveTitles.add(run.key);
+      let el = titleEls.get(run.key);
+      const fresh = !el;
+      if (fresh) {
+        el = document.createElement("div");
+        el.className = "rtitle";
+        el.style.opacity = "0";
+        // The rotated text column's BOTTOM lands at top + line-height
+        // (16px, fixed in CSS). Anchor so it clears the band ceiling by
+        // 4px — HIGH blocks fill the full band, and the old -8 anchor
+        // dipped labels ~10px into them.
+        el.style.top = TITLE_AREA - 20 + "px";
+        ribbon.appendChild(el);
+        titleEls.set(run.key, el);
+      }
       // rotate(-90deg) about the bottom-LEFT corner sweeps the glyph column
       // into the ~17px to the LEFT of the anchor (verified 2026-07-15 after
       // getting the direction wrong once) — so anchor half a line-height
       // RIGHT of center to center the column on the run. Obvious on 3px
       // fence slivers, invisible on wide runs.
       el.style.left = run.center + 9 + "px";
-      // The rotated text column's BOTTOM lands at top + line-height (16px,
-      // fixed in CSS). Anchor so it clears the band ceiling by 4px — HIGH
-      // blocks fill the full band, and the old -8 anchor dipped labels
-      // ~10px into them (invisible until containers made HIGH common).
-      el.style.top = TITLE_AREA - 20 + "px";
       // Rim mix, not the raw fill: dark palette entries (vivid red, strong
       // blue/violet) are illegible as text on the dark ribbon.
       el.style.color = rimOf(colorOf(run.host));
       const name = siteNameOf(run.titles) || run.host;
       el.textContent =
         name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;
-      ribbon.appendChild(el);
+      if (fresh) {
+        // Commit the opacity-0 state before flipping it, so the fade
+        // transition actually runs instead of the style batching to 1.
+        el.getBoundingClientRect();
+        el.style.opacity = "1";
+      }
+    }
+    for (const [key, el] of titleEls) {
+      if (liveTitles.has(key)) continue;
+      titleEls.delete(key);
+      el.style.opacity = "0";
+      el.addEventListener("transitionend", () => el.remove(), { once: true });
+      // Backstop removal in case the transition never fires (hidden tab).
+      setTimeout(() => el.remove(), 500);
     }
 
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
