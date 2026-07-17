@@ -1,6 +1,6 @@
 # Timeline Design — Decision Log (display side)
 
-The spec (`ChromeExtensionSetup.md` §5–§6) holds the **current rules**; this file
+The spec (`SPEC.md` §5–§6) holds the **current rules**; this file
 holds the dated decisions, the evidence that forced them, and the alternatives
 that lost — moved out of CLAUDE.md 2026-07-15 to keep it lean. The live
 watch-list is consolidated in spec §6 ("Watch list").
@@ -11,8 +11,9 @@ watch-list is consolidated in spec §6 ("Watch list").
   demo-tuned values; keep them named constants.
 - Score → three tiers/heights (144/115/86, bottom-flush) → picket fence.
   Design ported from the Desktop4 project (`~/Projects/Desktop4 (lifestreams)` —
-  its plans/ dir has the rationale; its WebGL/React stack and screenshot/heatmap
-  features did NOT port).
+  see its `plans/three_tier_focus_plan.md` and
+  `src/components/canvas/TimelineView.jsx`; its WebGL/React stack and
+  screenshot/heatmap features did NOT port).
 - Sub-issue (2026-07-15): band is duration-biased — 30s of intense typing scores
   LOW; density rescue (keystrokes/sec) is a future scoring knob.
 - **W_SCROLL=5, gated on scrollable (2026-07-15) — "the read":** §5's missing
@@ -55,7 +56,8 @@ watch-list is consolidated in spec §6 ("Watch list").
   hand-built 6-families × 2-lightness palette failed in a day (light/dark
   variants adjacent; hover-brightening faked identities). Kelly's ORDER is the
   point — first N entries always maximally contrast, matching slot claiming.
-  Removed white/black/gray + 3 darkest (browns/olive → converge on noise-gray).
+  Removed white/black/gray + 3 darkest — reddish brown `#882D17`, yellowish
+  brown `#654522`, dark olive green `#2B3D26` (converge on noise-gray).
   Hover = glow + mild brighten, never a strong brightness filter; run labels
   use the rim mix (65% color + white) for legibility.
 - **Transient colors CONTINUE the Kelly sequence** past the registry
@@ -90,12 +92,17 @@ watch-list is consolidated in spec §6 ("Watch list").
   design — day-paging will reset fences.
 - **Fence runs split at VISIT_GAP_MS** (a fence straddling a 4h absence claimed
   the hole as "5 rapid events") — sprinkled >5-min LOWs render as singleton low
-  blocks, not fences.
+  blocks, not fences. Residual freak case, documented + accepted as not worth
+  machinery: two LOWs <5 min apart straddling an hour boundary put one
+  gap-scale hour slot INSIDE a fence, where the fence plate wins hover (the
+  tick still draws).
 
 ## Time axis
 - **Hour axis:** whole-hour labels only; ribbon left-pads from the floor hour
   at gap scale so an 8:47 start sits proportionally after the 8am tick.
-  Tooltips carry the exact wall-clock span.
+  Tooltips carry the exact wall-clock span. (Replaced the inherited Desktop4
+  behavior — start tick pinned to the ribbon edge with the floored hour label —
+  which made an 8:47 start read as 8:00.)
 - **PX_PER_SEC recalibrated 0.15 → 0.075 (2026-07-16):** 540px/hr was never
   chosen — it was whatever made the first render legible, and that render was
   a light day (~91 min presence). Scott's thesis, confirmed by projection: the
@@ -302,3 +309,15 @@ watch-list is consolidated in spec §6 ("Watch list").
 - No zoom; day paging shipped 2026-07-16 (see "Day paging"), date-picker
   jumping still deferred.
 - `parentId` / opener-tab tracking deferred; no tree/branching view.
+- Expandable visit blocks: possible later addition (visit merging bullet).
+- The spec's original "Final timeline (for later implementation)" sketch
+  (weighted-sum display score → CSS size, massive high-value nodes,
+  favicon-only slivers, click-to-open) was removed 2026-07-17 during the
+  rules-only slim-down — fully superseded by the implemented Phase 3b
+  design; text in git history.
+
+## Doc structure (2026-07-17)
+- Spec §6 rewritten rules-only (44KB → ~21KB): evidence, history, and
+  rejected alternatives moved here; #### subsection anchors added for
+  targeted partial reads. Discipline going forward: a new decision lands as
+  2–4 rule sentences + date in the spec, full story in plans/ — never both.

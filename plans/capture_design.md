@@ -1,6 +1,6 @@
 # Capture Design — Decision Log (content script + service worker)
 
-The spec (`ChromeExtensionSetup.md` §2–§4) holds the **current rules**; this
+The spec (`SPEC.md` §2–§4) holds the **current rules**; this
 file holds the dated decisions and the reasoning — moved out of CLAUDE.md
 2026-07-15 to keep it lean.
 

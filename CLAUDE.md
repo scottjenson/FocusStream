@@ -3,7 +3,7 @@
 Personal Chrome Extension (Manifest V3) that tracks attention per URL and renders a
 chronological, activity-weighted "Lifestreams" timeline.
 
-**The full specification lives in `ChromeExtensionSetup.md` — read it before implementing
+**The full specification lives in `SPEC.md` — read it before implementing
 anything.** This file is orientation only; the spec is the source of truth for rules,
 data structures, and edge cases. The *reasoning* behind each rule (evidence, rejected
 alternatives, dated history) lives in `plans/` — see the index below.
@@ -11,6 +11,10 @@ alternatives, dated history) lives in `plans/` — see the index below.
 ## Workflow
 - **Spec changes are proposed and approved BEFORE code changes.** Never backfill.
 - Never `git commit`/`git push` without explicit approval.
+- **Docs discipline (2026-07-17):** the spec holds RULES ONLY — a new decision
+  lands there as 2–4 sentences + a date tag; the full story (evidence, rejected
+  alternatives, history) goes in the matching `plans/` log. Never write the
+  story in both places.
 
 ## Stack & debugging
 - Vanilla JS, no build step, no framework, no dependencies. Load unpacked via
@@ -30,8 +34,9 @@ alternatives, dated history) lives in `plans/` — see the index below.
   but high-intent — highlight, never absorb), dwell. Interruptions are meaningful:
   grouping uses STRICT adjacency; gap-tolerant merging is forbidden (containers are the
   one principled exception — they frame interruptions, never hide them).
-- **The timeline is the PRIMARY view; the vertical list is debug-only** and must not
-  drive visual design (Scott, 2026-07-15).
+- **The timeline is the PRIMARY view** (Scott, 2026-07-15). The debug session
+  list was removed 2026-07-17 — debug surfaces are the worker console dump and
+  the Score table.
 - Eventual pivot: horizontal Lifestreams — width = time, salience = intent.
 
 ## Load-bearing invariants (rationale in spec + plans/)
@@ -51,7 +56,7 @@ alternatives, dated history) lives in `plans/` — see the index below.
 - Score weights are provisional (Desktop4-inherited) — keep them named constants, and
   turn one knob at a time (thresholds held until label gating is evaluated).
 
-## Status (2026-07-15)
+## Status (2026-07-17)
 - **Phases 1–3b live:** capture loop + edge cases (SPA debounce + noise filter, media,
   audible, downloads, blip filter, auto-inject) and the horizontal timeline (color
   registry + Kelly-16 palette, fences incl. singletons, visit merging, containers,
@@ -62,6 +67,10 @@ alternatives, dated history) lives in `plans/` — see the index below.
   tooltip image with decode-then-position, two-layer cleanup (finalize prune + startup
   orphan sweep via `getKeys()`, never `get(null)`). Spec §6 has the condensed rules;
   as-built details in `plans/snapshot_implementation.md`.
+- **2026-07-17:** both time scales halved (135px/hr presence, 22px/hr absence),
+  room-keyed hour-label meridiem dropping, week strip header (skyline cells,
+  click-to-jump paging), debug session list removed, full-dark page, and spec §6
+  rewritten rules-only (history moved to `plans/timeline_design.md`).
 - **Deferred:** SPA-continuation merging (collect more SPA data first — spec §6),
   `parentId`/opener tracking, zoom, date-picker day jumping (‹/› paging is live).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

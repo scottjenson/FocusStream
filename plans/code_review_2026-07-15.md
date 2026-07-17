@@ -68,7 +68,7 @@ exactly the data you're using for threshold tuning.
 
 **P0-3. Spec corruption + one stale contradiction (doc, but P0 because the spec
 is the source of truth).**
-- `ChromeExtensionSetup.md` §6, the "SPA-continuation merging — DEFERRED"
+- `SPEC.md` §6, the "SPA-continuation merging — DEFERRED"
   bullet: its final sentences ("…a hostname is often not a site — google.com
   hosts both Maps and Search. Pages suffix their titles…") are the **"Labels
   are title-derived site names" bullet fused on without its header** — an edit
