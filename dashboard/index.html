@@ -66,14 +66,11 @@
     .wday.selected .wday-sky { border-color: #7d8794; }
     .wday.selected .wday-label { color: rgba(255,255,255,0.85); }
     .wbar { position: absolute; bottom: 0; background: #6f7887; }
-    /* Horizontal timeline ribbon (spec §6): dark holodeck panel, subtle grid.
+    /* Horizontal timeline ribbon (spec §6): dark holodeck panel — no grid,
+       a uniform grid would imply a uniform time scale.
        Width = time, height = tier, hue = hostname. */
     #ribbon-wrap {
       background: #14161a;
-      background-image:
-        linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
-      background-size: 40px 40px;
       overflow-x: auto;
       border-bottom: 1px solid #2a2e35;
       padding: 8px 16px;
@@ -91,19 +88,10 @@
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred). */
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
-    /* Containers (spec §6): a 25% wash of the host color with the identity
-       carried by a 2px full-strength border — children sit on near-dark
-       ground, so the palette's dark-bg contract holds inside. Hover lifts
-       the wash instead of brightening, keeping the children stable. */
-    .blk.cont {
-      background: color-mix(in srgb, var(--host) 25%, transparent);
-      border-width: 2px;
-    }
-    .blk.cont:hover {
-      background: color-mix(in srgb, var(--host) 35%, transparent);
-      filter: none;
-      box-shadow: none;
-    }
+    /* Contained children (spec §6, 2026-07-17): cut out of the container's
+       solid interior by a page-background seam — the container itself paints
+       like any other HIGH block. */
+    .blk.cut { border-width: 2px; }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;

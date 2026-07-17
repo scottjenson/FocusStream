@@ -148,6 +148,17 @@
   ];
   const GRAY_FILL = "#3e434c";
   const GRAY_RIM = "#5b616c";
+  const PAGE_BG = "#14161a"; // ribbon ground; also the cut-out seam color
+  // Collapsed fence sticks: solid, borderless, darker than GRAY_FILL — a
+  // 3px stick is nearly all rim if it keeps the 1px outline, and the fence
+  // should whisper (visible but very subtle).
+  const STICK_FILL = "#2f333b";
+  // Tier brightness (spec §6, 2026-07-17): HIGH paints the full host color;
+  // colored blocks below HIGH paint a solid mix toward the page background —
+  // opaque paint, never alpha, so the look is ground-independent (a contained
+  // MEDIUM matches its standalone twin). Knob: raise toward 65 if dark
+  // palette entries start impersonating each other (watch list).
+  const MEDIUM_MIX_PCT = 50;
 
   // Claim order of every host that ever earned a color; index % 12 = slot.
   // null until loaded from storage (render defers until then). The dashboard
@@ -1018,7 +1029,13 @@
       // Collapsed sticks and LOW-only hosts stay gray.
       const colored =
         s.contained || (!s.collapsed && (coloredHosts.has(s.e.host) || s.clusterKey != null));
-      const fill = colored ? colorOf(s.e.host) : GRAY_FILL;
+      const fill = !colored
+        ? s.collapsed
+          ? STICK_FILL
+          : GRAY_FILL
+        : s.band === "high"
+          ? colorOf(s.e.host)
+          : `color-mix(in srgb, ${colorOf(s.e.host)} ${MEDIUM_MIX_PCT}%, ${PAGE_BG})`;
       // Children draw on top of their container; persistent els can be in
       // any DOM order, so z-index does it (cleared when not contained).
       el.style.zIndex = s.contained ? 2 : "";
@@ -1030,19 +1047,20 @@
       el.style.width = Math.round(s.x + s.w) - Math.round(s.x) + "px";
       el.style.top = bandBottom - h + "px";
       el.style.height = h + "px";
-      // Containers: 25% wash + 2px full-strength border (.cont CSS), the
-      // border carrying identity; everything else keeps the solid fill.
-      const isCont = !!s.e.children;
-      el.classList.toggle("cont", isCont);
-      if (isCont) {
-        el.style.setProperty("--host", fill);
-        el.style.background = "";
-        el.style.borderColor = fill;
-      } else {
-        el.style.removeProperty("--host");
-        el.style.background = fill;
-        el.style.borderColor = colored ? rimOf(fill) : GRAY_RIM;
-      }
+      // Containers paint like any other solid block (spec §6, 2026-07-17 —
+      // wash retired); contained children are cut out of the interior by a
+      // 2px page-background seam (.cut CSS carries the width).
+      el.classList.toggle("cut", !!s.contained);
+      el.style.background = fill;
+      // Sticks paint the border in their own fill — at 3px wide a 1px
+      // outline IS the stick, so "borderless" means border = fill.
+      el.style.borderColor = s.contained
+        ? PAGE_BG
+        : s.collapsed
+          ? STICK_FILL
+          : colored
+            ? rimOf(fill)
+            : GRAY_RIM;
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).

@@ -261,6 +261,42 @@ watch-list is consolidated in spec §6 ("Watch list").
 - §5 note: technically gap-tolerant merging, which §5 forbids — but §5 forbids
   it for *hiding* interruptions; containers keep every interruption visible,
   framed.
+- **(2026-07-17) Zero-children containers render solid.** Evidence: a real
+  Jitsi meeting drew as an empty 25% wash — a style that reads as "excursions
+  inside" with nothing inside (Scott flagged it as an apparent rules
+  conflict). Resolution separates two decisions that had been conflated:
+  *grouping* (the departure-boundary rule — structurally correct, kept) and
+  *fill style* (the wash + 2px border exists to give contained children
+  near-dark ground so the Kelly dark-bg contract holds — a rendering
+  contract, not an attention claim). With zero visible children the contract
+  never activates, so the block takes the normal solid fill/rim/hover.
+  Rejected alternative: keeping the wash as an "attention was interrupted"
+  signal — the tooltip already tells that story, and an empty wash reads as
+  a bug, not a signal. One-line gate in the render loop: `isCont` requires
+  `children.length`, not just the (always-truthy) `children` array.
+- **(2026-07-17, later same day) Wash retired entirely; tier brightness +
+  cut-out children.** The zero-children rule above is SUPERSEDED — solid is
+  now how every container paints. Scott's driving discomfort: a container
+  looked "substantially different" from a non-container HIGH even though
+  both are equally important. Two coupled decisions:
+  1. **Tier brightness** — HIGH = full host color, colored blocks below
+     HIGH = `color-mix(in srgb, host 50%, page bg)` (`MEDIUM_MIX_PCT`).
+     Deliberately OPAQUE paint rather than alpha: color-mix against the
+     page background computes what 50% opacity *would look like* over the
+     ground but is ground-independent, so a contained MEDIUM matches its
+     standalone twin exactly and nothing alpha-blends with the container
+     fill beneath it. (Alpha was also viable once the ribbon grid was
+     dropped — grid conflicted with the variable x-axis — but opaque is
+     the principled choice.)
+  2. **Cut-out children** — containers paint identically to any HIGH
+     block; children keep their own tier paint and are separated by a 2px
+     page-background border seam (`.cut`), "cut out from the interior of
+     the meeting" (Scott's framing). This replaces the wash's near-dark
+     ground as the mechanism keeping children legible.
+  Child brightness follows the DISPLAY tier (capped MEDIUM → dimmed), not
+  the true band — chosen for consistency over salience; the fallback if
+  HIGH excursions get lost (brightness-follows-true-band, height cap
+  stays) is watch-listed along with palette compression at 50%.
 
 ## Resumed-read containers — PROPOSED/DEFERRED (2026-07-16)
 - The out-and-back read (article-M → detour → same-article-M) as a second
