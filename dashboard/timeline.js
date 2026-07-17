@@ -1054,12 +1054,16 @@
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
       // outline IS the stick, so "borderless" means border = fill.
+      // Colored rims come from the FULL host color, not the (possibly
+      // dimmed) fill: the border carries identity at full strength on
+      // every tier, so HIGH and MEDIUM read as one family (spec §6,
+      // 2026-07-17).
       el.style.borderColor = s.contained
         ? PAGE_BG
         : s.collapsed
           ? STICK_FILL
           : colored
-            ? rimOf(fill)
+            ? rimOf(colorOf(s.e.host))
             : GRAY_RIM;
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
@@ -1150,23 +1154,35 @@
       ribbon.appendChild(tick);
       const label = document.createElement("div");
       label.className = "hlabel transient";
-      label.style.left = m.x + 5 + "px";
-      label.style.top = bandBottom + TICK_TOP + "px";
+      // Centered under the tick (2026-07-17): tick row on top, label row
+      // below — each label owns its full inter-mark column instead of
+      // racing the next tick in the same lane.
+      label.style.top = bandBottom + TICK_TOP + TICK_H + 2 + "px";
       // Room-keyed format (spec §6): try the full "9am" form; drop to the
-      // bare number only when its MEASURED width would crowd the next
-      // mark's label. Room is geometry, not gap membership — an hour in a
-      // 10-min gap with no neighbor for a presence-hour keeps its meridiem.
+      // bare number only when its MEASURED half-width + clearance spills
+      // past the midpoint to the NEXT mark (which runs the same symmetric
+      // test). Room is geometry, not gap membership — an hour in a 10-min
+      // gap with no neighbor for a presence-hour keeps its meridiem. Only
+      // next is tested: a run's LAST label is where its meridiem lives
+      // ("… 3 4 5pm"), and demoting it against prev would strip the whole
+      // run of its anchor.
       label.textContent = fmtHour(m.t);
       ribbon.appendChild(label);
       const next = marks[i + 1];
-      if (next && m.x + label.getBoundingClientRect().width + LABEL_CLEARANCE > next.x) {
+      let w = label.getBoundingClientRect().width;
+      if (next && w / 2 + LABEL_CLEARANCE > (next.x - m.x) / 2) {
         label.textContent = String(hourNum(m.t));
+        w = label.getBoundingClientRect().width;
       }
+      label.style.left = Math.max(0, m.x - w / 2) + "px";
       // Thinning backstop (spec §6): a label overlapping the last survivor
       // drops, never nudges. Ticks are never thinned — the countable-hours
-      // property is tick-borne.
-      if (m.x + 5 < lastLabelRight + LABEL_CLEARANCE) label.remove();
-      else lastLabelRight = m.x + 5 + label.getBoundingClientRect().width;
+      // property is tick-borne. The backstop guards against literal
+      // overlap only (2px), NOT the format test's LABEL_CLEARANCE: a
+      // run-ending "5pm" legitimately reaches back toward its bare
+      // neighbor, and full clearance here deleted it.
+      if (m.x - w / 2 < lastLabelRight + 2) label.remove();
+      else lastLabelRight = m.x + w / 2;
     }
 
     // Contained children never label (spec §6: hover only) and must not
