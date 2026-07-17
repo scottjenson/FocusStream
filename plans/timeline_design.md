@@ -169,6 +169,43 @@ watch-list is consolidated in spec §6 ("Watch list").
   invisible 40-min boundary-free errand). Label stacking structurally
   impossible; gap hover plate (≥6px) carries the exact away-span.
 
+## Week strip & debug-list removal (2026-07-17, spec'd — not yet implemented)
+- **Debug list removed:** its jobs were already covered (worker console dump
+  for raw inspection, Score table for tuning, tooltips for per-block detail).
+  Hidden-toggle option rejected: an unseen renderer still taxes every schema
+  change. Freed space stays open as snapshot-tooltip clearance.
+- **What to do with the space — options weighed:** whitespace only (baseline),
+  day-summary stat line (cheap, deferred), pinned click-to-inspect detail
+  panel (deferred — conflicts with click-opens-page semantics, needs its own
+  decision), week strip (chosen — Scott: "high risk/high reward", most
+  aligned with the Lifestreams pivot).
+- **The core design finding: a mini ribbon must be an abstraction, not a
+  miniature.** 7 cells in ~1600px ≈ 14px/hour — below even the gap scale;
+  every block lands under MIN_W, so a scaled pipeline draws only floored
+  noise (Scott's legibility concern, confirmed by arithmetic before any
+  code). The cell therefore draws only the ribbon's top edge — the
+  importance contour: per 15-min bin, a bottom-flush bar at the max band of
+  any overlapping session, tier proportions 0.6/0.8/1.0 (~18/24/30px on a
+  30px strip). Evolution within the discussion: started as a pure heat/
+  intensity strip; Scott asked to keep the ribbon's tier heights; reframed
+  as skyline/contour — height is the one encoding variable, single neutral
+  color (host hue unreadable at ~2px/bin; intensity+height double-encodes).
+- **Linear time, one shared trimmed window across cells** so hours align
+  vertically across days (cross-day rhythm is the payoff two-scale can't
+  give). Accepted consequence: cells match the ribbon vertically, never
+  horizontally — strip answers WHEN, ribbon answers WHAT. Scott's three
+  concerns → answers: legibility (abstraction, not miniature), horizontal
+  fit (fixed cells, grows 3→7 with retention), day boundaries (bordered
+  cells + weekday labels, structural).
+- **Raw bands via FS_SCORING, never the display pipeline:** the strip must
+  not fork/invoke merging+containers to harvest tiers. Accepted divergence:
+  container days skyline lower (meeting = MEDIUM fragments raw, HIGH
+  container in ribbon) — watch-listed; candidate fix is extracting banding
+  (not layout) into a shared step.
+- Interaction: click cell = jump day paging there; ‹/› retained (strip not
+  load-bearing on day one). Today's cell live-updates on the local-area
+  repaint.
+
 ## Visit merging
 - (2026-07-15) Consecutive same-host LOW blocks merge into one visit block
   scored on MERGED totals, before fencing — repairs SPA-debounce fragmentation

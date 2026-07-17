@@ -65,6 +65,15 @@
   const TITLE_CLEARANCE = 20; // min horizontal px between rotated title anchors
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
   const TITLE_MAX_CHARS = 20;
+  // Week strip (spec §6, 2026-07-17): a cell is the ribbon's TOP EDGE — the
+  // importance contour — on LINEAR time. Height is the only encoding, in the
+  // ribbon's tier proportions (1 / 0.8 / 0.6 of the strip height).
+  const STRIP_TIER_H = { high: 30, medium: 24, low: 18 };
+  const STRIP_H = STRIP_TIER_H.high;
+  const STRIP_BIN_MS = 15 * 60 * 1000;
+  const STRIP_BIN_PX = 3;
+  const STRIP_RANK = { low: 1, medium: 2, high: 3 };
+  const STRIP_BAND = [null, "low", "medium", "high"];
 
   // Measured attention: active windows OR audible playback (max, not sum —
   // same-frame video counts in both; audible catches cross-origin embeds).
@@ -778,6 +787,99 @@
     document.getElementById("day-next").disabled = viewDayStart >= today;
   }
 
+  // --- Week strip (spec §6, 2026-07-17): one skyline cell per day, oldest →
+  // today, above the ribbon; click a cell to jump day paging there (‹/›
+  // stay). Per 15-min bin, a bottom-flush bar at the MAX band of any session
+  // overlapping the bin — max, not time-dominant: that is what the ribbon's
+  // top edge is at any x. Raw per-session bands via the §6 formula — the
+  // display pipeline (visit merging, containers) is deliberately NOT invoked,
+  // so container days skyline lower than their ribbon (accepted; watch list).
+  // All cells share one hour-aligned window, so hours align VERTICALLY
+  // across days — the cross-day comparison the two-scale ribbon can't give.
+  function renderWeekStrip(sessions) {
+    const strip = document.getElementById("week-strip");
+    strip.replaceChildren();
+    // Same admission rules as the ribbon's parse step (web sessions only,
+    // transit filter) — only the TIERS stay raw.
+    const usable = sessions.filter((s) => s.url && !isTransit(s));
+    strip.hidden = !usable.length;
+    if (!usable.length) return;
+
+    const byDay = new Map();
+    let minOff = Infinity;
+    let maxOff = 0;
+    for (const s of usable) {
+      const day = dayStartOf(s.endTime); // belongs to the day it ENDS in
+      let arr = byDay.get(day);
+      if (!arr) byDay.set(day, (arr = []));
+      arr.push(s);
+      // Offsets are time-of-day within the session's own day; midnight
+      // straddlers clamp to 0 rather than leaking into the previous day.
+      minOff = Math.min(minOff, Math.max(0, s.startTime - day));
+      maxOff = Math.max(maxOff, s.endTime - day);
+    }
+    minOff = Math.floor(minOff / HOUR) * HOUR;
+    maxOff = Math.min(24 * HOUR, Math.ceil(maxOff / HOUR) * HOUR);
+    const bins = Math.ceil((maxOff - minOff) / STRIP_BIN_MS);
+
+    const today = dayStartOf(Date.now());
+    for (let day = oldestDayStart(); day <= today; day = nextDayStart(day)) {
+      const cell = document.createElement("div");
+      cell.className = "wday" + (day === viewDayStart ? " selected" : "");
+      const label = document.createElement("div");
+      label.className = "wday-label";
+      label.textContent = new Date(day).toLocaleDateString([], {
+        weekday: "short",
+        month: "numeric",
+        day: "numeric",
+      });
+      const sky = document.createElement("div");
+      sky.className = "wday-sky";
+      sky.style.width = bins * STRIP_BIN_PX + "px";
+      sky.style.height = STRIP_H + "px";
+
+      const tiers = new Array(bins).fill(0);
+      for (const s of byDay.get(day) || []) {
+        const rank = STRIP_RANK[bandFor(scoreSession(s))];
+        const from = Math.max(
+          0,
+          Math.floor((Math.max(s.startTime - day, 0) - minOff) / STRIP_BIN_MS)
+        );
+        const to = Math.min(
+          bins - 1,
+          Math.floor((s.endTime - day - minOff - 1) / STRIP_BIN_MS)
+        );
+        for (let i = from; i <= to; i++) tiers[i] = Math.max(tiers[i], rank);
+      }
+      // Run-length bars, edges snapped like blocks (round the right edge,
+      // not the width, so snapped neighbors stay adjacent).
+      for (let i = 0; i < bins; ) {
+        let j = i + 1;
+        while (j < bins && tiers[j] === tiers[i]) j++;
+        if (tiers[i]) {
+          const bar = document.createElement("div");
+          bar.className = "wbar";
+          const x = Math.round(i * STRIP_BIN_PX);
+          bar.style.left = x + "px";
+          bar.style.width = Math.round(j * STRIP_BIN_PX) - x + "px";
+          bar.style.height = STRIP_TIER_H[STRIP_BAND[tiers[i]]] + "px";
+          sky.appendChild(bar);
+        }
+        i = j;
+      }
+
+      cell.addEventListener("click", () => {
+        if (day === viewDayStart) return;
+        viewDayStart = day;
+        expanded.clear(); // paging resets fences, same as ‹/›
+        log(`week strip → ${new Date(day).toDateString()}`);
+        render(lastSessions);
+      });
+      cell.append(label, sky);
+      strip.appendChild(cell);
+    }
+  }
+
   // --- Custom tooltip (spec §6, plans/tooltip_snapshot_plan.md Part 1).
   // Native title tooltips have uncontrollable warm-up timing (~1s cold,
   // near-instant warm, any click resets it) — so ribbon elements carry
@@ -877,6 +979,7 @@
       return;
     }
     updateDayNav();
+    renderWeekStrip(sessions);
     // Claim registry colors BEFORE containment: a host whose MEDIUM block
     // ends up contained still earned its permanent identity slot.
     const merged = mergeVisits(parseSessions(sessions));
