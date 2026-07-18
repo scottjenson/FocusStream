@@ -128,7 +128,7 @@ Content scripts only load into pages opened *after* the extension is (re)loaded,
 `document.title` is often empty at navigation time, and SPAs update the title *after* the history event fires (Gmail, YouTube).
 * **Solution:** Never grab the title only at session start. Refresh it on each heartbeat and/or at finalize, keeping the last non-empty value.
 
-## 5. Design Philosophy: The Noise/Signal Tightrope (agreed 2026-07-15; restructured thread-first 2026-07-18 — story in `plans/rules_restructure_proposal.md`)
+## 5. Design Philosophy: The Noise/Signal Tightrope (agreed 2026-07-15; restructured thread-first 2026-07-18 — story in `plans/rules_restructure.md`)
 
 **The thesis of this experiment:** when is a series of quick visits noise to hide, and when is one an important moment to highlight? The answer: **importance is evidenced by intent, not duration.** Duration tells you where attention *sat*; discrete signals (copy, paste, keystrokes, downloads) tell you where attention *acted*. A 15-second visit with a `copy` is a fundamentally different object than a 15-second bounce. This is why activity is captured as per-signal, per-type counts and never summed.
 
@@ -157,7 +157,7 @@ Copying an image we see; "Save image as…" fires no DOM event and is invisible 
 
 ## 6. UI/UX Directives
 
-**Rules only.** Evidence, dated history, and rejected alternatives live in `plans/` — display decisions in `plans/timeline_design.md`, tooltips/snapshots in `plans/tooltip_snapshot_plan.md` + `plans/snapshot_implementation.md`. A date tag like (2026-07-16) marks when a rule was agreed; the story behind it is in plans.
+**Rules only.** Evidence, dated history, and rejected alternatives live in `plans/` — display decisions in `plans/timeline_design.md`, tooltips/snapshots in `plans/snapshot_implementation.md`. A date tag like (2026-07-16) marks when a rule was agreed; the story behind it is in plans.
 
 ### Phase 3a — Debug tools (list removed 2026-07-17)
 The dashboard (`dashboard/index.html`, opened full-tab by the toolbar icon, which also console.tables all sessions in the worker console) carries the debug surfaces. The per-session list was removed 2026-07-17 — its jobs were already covered (raw inspection = console dump, tuning = Score table, per-block detail = tooltips).

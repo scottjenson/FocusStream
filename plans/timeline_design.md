@@ -476,8 +476,8 @@ watch-list is consolidated in spec §6 ("Watch list").
 
 ## Tooltips & snapshots
 - Custom tooltip layer (uniform 300ms; native title warm-up uncontrollable)
-  implemented 2026-07-15; snapshot previews approved with all knobs decided but
-  NOT built. Full roadmap: `plans/tooltip_snapshot_plan.md`.
+  implemented 2026-07-15; snapshot previews implemented 2026-07-16. Full story
+  (reasoning, knobs, as-built shape): `plans/snapshot_implementation.md`.
 
 ## Scope holds
 - No zoom; day paging shipped 2026-07-16 (see "Day paging"), date-picker
@@ -494,8 +494,7 @@ watch-list is consolidated in spec §6 ("Watch list").
 - SPEC §5/§3/§6 rewritten around the boundary taxonomy + thread-as-atom
   model; blip+transit unified as the two-rung admission filter; resumed-read
   containers closed as subsumed. Full verdict, alternative rule set,
-  amendments, and loose ends: `plans/rules_restructure_proposal.md`
-  (ADOPTED). This log's older sections describe the pre-restructure rule
+  amendments, and loose ends: `plans/rules_restructure.md` (ADOPTED). This log's older sections describe the pre-restructure rule
   names; the rules themselves are unchanged.
 
 ## Post-restructure code review (2026-07-18)

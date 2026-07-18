@@ -1008,7 +1008,7 @@
     }
   }
 
-  // --- Custom tooltip (spec §6, plans/tooltip_snapshot_plan.md Part 1).
+  // --- Custom tooltip (spec §6, plans/snapshot_implementation.md Part 1).
   // Native title tooltips have uncontrollable warm-up timing (~1s cold,
   // near-instant warm, any click resets it) — so ribbon elements carry
   // data-tip instead, shown by one delegated timer at a uniform delay.

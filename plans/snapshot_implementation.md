@@ -1,12 +1,66 @@
 # Snapshot Previews — Implementation Notes
 
-Companion to `plans/tooltip_snapshot_plan.md` (the *why* and the decided knobs).
-This doc is the *how*: the concrete code changes, keyed to the current codebase,
-for Part 2 (snapshot capture + tooltip preview). Part 1 (custom tooltip layer)
-is already live — the `<img>` slot hangs off `#tip`, which already exists.
+The single home for the tooltip + snapshot story (the separate plan doc,
+`tooltip_snapshot_plan.md`, was folded in here 2026-07-18): the original
+reasoning and decided knobs, plus the *how* — the concrete code changes, keyed
+to the codebase, for Part 2 (snapshot capture + tooltip preview). Part 1 (the
+custom tooltip layer) is live; its design is recorded just below.
 
 **Implemented 2026-07-16** — this doc was reviewed before building (fixes below
 marked **[review]**) and now records the as-built shape.
+
+## Original reasoning (2026-07-15)
+
+Two forces converged on one mechanism:
+
+1. **Native `title` tooltips have uncontrollable timing** — ~1s cold, then a
+   "warm" state with near-instant tooltips until any click resets it cold.
+   Observed on the ribbon: hover felt random, and opening a fence (a click +
+   a re-render) reset the warm state. No API exists to tune native delay.
+2. **Snapshot previews can't ride native tooltips at all** (text-only).
+
+So the custom tooltip layer isn't merely nicer — it's the prerequisite for the
+preview feature Scott has wanted since Desktop4 (whose screenshot feature did
+NOT port; this is its return, minus the heatmaps, which stay out of scope).
+
+### Part 1 — custom tooltip layer (live 2026-07-15)
+
+One `#tip` div: dark panel matching the ribbon aesthetic, multi-line, all text
+via `textContent` — page-controlled strings (titles, URLs) never touch
+innerHTML. One delegated listener pair on `#ribbon`: `pointerover` starts a
+fixed `TIP_DELAY_MS = 300` timer; `pointerout` / `pointerdown` cancels and
+hides. Every hover pays exactly 300ms — uniform, and snappier than the native
+cold ~1s. Positioned near the cursor, clamped to the viewport.
+
+### Capture API and sizing (the arguments behind the knobs)
+
+- `chrome.tabs.captureVisibleTab()` is the only MV3 screenshot API, and it
+  fits the architecture: it can only photograph the *currently visible* tab,
+  and that is exactly the only tab that ever accrues attention. The existing
+  `<all_urls>` host permission covers it; Chrome's ~2 captures/sec rate limit
+  is far above our use.
+- **Fixed target width (~640px), not screen-relative** — proportional sizing
+  would make a 4K user pay 4× the disk of a laptop user for the same tooltip.
+  Fixed width ≈ the intended 1/16 area on a typical screen, but predictable:
+  ~20–40KB per snapshot at JPEG ~0.6.
+- The quota math that forced `unlimitedStorage`: ~100 attended sessions/day ×
+  30KB ≈ 3MB/day against the 10MB `storage.local` cap — full in ~3 days
+  without the permission plus a retention policy.
+- Snapshots live under separate `snap:<id>` keys, **never inside
+  SessionBlocks** — the sessions array is read in full on every render and
+  every Score-table click; embedded images would bloat every read.
+
+### Failure modes (all soft — skip silently, tooltip just lacks an image)
+
+Minimized window / locked screen (`captureVisibleTab` throws), DRM video
+(frames capture black), `file://` pages (need the "allow file URLs" toggle),
+incognito (extension not enabled there; nothing captured).
+
+### Privacy note (recorded deliberately)
+
+This puts images of everything browsed on disk. Fine for a personal
+experiment; it is a real property change of the tool and is stated here and
+in the spec.
 
 ## The five changes at a glance
 

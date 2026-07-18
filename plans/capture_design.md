@@ -82,7 +82,9 @@ A single healthy content.js instance is negligible: 8 passive one-statement
 listeners (no scroll-jank path exists), one 10s tick with one tag-name query
 and one layout read. The honest cost ranking is (1) the logging convention,
 (2) everything else — and the logging is load-bearing for debugging, kept
-deliberately. Full analysis: `plans/code_review_2026-07-15.md`.
+deliberately. (Full analysis was in `plans/code_review_2026-07-15.md`,
+retired 2026-07-18 — remaining P2s deliberately not planned; git history has
+the text.)
 
 ## Open capture holes — UNDER INVESTIGATION (2026-07-17)
 
