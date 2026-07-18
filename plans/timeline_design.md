@@ -520,6 +520,26 @@ Decisions along the way:
   counter class), no site-specific logic; and one-line CSS ellipsis per
   title (the debug score sits in its own flex span so long titles can't
   truncate it away).
+- **Child context line (2026-07-18, same day):** a Phanpy container showed
+  two adjacent Gemini children — actually two separate excursions split by a
+  10-second return to Phanpy that renders at 0.4px (sub-pixel at presence
+  scale; both children floored to MIN_W). All rules fired correctly, but
+  Scott — the person who did it — was confused: "I literally did not
+  remember going back and forth." Framing that stuck: capture's fidelity
+  exceeds memory's, so the display's job includes reconciling the two, and
+  the tooltip is where the system explains itself. The ribbon provoked the
+  right question and the tooltip failed to answer it — fixed by giving
+  contained children a context line ("↩ interruption inside Phanpy · visit
+  2 of 2"), wired via a `parent` ref on child segs.
+  Discussed and DEFERRED: collapsing the toggles themselves. The system has
+  an asymmetry — a sub-quantum foreign glance isn't even an event
+  (admission filter), yet a barely-quantum anchor-return splits an
+  excursion in two. The debounce rule writes itself (sub-quantum
+  anchor-returns don't testify as separations; same-host children join;
+  the return stays in container time) and Scott's non-memory of the toggle
+  is evidence it's sub-event — but held on ONE specimen with an untuned
+  threshold (this return was exactly 10s, so a strict `<10s` rule wouldn't
+  have caught it). Watch-listed; the context line buys the waiting time.
 - Mechanics: `tipDataOf()` replaces the flat `tooltip()` string; blocks
   carry the structure as a JS element property (`_tipData`) with `data-tip`
   kept as the empty hover marker; gaps/plates/bars keep plain strings via

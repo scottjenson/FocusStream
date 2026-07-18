@@ -238,7 +238,7 @@
   // renderer (fillTip) lands them via textContent only, never innerHTML.
   const TIP_DEBUG = true; // demo period: scores + signals visible; flip off for normal use
   const TIP_TITLES_MAX = 8;
-  function tipDataOf(e, siteName) {
+  function tipDataOf(e, siteName, ctx) {
     // A container's fragments can themselves be merged visits — flatten to
     // the underlying pages so the list shows what was actually read.
     const members = e.members ? e.members.flatMap((m) => m.members || [m]) : [e];
@@ -291,6 +291,7 @@
       siteName,
       meta: `${fmtClock(e.startTime)} · ${fmtDuration(e.durMs)}`,
       pages,
+      ctx: ctx || "",
       debug,
     };
   }
@@ -752,6 +753,9 @@
               clusterKey: null,
               collapsed: false,
               contained: true,
+              // The container event, so the tooltip can narrate the framing
+              // ("interruption inside Phanpy · visit 2 of 2").
+              parent: e,
               // Capped at MEDIUM: containment frames — never confers,
               // never destroys. A HIGH excursion keeps width + hover
               // truth but not the container's silhouette.
@@ -1115,6 +1119,7 @@
     }
     if (d.pages.length > TIP_TITLES_MAX)
       line("tip-page dim", `+ ${d.pages.length - TIP_TITLES_MAX} more`);
+    if (d.ctx) line("tip-meta", d.ctx);
     if (TIP_DEBUG) line("tip-debug", d.debug.join("\n"));
   }
 
@@ -1271,7 +1276,19 @@
         // data-tip stays (empty) as the hover marker. Gaps/plates/bars keep
         // plain data-tip strings — fillTip falls back for those.
         el.dataset.tip = "";
-        el._tipData = tipDataOf(s.e, hostNames.get(s.e.host) || s.e.host);
+        // Contained children narrate their framing: whose session they
+        // interrupted, and — when the same site interrupted more than once —
+        // which round trip this one was (the ribbon can't show a sub-pixel
+        // anchor-return between floored children; the hover explains it).
+        let ctx = null;
+        if (s.contained && s.parent) {
+          const sibs = s.parent.children.filter((c) => c.host === s.e.host);
+          const pname = hostNames.get(s.parent.host) || s.parent.host;
+          ctx =
+            `↩ interruption inside ${pname}` +
+            (sibs.length > 1 ? ` · visit ${sibs.indexOf(s.e) + 1} of ${sibs.length}` : "");
+        }
+        el._tipData = tipDataOf(s.e, hostNames.get(s.e.host) || s.e.host, ctx);
         // Snapshot candidates, best first: merges/containers carry snapIds
         // (members in score order); raw blocks, contained children, and
         // expanded fence members are their own only candidate. Ids are
