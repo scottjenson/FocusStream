@@ -107,20 +107,28 @@
     }
   }
 
-  // Color = identity, rationed by importance (spec §6): only hosts that
-  // earned a MEDIUM+ block get an identity hue — LOW-only hosts render
-  // neutral gray so the day's noise is quiet texture. Hue shows what height
-  // can't: revisit structure. Self-legending via labels.
+  // Color = identity, rationed by HIGH anchoring (spec §6, 2026-07-18):
+  // only hosts with a HIGH *display event* (merged visit or container —
+  // chain-level, not raw session) somewhere in the stored week get an
+  // identity hue. Everything they touch that week shares it — their
+  // MEDIUMs and LOWs show the revisit structure of the threads that
+  // mattered — while every other host renders neutral gray, MEDIUMs
+  // included. Rationing by MEDIUM proved unbounded: the registry hit 20
+  // hosts in four days and wrap collisions landed on hosts in daily use
+  // (youtube/notebooklm both light blue). HIGH-anchored hosts run ~6/week
+  // — under half the palette, near-max mutual contrast.
   //
   // Assignment is a persisted FIRST-SEEN REGISTRY, not a hash: the first
-  // time a host ever earns MEDIUM+, it claims the next palette slot,
-  // round-robin, forever (chrome.storage.local "hostColorOrder"). Hashing
-  // clumped on real data (google/linkedin/bsky drew three adjacent greens —
-  // no exact collision needed for a clash); window-relative rotation would
-  // reshuffle identities as the window slides. First-seen order gives
-  // locality (first 16 colored hosts ever are mutually distinct) AND
-  // cross-day permanence. Wrap collisions start at colored-host #17 —
-  // oldest assignments, temporally distant in practice; revisit with data.
+  // time a host anchors, it claims the earliest free palette slot, forever
+  // (chrome.storage.local "hostColorOrder"). Hashing clumped on real data
+  // (google/linkedin/bsky drew three adjacent greens — no exact collision
+  // needed for a clash); window-relative rotation would reshuffle
+  // identities as the window slides. TOMBSTONES (2026-07-18): a registered
+  // host with no stored HIGH left has aged out of the 7-day window — its
+  // entry is nulled IN PLACE (indices are identities; living hosts never
+  // reshuffle) and the slot is reused by the next new anchor. Any subset
+  // of the 16-slot Kelly prefix stays mutually max-contrast, so sparse
+  // occupancy is safe.
   //
   // Kelly's 22 colors of maximum contrast, in Kelly's ORDER (the sequence
   // is the point: the first N entries are always maximally contrasting, a
@@ -160,43 +168,39 @@
   // palette entries start impersonating each other (watch list).
   const MEDIUM_MIX_PCT = 50;
 
-  // Claim order of every host that ever earned a color; index % 12 = slot.
-  // null until loaded from storage (render defers until then). The dashboard
-  // page is the only writer, so an in-memory copy + fire-and-forget set is
-  // race-free.
+  // Claim/tombstone array of anchored hosts; index % 16 = slot, null = a
+  // released slot awaiting reuse. null (the whole array) until loaded from
+  // storage (render defers until then). The dashboard page is the only
+  // writer, so an in-memory copy + fire-and-forget set is race-free.
   let hostOrder = null;
 
-  function claimColors(events) {
+  function claimColors(anchoredHosts) {
     let changed = false;
-    for (const e of events) {
-      if (e.band !== "low" && !hostOrder.includes(e.host)) {
-        log(`color slot ${hostOrder.length % PALETTE.length} claimed by ${e.host}`);
-        hostOrder.push(e.host);
+    // Tombstone sweep: release slots of hosts that no longer anchor.
+    for (let i = 0; i < hostOrder.length; i++) {
+      if (hostOrder[i] && !anchoredHosts.has(hostOrder[i])) {
+        log(`color slot ${i % PALETTE.length} released by ${hostOrder[i]}`);
+        hostOrder[i] = null;
         changed = true;
       }
+    }
+    for (const host of anchoredHosts) {
+      if (hostOrder.includes(host)) continue;
+      const free = hostOrder.indexOf(null);
+      const slot = free !== -1 ? free : hostOrder.length;
+      hostOrder[slot] = host;
+      log(`color slot ${slot % PALETTE.length} claimed by ${host}`);
+      changed = true;
     }
     if (changed) chrome.storage.local.set({ hostColorOrder: hostOrder });
   }
 
-  // Unregistered hosts (open-fence members of LOW-only hosts, spec §6
-  // fence-open relaxation) CONTINUE the Kelly sequence past the registry:
-  // first-appearance order, rebuilt every render, never persisted. So
-  // everything visible is a Kelly PREFIX — registered + transient are
-  // mutually max-contrast by construction. Hashing is gone: Kelly's
-  // guarantee is prefix-only, and hashed fallbacks sampled LATE entries,
-  // which sit intentionally close to early ones (orange-yellow drew next
-  // to a claimed orange) — three collision bugs in two days, all hashing.
-  let transientSlots = new Map();
-
+  // Transient (unregistered) colors retired 2026-07-18: colorOf is only
+  // reached for anchored hosts, which claimColors registers before every
+  // paint. Gray is the defensive fallback, never a lazy claim.
   function colorOf(host) {
     const idx = hostOrder ? hostOrder.indexOf(host) : -1;
-    if (idx !== -1) return PALETTE[idx % PALETTE.length];
-    // Lazy claim: colorOf is only reached for hosts being drawn in color,
-    // and blocks draw chronologically, so first call = first appearance.
-    if (!transientSlots.has(host)) {
-      transientSlots.set(host, (hostOrder || []).length + transientSlots.size);
-    }
-    return PALETTE[transientSlots.get(host) % PALETTE.length];
+    return idx !== -1 ? PALETTE[idx % PALETTE.length] : GRAY_FILL;
   }
   const rimOf = (color) => `color-mix(in srgb, ${color} 65%, white)`;
 
@@ -421,7 +425,7 @@
   // patterns in a week's replay, e.g. interleaved shop/pay ping-pong
   // where two sites each tried to containerize the other). The HIGH path
   // keeps its original guards; dominance is deliberately not applied there.
-  function detectContainers(events) {
+  function detectContainers(events, quiet) {
     const audibleDominated = (e) => (e.audibleMs || 0) >= 0.5 * e.durMs;
     const open = new Map(); // tabId -> fragments of the currently open chain
     const chains = [];
@@ -517,16 +521,51 @@
       });
       for (const f of c.frags) absorbed.add(f);
       for (const ch of children) absorbed.add(ch);
-      log(
-        `container: ${c.frags[0].host} ${fmtClock(from)}–${fmtClock(to)} · ` +
-          `${c.frags.length} visits + ${children.length} excursions · score ${Math.round(c.score)}`
-      );
+      if (!quiet)
+        log(
+          `container: ${c.frags[0].host} ${fmtClock(from)}–${fmtClock(to)} · ` +
+            `${c.frags.length} visits + ${children.length} excursions · score ${Math.round(c.score)}`
+        );
     }
     if (!containers.length) return events;
     const out = events.filter((e) => !absorbed.has(e));
     out.push(...containers);
     out.sort((a, b) => a.startTime - b.startTime);
     return out;
+  }
+
+  // Color anchoring (spec §6, 2026-07-18): a host is anchored if the full
+  // display pipeline (merge + containers — chain-level, where meetings and
+  // watch-runs actually reach HIGH) produces a HIGH event for it on ANY
+  // stored day. Week-scoped on purpose: day-scoped anchoring would render
+  // every morning monochrome until something accrued ~17 attended minutes,
+  // and hosts would flicker colored/gray across day pages. Iteration is
+  // chronological, so first-anchor claim order is deterministic.
+  function computeAnchoredHosts(sessions) {
+    const byDay = new Map();
+    for (const s of sessions) {
+      if (!s.url || isTransit(s)) continue;
+      const score = scoreSession(s);
+      const e = {
+        ...s,
+        host: hostOf(s),
+        score,
+        band: bandFor(score),
+        durMs: s.endTime - s.startTime,
+      };
+      const day = dayStartOf(e.endTime);
+      let arr = byDay.get(day);
+      if (!arr) byDay.set(day, (arr = []));
+      arr.push(e);
+    }
+    const anchored = new Set();
+    for (const day of [...byDay.keys()].sort((a, b) => a - b)) {
+      const events = byDay.get(day).sort((a, b) => a.startTime - b.startTime);
+      for (const e of detectContainers(mergeVisits(events), true)) {
+        if (e.band === "high") anchored.add(e.host);
+      }
+    }
+    return anchored;
   }
 
   // Runs of MIN_RUN+ consecutive LOW events fence; everything else lays out
@@ -1006,19 +1045,15 @@
       return;
     }
     renderWeekStrip(sessions);
-    // Claim registry colors BEFORE containment: a host whose MEDIUM block
-    // ends up contained still earned its permanent identity slot.
+    // Anchored hosts are judged over the WHOLE stored week (chain-level
+    // HIGH — spec §6, 2026-07-18), then claim/release registry slots
+    // before painting.
+    const coloredHosts = computeAnchoredHosts(sessions);
+    claimColors(coloredHosts);
     const merged = mergeVisits(parseSessions(sessions));
-    claimColors(merged);
     const events = detectContainers(merged);
-    transientSlots = new Map(); // transient colors never outlive a render
     const items = clusterEvents(events);
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
-
-    // Hosts that earned an identity hue: any MEDIUM+ event qualifies the
-    // whole host, so its LOW visits share the color (revisit structure).
-    // Judged pre-containment: a contained MEDIUM still qualifies its host.
-    const coloredHosts = new Set(merged.filter((e) => e.band !== "low").map((e) => e.host));
 
     const ribbon = document.getElementById("ribbon");
     const bandBottom = TITLE_AREA + BAND_H;
@@ -1039,11 +1074,13 @@
         blockEls.set(s.key, el);
       }
       const h = TIER_H[s.band];
-      // Identity hue for qualifying hosts; members of an OPEN fence and
-      // contained children are always colored (relaxation rules).
-      // Collapsed sticks and LOW-only hosts stay gray.
-      const colored =
-        s.contained || (!s.collapsed && (coloredHosts.has(s.e.host) || s.clusterKey != null));
+      // Identity hue for anchored hosts ONLY — everywhere they appear
+      // (LOW visits, fence members, contained children all share the
+      // thread's color). Non-anchored hosts are gray on every surface;
+      // the old fence-open and contained-child color relaxations are
+      // retired with transient colors (2026-07-18). Collapsed sticks
+      // stay stick-gray regardless.
+      const colored = !s.collapsed && coloredHosts.has(s.e.host);
       const fill = !colored
         ? s.collapsed
           ? STICK_FILL
@@ -1229,8 +1266,10 @@
       // fence slivers, invisible on wide runs.
       el.style.left = run.center + 9 + "px";
       // Rim mix, not the raw fill: dark palette entries (vivid red, strong
-      // blue/violet) are illegible as text on the dark ribbon.
-      el.style.color = rimOf(colorOf(run.host));
+      // blue/violet) are illegible as text on the dark ribbon. Labels of
+      // non-anchored runs (gray MEDIUMs still label) use the gray rim —
+      // label color must never leak an identity hue the blocks don't have.
+      el.style.color = coloredHosts.has(run.host) ? rimOf(colorOf(run.host)) : GRAY_RIM;
       const name = siteNameOf(run.titles) || run.host;
       el.textContent =
         name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;

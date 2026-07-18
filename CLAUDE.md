@@ -75,7 +75,9 @@ alternatives, dated history) lives in `plans/` — see the index below.
   input relay — spec §3); audible no longer saves sub-10s sessions from the
   transit filter; continuation merge (same-tab machinery-boundary runs join
   regardless of band) + containers lowered to sum ≥ MEDIUM with anchor
-  dominance — SPA-continuation merging closed as subsumed (spec §6).
+  dominance — SPA-continuation merging closed as subsumed (spec §6); color
+  re-rationed to week-scoped HIGH anchoring with registry tombstones
+  (transient colors retired — spec §6).
 - **Deferred:** `parentId`/opener tracking, zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
@@ -89,6 +91,9 @@ alternatives, dated history) lives in `plans/` — see the index below.
   filter, continuation merge + MEDIUM containers.
 - `plans/capture_design.md` — capture-side decision log: session model, heartbeat
   hybrid counting, filters, audible, SPA debounce, injection hardening, retention.
+- `plans/rules_restructure_proposal.md` — PROPOSAL (2026-07-18, undecided):
+  thread-first rewrite of the display rulebook (boundary taxonomy, thread as
+  the display atom, atomicity guards); spec untouched until compared.
 - `plans/tooltip_snapshot_plan.md` — custom tooltip + snapshot previews: the original
   reasoning and decided knobs (both parts live as of 2026-07-16).
 - `plans/snapshot_implementation.md` — snapshot previews as built: the five file

@@ -68,6 +68,42 @@ watch-list is consolidated in spec §6 ("Watch list").
   early ones: gmail's orange-yellow beside gemini's orange). **Rule: non-prefix
   subsets of Kelly void the contrast warranty, and hashing structurally
   produces non-prefixes.** MEDIUM+ gets hard guarantees; LOW gets best-effort.
+- **(2026-07-18) HIGH anchoring + tombstones — MEDIUM rationing superseded.**
+  Trigger: Scott flagged "a LOT of blue on 3 different websites." Ground
+  truth recovered by parsing the extension's LevelDB from disk (the 7-day
+  Score table can't reconstruct the cumulative registry): 20 registered
+  hosts in four days of use, wrap already begun — youtube (#3) and
+  notebooklm (#19) literally shared light blue; docs/gemini shared orange,
+  voice/phanpy purple, semble/google yellow. The old comment's bet ("wrap
+  pairs are temporally distant in practice") was falsified on day four.
+  Compounding: MEDIUM's 50% mix pushes light blue toward the slate noise-
+  gray, so collision blue + mixed blue + gray converged.
+- Constraint discussion (Scott): ~19 distinguishable hues is a human
+  ceiling; patterns were discarded in an earlier session; opacity is
+  already spent on tier and is weak anyway. So relax the *demand* side:
+  color only what matters. First-cut recycling proposal (tombstone the
+  registry at 7 days) treated the symptom; Scott's counter — color only
+  hosts with important events, letting their MEDIUMs keep the hue and rare
+  MEDIUMs fall to uniform gray — removes the cause. Adopted with two
+  data-driven amendments:
+  1. **Anchor at chain level, not session level** — raw sessions produced
+     ONE high all week (fragmentation), while chain-level (merged visits +
+     containers) produced 6 anchored hosts/week, 0–5 per day.
+  2. **Anchor over the stored week, not the viewed day** — day-scoping
+     would render mornings monochrome (Sat had 0 HIGHs by 9am) and flicker
+     hosts across day pages. Week-scoping also turns the 7-day retention
+     window into the definition of "recently mattered."
+  Tombstones: released slots are nulled IN PLACE (indices are identities);
+  new anchors fill the earliest null. Subsets of the 16-Kelly prefix stay
+  mutually max-contrast, so sparseness is safe. Migration fell out free:
+  anchored hosts keep their existing slots (mail stays pink, youtube keeps
+  light blue), the other ~14 entries tombstone on first render.
+  Also retired: transient colors and the fence-open/contained-child color
+  relaxations (colorOf is now only reached for registered hosts; gray
+  fallback is defensive, never a lazy claim). Costs accepted and
+  watch-listed: side-quest hue loss (a Paysera payment renders gray —
+  fences/labels/height must carry it) and active-host (not forever)
+  permanence.
 
 ## Fences
 - EVERY run of consecutive LOW collapses to 3px sticks — including singletons
