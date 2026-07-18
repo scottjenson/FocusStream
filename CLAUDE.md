@@ -91,9 +91,10 @@ alternatives, dated history) lives in `plans/` — see the index below.
   filter, continuation merge + MEDIUM containers.
 - `plans/capture_design.md` — capture-side decision log: session model, heartbeat
   hybrid counting, filters, audible, SPA debounce, injection hardening, retention.
-- `plans/rules_restructure_proposal.md` — PROPOSAL (2026-07-18, undecided):
-  thread-first rewrite of the display rulebook (boundary taxonomy, thread as
-  the display atom, atomicity guards); spec untouched until compared.
+- `plans/rules_restructure_proposal.md` — ADOPTED 2026-07-18: thread-first
+  rewrite of the display rulebook (boundary taxonomy, thread as the display
+  atom, atomicity guards, two-rung admission filter), merged into SPEC
+  §5/§3/§6 with five amendments recorded in the file header.
 - `plans/tooltip_snapshot_plan.md` — custom tooltip + snapshot previews: the original
   reasoning and decided knobs (both parts live as of 2026-07-16).
 - `plans/snapshot_implementation.md` — snapshot previews as built: the five file

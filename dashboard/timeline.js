@@ -258,8 +258,8 @@
       .join("\n");
   }
 
-  // Transit filter (spec §4): below one heartbeat window (our attention
-  // quantum) with no high-intent discrete signals = navigation machinery
+  // Admission filter, display rung (spec §3): below one heartbeat window
+  // (our attention quantum) with no high-intent discrete signals = machinery
   // (OAuth hops, SSO choosers, consent bounces, autoplay bounces).
   // Clicks/mouse/scroll don't save it — a click is how you LEAVE a page —
   // and neither do audible time (autoplay is the page's action, not the

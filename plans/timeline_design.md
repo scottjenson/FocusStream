@@ -334,7 +334,11 @@ watch-list is consolidated in spec §6 ("Watch list").
   HIGH excursions get lost (brightness-follows-true-band, height cap
   stays) is watch-listed along with palette compression at 50%.
 
-## Resumed-read containers — PROPOSED/DEFERRED (2026-07-16)
+## Resumed-read containers — PROPOSED 2026-07-16, CLOSED 2026-07-18 (subsumed)
+- (2026-07-18) Closed during the rules restructure: the general container
+  path now fires at sum ≥ MEDIUM with anchor dominance, covering the
+  out-and-back read without the special same-URL trigger. The same-URL-
+  anchor restriction survives as a spec watch-list tightening knob.
 - The out-and-back read (article-M → detour → same-article-M) as a second
   container trigger. Key insight (Scott): containers map the **journey's
   shape**, tier maps importance — orthogonal axes, so sub-HIGH containers are
@@ -463,6 +467,14 @@ watch-list is consolidated in spec §6 ("Watch list").
   favicon-only slivers, click-to-open) was removed 2026-07-17 during the
   rules-only slim-down — fully superseded by the implemented Phase 3b
   design; text in git history.
+
+## Display rules restructured thread-first (2026-07-18)
+- SPEC §5/§3/§6 rewritten around the boundary taxonomy + thread-as-atom
+  model; blip+transit unified as the two-rung admission filter; resumed-read
+  containers closed as subsumed. Full verdict, alternative rule set,
+  amendments, and loose ends: `plans/rules_restructure_proposal.md`
+  (ADOPTED). This log's older sections describe the pre-restructure rule
+  names; the rules themselves are unchanged.
 
 ## Doc structure (2026-07-17)
 - Spec §6 rewritten rules-only (44KB → ~21KB): evidence, history, and

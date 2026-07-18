@@ -1,9 +1,24 @@
-# Rules restructure proposal — 2026-07-18
+# Rules restructure proposal — 2026-07-18 — ADOPTED
 
 Written at Scott's request: pause, re-read every rule, and ask whether the
 system we'd write from scratch today is structured like the one we have.
-**This is a proposal for comparison. SPEC.md is untouched; nothing here is
-agreed.**
+
+**ADOPTED 2026-07-18** (Gemini co-reviewed and concurred) and merged into
+SPEC.md with five amendments to the merge plan:
+1. §3 IS touched — both admission rungs lived there, so the unified filter
+   stays in §3 with rungs labeled capture-time/display-time.
+2. Original agreement dates preserved on individual rules; only the
+   restructure itself is tagged 2026-07-18.
+3. No duplication into `timeline_design.md` — this file is the story's one
+   home; the design log carries a one-line cross-reference.
+4. The block taxonomy was recast at thread level, not deleted (side-quest
+   remains load-bearing as atomicity guard 2).
+5. Loose end 1 decided: resumed-read containers CLOSED as subsumed by the
+   MEDIUM-container path; the same-URL-anchor restriction survives as a
+   watch-list tightening knob. Loose ends 2–3 became watch-list items;
+   loose end 4 became the unified atomicity rule.
+
+The text below is the proposal as reviewed (kept verbatim as the record).
 
 ## Verdict first
 
