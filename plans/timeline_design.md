@@ -327,14 +327,90 @@ watch-list is consolidated in spec §6 ("Watch list").
   scroll don't save it (a click is how you leave a page); neither does a
   flush-artifact heartbeat. Catches OAuth hops, SSO choosers, consent bounces —
   no host special-casing. Cost: a sub-10s purely-visual glance drops too.
+- (2026-07-18) **Audible no longer saves a sub-10s session.** Trigger: a 4s
+  YouTube autoplay bounce (clicked from a Gmail message, 3s audible) rendered
+  in the timeline but could never get a snapshot (sessions ending before the
+  first 10s heartbeat only send flush-on-hidden, which is barred from
+  capturing — wrong-tab trap). Question raised: if it can't snapshot, should
+  it display? Answer: display is about intent, not snapshot mechanics — but
+  audible failed the intent test. Autoplay is the *page's* action, not the
+  user's (same logic as clicks-don't-save, only stronger). Score-table audit
+  of 7 days (576 sessions): only 5 sub-10s sessions were audible-saved, all
+  autoplay/join noise (2× Jitsi join blips, LinkedIn feed autoplay, YouTube
+  bounce, Google Voice chirp); zero deliberate short listens. The one real
+  short YouTube interaction (8s, aud=8 kbd=1) survives via keyboard.
+- (2026-07-18) **Threshold stays 10s — Scott's tightening question examined
+  and declined with data.** Hypothesis: most sub-10s drops are <6s, so the
+  rule could shrink. Reality: 207 sub-10s sessions distributed nearly flat
+  (per-sec 1–9s: 20/35/32/26/29/16/15/19/13), with 63 (30%) in the 6–9s band
+  and the decay continuing smoothly above 10s (5–13/sec at 10–15s) — no
+  natural boundary anywhere; the heartbeat quantum is the only principled
+  rung. Content check of all 63 in 6–9s: overwhelmingly inbox glances,
+  notification checks (LinkedIn/Bluesky/Phanpy), keltas.lt booking hops,
+  Paysera payment interstitials, calendar peeks — exactly the machinery the
+  filter exists to drop. Purposeful visits in that band already survive via
+  discrete signals (keltas form hops kbd=2, Phanpy reply kbd=1 click=3).
 
-## SPA-continuation merging — DEFERRED
+## SPA-continuation merging — CLOSED 2026-07-18 (subsumed)
 - (2026-07-15, Scott) Continuous Gemini typing fragments into adjacent MEDIUM
   blocks (SPA URL churn >15s apart splits sessions; visit-merge is LOW-only,
   containers need foreign interruptions). Proposal on file in spec §6 (merge
   same-tab spa_navigation-linked MEDIUM+ pairs) — deferred: only 2 SPA
   examples, over-merge risk > fragmentation. Collect SPA endReason/band data
   first.
+- (2026-07-18) Subsumed by the continuation merge rule — see "Continuation
+  merge + MEDIUM containers" below. The awaited data arrived at scale: 318
+  of 652 sessions in a week were continuation fragments.
+
+## Continuation merge + MEDIUM containers (2026-07-18)
+- Trigger (Scott): three back-to-back YouTube videos and a set of Phanpy
+  visits rendering as separate slivers; only 1 HIGH event on most days felt
+  overly restrictive ("2–3 important a day would be more helpful"). Chose
+  fixing grouping over lowering score thresholds (one knob at a time).
+- Reframed "never join runs" from the original §5 arguments: the ban was
+  never on combining, only on combining-ACROSS-something (A→B→A must keep
+  its interruption). Two cases fall through the existing mechanisms' crack
+  (visit merge = LOW-only; containers = same-tab sum≥HIGH):
+  1. **Unbroken run** (machinery boundaries, attention never left) → JOIN.
+     Defined by boundary REASON, not gap size: `spa_navigation`/`navigated`
+     merge; `tab_hidden` never does (a real departure → container
+     territory). Same fact the container guard already trusts, read
+     forward as a merge license. Individually-HIGH splits the run
+     ("MEDIUM+ never merges" narrowed to "HIGH never merges" — a same-host
+     continuation is one thread, not a side-quest; side-quests are foreign
+     by nature).
+  2. **Broken run** (real departures) → containerize at sum ≥ MEDIUM
+     (Scott's own orthogonality insight from resumed-reads: shape vs
+     importance). Sub-HIGH chains require anchor dominance (anchor sum >
+     children sum), imported from the resumed-read design where it was
+     built for exactly this launcher risk. HIGH path untouched.
+- Offline replay of both rules against a full week (scores6.tsv, 652
+  sessions; approximation of the pipeline — eyeball the live dashboard
+  against these numbers): rule 1 fired 103 times (318 fragments → 103
+  visits), 18 band promotions incl. three new HIGHs (9-page Gmail morning
+  1228; 6-page YouTube 1041; a 22-page/23-min YouTube run 1569 that had
+  rendered as 22 slivers). No misfires on eyeball (keltas/Paysera payment
+  hops merged into tidy LOW groups). Rule 2 at MEDIUM fired 24 raw;
+  dominance rejected exactly the 5 launcher patterns (two weak keltas
+  containers framing 21 and 5 children, Gmail-as-launcher 293-vs-814,
+  LinkedIn hop, Google-search springboard — incl. the interleaved
+  shop/pay ping-pong where keltas and Paysera each tried to containerize
+  the other's fragments); 19 legitimate MEDIUM containers survived
+  (~5/day: Phanpy sets, YouTube clusters, a 15-min Zoom, calendar checks).
+  Combined effect: 1–3 HIGH-level events per day (was 0–1) with no
+  threshold change.
+- Cost accepted, watch-listed (Scott): a MEDIUM email composition inside a
+  long Gmail run now merges into the run — the "show key email" case.
+  Kept mitigations: individually-HIGH splits; click opens top-scoring
+  member; tooltip page count. Candidate fix if data demands: surface
+  MEDIUM+ members inside merged blocks.
+- Implementation: `mergeVisits` gained the second license (CONTINUATION_
+  GAP_MS = 30s sanity bound, MACHINERY_BOUNDARY set; runs may now mix
+  bands, HIGH pushed straight through); `detectContainers` threshold
+  HIGH→MED_SCORE, dominance guard for sub-HIGH chains, `band:
+  bandFor(sum)` instead of hardcoded "high". Render side needed nothing —
+  paint is band-driven (a MEDIUM container gets the 50% mix; children cut
+  out as before).
 
 ## Tooltips & snapshots
 - Custom tooltip layer (uniform 300ms; native title warm-up uncontrollable)

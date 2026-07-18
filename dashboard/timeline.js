@@ -255,14 +255,15 @@
   }
 
   // Transit filter (spec §4): below one heartbeat window (our attention
-  // quantum), no audible time, and no high-intent discrete signals =
-  // navigation machinery (OAuth hops, SSO choosers, consent bounces).
+  // quantum) with no high-intent discrete signals = navigation machinery
+  // (OAuth hops, SSO choosers, consent bounces, autoplay bounces).
   // Clicks/mouse/scroll don't save it — a click is how you LEAVE a page —
-  // and neither does a flush-artifact heartbeat. Display-time on purpose:
+  // and neither do audible time (autoplay is the page's action, not the
+  // user's) or a flush-artifact heartbeat. Display-time on purpose:
   // sessions stay in storage + Score table so the rule can be audited.
   const TRANSIT_MS = 10_000;
   function isTransit(s) {
-    if (s.endTime - s.startTime >= TRANSIT_MS || s.audibleMs) return false;
+    if (s.endTime - s.startTime >= TRANSIT_MS) return false;
     const a = s.activity || {};
     return !(a.keyboard || a.cut || a.copy || a.paste || a.download);
   }
@@ -304,12 +305,21 @@
       .sort((a, b) => a.startTime - b.startTime);
   }
 
-  // Same-host visit merging (spec §6): consecutive same-host LOW events
-  // merge into one visit block, scored and banded on the MERGED totals — a
-  // fragmented-but-engaged session (Maps pans, Gmail puttering) earns its
-  // combined stature. MEDIUM+ events never merge: the visit splits around
-  // them, so a big email inside an hour of Gmail stands alone (§5 side-quest
-  // rule). A merged visit that is still LOW remains fence-eligible.
+  // Same-host visit merging (spec §6): two merge licenses, both strict-
+  // adjacency (nothing between members to hide):
+  //   1. LOW rule (2026-07-15): consecutive same-host LOW events with gaps
+  //      < VISIT_GAP_MS merge — a fragmented-but-engaged session (Maps
+  //      pans, Gmail puttering) earns its combined stature.
+  //   2. Continuation rule (2026-07-18): same-tab same-host fragments whose
+  //      boundary is navigation machinery (spa_navigation/navigated —
+  //      attention never left the tab) merge REGARDLESS of band. Three
+  //      back-to-back YouTube videos are one watch, not three slivers.
+  // Individually-HIGH events never merge — they split the run and stand
+  // alone (a block that's HIGH by itself owns its story). tab_hidden
+  // boundaries never merge under rule 2: the user actually left, which is
+  // container territory. Scored and banded on the MERGED totals.
+  const CONTINUATION_GAP_MS = 30_000; // sanity bound; machinery gaps are ~0
+  const MACHINERY_BOUNDARY = new Set(["spa_navigation", "navigated"]);
   function mergeVisits(events) {
     const out = [];
     let run = [];
@@ -365,14 +375,23 @@
     };
     for (const e of events) {
       const prev = run[run.length - 1];
-      if (
+      const lowMerge =
         e.band === "low" &&
         prev &&
+        prev.band === "low" &&
         prev.host === e.host &&
-        e.startTime - prev.endTime < VISIT_GAP_MS
-      ) {
+        e.startTime - prev.endTime < VISIT_GAP_MS;
+      const continuation =
+        e.band !== "high" &&
+        prev &&
+        prev.host === e.host &&
+        prev.tabId != null &&
+        prev.tabId === e.tabId &&
+        MACHINERY_BOUNDARY.has(prev.endReason) &&
+        e.startTime - prev.endTime < CONTINUATION_GAP_MS;
+      if (lowMerge || continuation) {
         run.push(e);
-      } else if (e.band === "low") {
+      } else if (e.band !== "high") {
         flush();
         run.push(e);
       } else {
@@ -388,13 +407,20 @@
   // journey context — returning is the strongest intent signal we have.
   // Same-tabId fragments chain when the excursion returns within
   // VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS when both bookends are
-  // audible-dominated. A chain whose SUMMED score reaches HIGH becomes a
-  // container: fragments merge into the anchor (width = wall-clock span),
-  // foreign events inside the span become contained children. Guards so
-  // the big-email case can never trigger this: foreign interruptions are
-  // REQUIRED (≥1 child), individually-HIGH events never chain, and a
-  // chain whose span holds a same-tab HIGH event is rejected (that event
-  // owns the story).
+  // audible-dominated. A chain whose SUMMED score reaches MEDIUM (lowered
+  // from HIGH, 2026-07-18 — containers map the journey's shape, tier maps
+  // importance) becomes a container: fragments merge into the anchor
+  // (width = wall-clock span), foreign events inside the span become
+  // contained children. Guards so the big-email case can never trigger
+  // this: foreign interruptions are REQUIRED (≥1 child), individually-HIGH
+  // events never chain, and a chain whose span holds a same-tab HIGH event
+  // is rejected (that event owns the story). Sub-HIGH chains additionally
+  // require ANCHOR DOMINANCE (anchor sum > children sum) — a weak anchor
+  // framing stronger children is a launcher, and the children are the
+  // story (validated 2026-07-18: dominance rejected all five launcher
+  // patterns in a week's replay, e.g. interleaved shop/pay ping-pong
+  // where two sites each tried to containerize the other). The HIGH path
+  // keeps its original guards; dominance is deliberately not applied there.
   function detectContainers(events) {
     const audibleDominated = (e) => (e.audibleMs || 0) >= 0.5 * e.durMs;
     const open = new Map(); // tabId -> fragments of the currently open chain
@@ -424,7 +450,7 @@
 
     const qualifying = chains
       .map((frags) => ({ frags, score: frags.reduce((t, f) => t + f.score, 0) }))
-      .filter((c) => c.score >= HIGH_SCORE)
+      .filter((c) => c.score >= MED_SCORE)
       .sort((a, b) => b.score - a.score);
 
     const containers = [];
@@ -451,6 +477,9 @@
       ).length;
       if (!children.length && !departures) continue; // no interruptions at all
       if (children.some((e) => e.tabId === c.frags[0].tabId && e.band === "high")) continue;
+      // Anchor dominance (sub-HIGH only): the anchor must outscore its
+      // children, or it's a launcher and the children are the story.
+      if (c.score < HIGH_SCORE && c.score <= children.reduce((t, e) => t + e.score, 0)) continue;
       const activity = {};
       let heartbeats = 0;
       let audibleMs = 0;
@@ -482,7 +511,7 @@
         activity,
         scrollable: c.frags.some((f) => f.scrollable),
         score: c.score, // summed fragment scores: add up, then judge
-        band: "high",
+        band: bandFor(c.score),
         members: c.frags,
         children,
       });

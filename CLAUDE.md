@@ -71,9 +71,13 @@ alternatives, dated history) lives in `plans/` — see the index below.
   room-keyed hour-label meridiem dropping, week strip header (skyline cells,
   click-to-jump paging), debug session list removed, full-dark page, and spec §6
   rewritten rules-only (history moved to `plans/timeline_design.md`).
-- **Deferred:** SPA-continuation merging (collect more SPA data first — spec §6),
-  `parentId`/opener tracking, zoom, date-picker day jumping (the week strip is
-  the only day picker as of 2026-07-17; ‹/› header nav removed).
+- **2026-07-18:** two capture holes closed (tab adoption on navigation, iframe
+  input relay — spec §3); audible no longer saves sub-10s sessions from the
+  transit filter; continuation merge (same-tab machinery-boundary runs join
+  regardless of band) + containers lowered to sum ≥ MEDIUM with anchor
+  dominance — SPA-continuation merging closed as subsumed (spec §6).
+- **Deferred:** `parentId`/opener tracking, zoom, date-picker day jumping (the
+  week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
   "watch with data" item.
 - Old-schema data (pre-`heartbeats`) scores attended-time 0 — clear stored data when
@@ -82,7 +86,7 @@ alternatives, dated history) lives in `plans/` — see the index below.
 ## plans/ index
 - `plans/timeline_design.md` — display-side decision log: score/tiers, labels, the
   color/Kelly saga, fences, two time scales, visit merging, containers, transit
-  filter, SPA-merge deferral.
+  filter, continuation merge + MEDIUM containers.
 - `plans/capture_design.md` — capture-side decision log: session model, heartbeat
   hybrid counting, filters, audible, SPA debounce, injection hardening, retention.
 - `plans/tooltip_snapshot_plan.md` — custom tooltip + snapshot previews: the original
