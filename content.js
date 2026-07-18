@@ -28,6 +28,61 @@
   window.__fsLoaded = true;
 
   const HEARTBEAT_MS = 10_000;
+  const RELAY_MS = 1_000;
+
+  // Iframe relay (spec §3, 2026-07-18): input events never cross frame
+  // boundaries, and app plumbing lives in same-origin subframes (Google
+  // Docs types into a hidden about:blank iframe; Slides presents in one).
+  // A subframe instance counts its own input and forwards batched totals
+  // to the top frame — which stays the SOLE heartbeat sender. Cross-origin
+  // frames (ads) self-destruct at birth: no listeners, no messages, and no
+  // log line (a 12-ad blog would otherwise announce 12 stillbirths).
+  if (window !== window.top) {
+    let topOrigin;
+    try {
+      topOrigin = window.top.location.origin; // throws for cross-origin frames
+    } catch {
+      return;
+    }
+    const batch = { keyboard: 0, click: 0, cut: 0, copy: 0, paste: 0, mouse: false, scroll: false };
+    const relayCtrl = new AbortController();
+    const relayOpts = { capture: true, passive: true, signal: relayCtrl.signal };
+    window.addEventListener("keydown", () => batch.keyboard++, relayOpts);
+    window.addEventListener("mousedown", () => batch.click++, relayOpts);
+    window.addEventListener("cut", () => batch.cut++, relayOpts);
+    window.addEventListener("copy", () => batch.copy++, relayOpts);
+    window.addEventListener("paste", () => batch.paste++, relayOpts);
+    window.addEventListener("mousemove", () => (batch.mouse = true), relayOpts);
+    window.addEventListener("wheel", () => (batch.scroll = true), relayOpts);
+    window.addEventListener("scroll", () => (batch.scroll = true), relayOpts);
+    const flush = () => {
+      if (!Object.values(batch).some((v) => v === true || v > 0)) return;
+      const signals = { ...batch };
+      for (const k in batch) batch[k] = typeof batch[k] === "number" ? 0 : false;
+      // file:// pages serialize origin as "null", which postMessage rejects
+      // as a targetOrigin — fall back to "*" (payload is bare counts).
+      window.top.postMessage({ __fsRelay: true, signals }, topOrigin === "null" ? "*" : topOrigin);
+    };
+    const relayId = setInterval(() => {
+      if (!chrome.runtime?.id) {
+        // Orphaned by an extension reload: same self-destruct as the top
+        // instance, minus the log (no chrome context left to matter).
+        clearInterval(relayId);
+        relayCtrl.abort();
+        return;
+      }
+      flush();
+    }, RELAY_MS);
+    document.addEventListener(
+      "visibilitychange",
+      () => {
+        if (document.visibilityState === "hidden") flush();
+      },
+      { signal: relayCtrl.signal }
+    );
+    log("relay frame loaded on", location.href);
+    return;
+  }
 
   const activity = {
     // discrete — raw event counts
@@ -58,6 +113,25 @@
   window.addEventListener("mousemove", () => (activity.mouse = true), opts);
   window.addEventListener("wheel", () => (activity.scroll = true), opts);
   window.addEventListener("scroll", () => (activity.scroll = true), opts);
+
+  // Fold relayed subframe counts in as if they were local events (spec §3
+  // iframe relay). Origin gate only: the page could already spoof our local
+  // listeners with synthetic events, so heavier auth on the relay would
+  // guard a door standing next to an open one.
+  window.addEventListener(
+    "message",
+    (e) => {
+      if (!e.data || e.data.__fsRelay !== true || e.origin !== location.origin) return;
+      const s = e.data.signals || {};
+      for (const k of ["keyboard", "click", "cut", "copy", "paste"]) {
+        if (s[k]) activity[k] += s[k];
+      }
+      for (const k of ["mouse", "scroll"]) {
+        if (s[k]) activity[k] = true;
+      }
+    },
+    { signal: ctrl.signal }
+  );
 
   function teardown(why) {
     clearInterval(intervalId);

@@ -232,7 +232,12 @@ async function injectIntoExistingTabs() {
   let injected = 0;
   for (const tab of tabs) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+      // allFrames mirrors the manifest's all_frames (spec §3 iframe relay):
+      // subframes self-gate on origin, so blanket injection is safe.
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        files: ["content.js"],
+      });
       injected++;
     } catch (e) {
       log("inject failed for tab", tab.id, tab.url, "-", e.message);
@@ -290,7 +295,27 @@ chrome.webNavigation.onCommitted.addListener((details) => {
   log("event: onCommitted tab", details.tabId, details.url);
   enqueue("onCommitted", async () => {
     const current = await getCurrent();
-    if (!current || current.tabId !== details.tabId) {
+    // Adoption (spec §3, 2026-07-18): a commit while NOTHING is tracked, in
+    // the active tab of the focused window, starts a session. A fresh tab is
+    // born chrome://newtab (filtered, so no session exists), and without
+    // adoption its first real navigation fell into the non-tracked guard —
+    // the whole new-tab → type-URL → browse → close flow went unrecorded.
+    if (!current) {
+      const tab = await chrome.tabs.get(details.tabId).catch(() => null);
+      if (!tab || !tab.active) {
+        log("ignoring nav in non-tracked tab", details.tabId, "(no session, tab not active)");
+        return;
+      }
+      const win = await chrome.windows.get(tab.windowId).catch(() => null);
+      if (!win || !win.focused) {
+        log("ignoring nav in non-tracked tab", details.tabId, "(no session, window unfocused)");
+        return;
+      }
+      log("adopting active tab", details.tabId);
+      await startSession(tab);
+      return;
+    }
+    if (current.tabId !== details.tabId) {
       log("ignoring nav in non-tracked tab", details.tabId);
       return;
     }
