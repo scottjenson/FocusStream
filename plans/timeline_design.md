@@ -479,6 +479,53 @@ watch-list is consolidated in spec §6 ("Watch list").
   implemented 2026-07-15; snapshot previews implemented 2026-07-16. Full story
   (reasoning, knobs, as-built shape): `plans/snapshot_implementation.md`.
 
+### Two-section tooltip (2026-07-18)
+Scott: as the demo matures, the tooltip's debug soup has to go — "they want
+the important stuff to be important... they don't need to know how the
+sausage is made." The split: a user section (bold invariant site name, start
+time + duration — no end time — then the thread's pages) and a debug section
+(smaller/grayer: activity counts, score/band, attended, thread counts, exact
+span, URL) gated by a `TIP_DEBUG` constant, on through the demo.
+
+Decisions along the way:
+- **Intent-in-words rejected.** I proposed translating signals to plain
+  language ("typed here · copied something"); Scott argued even interpretable
+  signals give users nothing actionable — the tiers should carry the
+  judgment. All activity stays compact, debug-only.
+- **Member pages ARE user-facing.** The one addition Scott wanted: a
+  container/merged thread (YouTube run, Gmail run) showed only its
+  top-scoring member's title. Naive ideal ("watched 12 videos", "read 17
+  emails") needs an unknowable verb — site-specific logic, refused. The
+  generic noun is free: the members list already holds one title per page
+  that survived capture. Titles are deduped (best score wins), listed
+  **sorted by score descending** — importance order, chronology stays the
+  ribbon's job — capped at 8 with "+N more". LOW pages render dimmed
+  (the ribbon's brightness-equals-tier vocabulary carried inside the
+  tooltip); scores append to each title only under `TIP_DEBUG`, which is
+  the evaluation period for whether fragment score is a trustworthy
+  key-email proxy (interaction scores surface a replied-to email; a
+  silently-read important one only earns scroll + duration).
+- This gives the watch-listed **key-email use case its first home**: the
+  ribbon shows that Gmail mattered; hover shows *which* email, no ribbon
+  machinery needed.
+- Undercount accepted as philosophy: the page list counts pages that
+  *held* attention (survived SPA debounce + admission), so inbox-skimming
+  Gmail reads ~7 when 17 were touched, while YouTube counts are near-exact.
+  Same rule as everywhere: we count what attention held, not what flipped
+  past.
+- First specimen (a 22-page YouTube merge) demanded two refinements: strip
+  leading unread counters ("(379) " on every title — churning counters also
+  defeat dedupe) and the boilerplate site-name segment ("- YouTube") the
+  bold headline already states — both generic patterns (the Voice/Gmail
+  counter class), no site-specific logic; and one-line CSS ellipsis per
+  title (the debug score sits in its own flex span so long titles can't
+  truncate it away).
+- Mechanics: `tipDataOf()` replaces the flat `tooltip()` string; blocks
+  carry the structure as a JS element property (`_tipData`) with `data-tip`
+  kept as the empty hover marker; gaps/plates/bars keep plain strings via
+  the `fillTip` fallback. One div per line, all `textContent` — the
+  injection rule survives the formatting upgrade.
+
 ## Scope holds
 - No zoom; day paging shipped 2026-07-16 (see "Day paging"), date-picker
   jumping still deferred.

@@ -150,6 +150,33 @@
       border-radius: 3px;
       margin-bottom: 6px;
     }
+    /* Two-section tooltip (spec §6, 2026-07-18): bold site name, muted
+       meta, pages sorted by score with LOW pages dimmed (the ribbon's
+       brightness-equals-tier vocabulary); everything mechanical sits in
+       .tip-debug — smaller, grayer, ruled off, gated by TIP_DEBUG. */
+    #tip .tip-title { font-weight: 600; font-size: 13px; }
+    #tip .tip-meta { color: #9aa1ab; }
+    /* One line per page: the title span ellipsizes, the score span (debug)
+       keeps its width — long titles never wrap and never eat the score. */
+    #tip .tip-page {
+      display: flex;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    #tip .tip-page .t {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+    #tip .dim { color: #878d97; }
+    #tip .tip-debug {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid #353a42;
+      color: #8b919b;
+      font-size: 11px;
+      white-space: pre-line;
+    }
   </style>
 </head>
 <body>

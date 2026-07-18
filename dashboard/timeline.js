@@ -232,17 +232,44 @@
     return new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
-  function tooltip(e) {
-    const parts = Object.entries(e.activity || {})
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k} ${v}`)
-      .join(" · ");
+  // Two-section tooltip data (spec §6, 2026-07-18): a user section (bold
+  // site name, start + duration, member pages sorted by score) and a debug
+  // section gated by TIP_DEBUG. Every string here is page-controlled — the
+  // renderer (fillTip) lands them via textContent only, never innerHTML.
+  const TIP_DEBUG = true; // demo period: scores + signals visible; flip off for normal use
+  const TIP_TITLES_MAX = 8;
+  function tipDataOf(e, siteName) {
+    // A container's fragments can themselves be merged visits — flatten to
+    // the underlying pages so the list shows what was actually read.
+    const members = e.members ? e.members.flatMap((m) => m.members || [m]) : [e];
     // Untitled pages fall back to the URL, which can be a 2000-char OAuth
-    // monster — cap the headline.
-    const head = e.title || e.url || "";
-    return [
-      head.length > 120 ? head.slice(0, 120) + "…" : head,
-      `${e.host} · ${fmtClock(e.startTime)} – ${fmtClock(e.endTime)} · ${fmtDuration(e.durMs)} · attended ${attendedSeconds(e)}s`,
+    // monster — cap every listed string (display truncation is CSS ellipsis;
+    // this bounds what we store on the element).
+    const cap = (t) => (t.length > 80 ? t.slice(0, 80) + "…" : t);
+    // Page titles carry noise the tooltip shouldn't: leading unread
+    // counters ("(379) …" — they also churn, defeating dedupe) and the
+    // boilerplate site-name segment ("… - YouTube") that the bold headline
+    // already states. Both stripped generically, front or back position
+    // (same separator alphabet as siteNameOf).
+    const esc = siteName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const clean = (t) =>
+      t
+        .replace(/^\(\d+\)\s*/, "")
+        .replace(new RegExp(`\\s+[-–—|·/]\\s+${esc}\\s*$`), "")
+        .replace(new RegExp(`^${esc}\\s+[-–—|·/]\\s+`), "");
+    const byTitle = new Map(); // dedupe: one line per title, best score wins
+    for (const m of members) {
+      const t = cap(clean(m.title || m.url || ""));
+      if (!t) continue;
+      const prev = byTitle.get(t);
+      if (!prev || m.score > prev.score) byTitle.set(t, m);
+    }
+    let pages = [...byTitle.entries()]
+      .map(([title, m]) => ({ title, score: m.score, band: m.band }))
+      .sort((a, b) => b.score - a.score);
+    // A lone page repeating the site name says nothing — drop it.
+    if (pages.length === 1 && pages[0].title === siteName) pages = [];
+    const debug = [
       e.children
         ? `container: ${e.members.length} visits` +
           (e.children.length
@@ -251,11 +278,21 @@
         : e.members
           ? `${e.members.length} pages merged`
           : "",
-      parts,
-      `score ${Math.round(e.score)} (${e.band})`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+      Object.entries(e.activity || {})
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k} ${v}`)
+        .join(" · "),
+      // Exact wall-clock span stays here as ground truth (spec §6 hour axis).
+      `score ${Math.round(e.score)} (${e.band}) · attended ${attendedSeconds(e)}s · ` +
+        `${fmtClock(e.startTime)} – ${fmtClock(e.endTime)}`,
+      cap(e.url || ""),
+    ].filter(Boolean);
+    return {
+      siteName,
+      meta: `${fmtClock(e.startTime)} · ${fmtDuration(e.durMs)}`,
+      pages,
+      debug,
+    };
   }
 
   // Admission filter, display rung (spec §3): below one heartbeat window
@@ -1042,6 +1079,45 @@
     tip.hidden = true;
   }
 
+  // Build the tooltip text area. Structured blocks carry _tipData (two
+  // sections, spec §6); gaps/plates/bars carry a plain data-tip string.
+  // One div per line, all content via textContent (injection rule).
+  function fillTip(el) {
+    tipText.textContent = "";
+    const d = el._tipData;
+    if (!d) {
+      tipText.textContent = el.dataset.tip;
+      return;
+    }
+    const line = (cls, text) => {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.textContent = text;
+      tipText.appendChild(div);
+    };
+    line("tip-title", d.siteName);
+    line("tip-meta", d.meta);
+    for (const p of d.pages.slice(0, TIP_TITLES_MAX)) {
+      // Title span ellipsizes; the debug score is its own span so a long
+      // title can never truncate it away.
+      const div = document.createElement("div");
+      div.className = p.band === "low" ? "tip-page dim" : "tip-page";
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = p.title;
+      div.appendChild(t);
+      if (TIP_DEBUG) {
+        const sc = document.createElement("span");
+        sc.textContent = Math.round(p.score);
+        div.appendChild(sc);
+      }
+      tipText.appendChild(div);
+    }
+    if (d.pages.length > TIP_TITLES_MAX)
+      line("tip-page dim", `+ ${d.pages.length - TIP_TITLES_MAX} more`);
+    if (TIP_DEBUG) line("tip-debug", d.debug.join("\n"));
+  }
+
   {
     const ribbonEl = document.getElementById("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
@@ -1052,7 +1128,7 @@
       const py = ev.clientY;
       const seq = tipSeq;
       tipTimer = setTimeout(async () => {
-        tipText.textContent = el.dataset.tip;
+        fillTip(el);
         tipImg.hidden = true;
         tipImg.removeAttribute("src"); // never flash the previous page's snapshot
         // Lazy snapshot fetch, decoded BEFORE showing (spec §6): the tooltip
@@ -1189,8 +1265,13 @@
         // expand toggle doubles as the snapshot gate).
         delete el.dataset.tip;
         delete el.dataset.snapIds;
+        delete el._tipData;
       } else {
-        el.dataset.tip = tooltip(s.e);
+        // Blocks get the structured two-section tooltip as a JS property;
+        // data-tip stays (empty) as the hover marker. Gaps/plates/bars keep
+        // plain data-tip strings — fillTip falls back for those.
+        el.dataset.tip = "";
+        el._tipData = tipDataOf(s.e, hostNames.get(s.e.host) || s.e.host);
         // Snapshot candidates, best first: merges/containers carry snapIds
         // (members in score order); raw blocks, contained children, and
         // expanded fence members are their own only candidate. Ids are
