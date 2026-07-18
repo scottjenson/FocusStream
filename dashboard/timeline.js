@@ -534,14 +534,20 @@
     return out;
   }
 
-  // Color anchoring (spec §6, 2026-07-18): a host is anchored if the full
-  // display pipeline (merge + containers — chain-level, where meetings and
-  // watch-runs actually reach HIGH) produces a HIGH event for it on ANY
-  // stored day. Week-scoped on purpose: day-scoped anchoring would render
-  // every morning monochrome until something accrued ~17 attended minutes,
-  // and hosts would flicker colored/gray across day pages. Iteration is
-  // chronological, so first-anchor claim order is deterministic.
-  function computeAnchoredHosts(sessions) {
+  // Thread assembly (spec §6 aggregation, restructured 2026-07-18): the
+  // display atom is the THREAD — merge across machinery boundaries, then
+  // frame departures as containers. One name for the rulebook's central
+  // operation; every consumer (ribbon, week strip, color anchoring) goes
+  // through here.
+  function assembleThreads(events, quiet) {
+    return detectContainers(mergeVisits(events), quiet);
+  }
+
+  // Threads for every stored day (admission-filtered, scored, assembled;
+  // quiet — the viewed day's loud assembly happens in render). Feeds the
+  // week strip and color anchoring so both judge the same objects the
+  // ribbon draws.
+  function threadsByDay(sessions) {
     const byDay = new Map();
     for (const s of sessions) {
       if (!s.url || isTransit(s)) continue;
@@ -558,11 +564,26 @@
       if (!arr) byDay.set(day, (arr = []));
       arr.push(e);
     }
-    const anchored = new Set();
+    const out = new Map();
     for (const day of [...byDay.keys()].sort((a, b) => a - b)) {
       const events = byDay.get(day).sort((a, b) => a.startTime - b.startTime);
-      for (const e of detectContainers(mergeVisits(events), true)) {
-        if (e.band === "high") anchored.add(e.host);
+      out.set(day, assembleThreads(events, true));
+    }
+    return out;
+  }
+
+  // Color anchoring (spec §6, 2026-07-18): a host is anchored if any
+  // stored day holds a HIGH thread for it (thread-level, where meetings
+  // and watch-runs actually reach HIGH). Week-scoped on purpose:
+  // day-scoped anchoring would render every morning monochrome until
+  // something accrued ~17 attended minutes, and hosts would flicker
+  // colored/gray across day pages. Iteration is chronological, so
+  // first-anchor claim order is deterministic.
+  function anchoredHostsFrom(dayThreads) {
+    const anchored = new Set();
+    for (const threads of dayThreads.values()) {
+      for (const t of threads) {
+        if (t.band === "high") anchored.add(t.host);
       }
     }
     return anchored;
@@ -749,19 +770,20 @@
   // strongest label-worthy member: MEDIUM+ blocks, plus members of an OPEN
   // fence (spec §6 fence-open relaxation — collapsed sticks stay ineligible,
   // so a closed fence can never make its run label-worthy).
+  // Absence splits runs (2026-07-18, same constant as fences): morning and
+  // evening Gmail clusters with nothing rendered between them are ADJACENT
+  // in seg order, and an unsplit run centered its label over the 8-hour
+  // away gap between them.
   function groupRuns(segs) {
-    // Merged visit blocks contribute every member page's title to the run.
-    const titlesOf = (seg) =>
-      seg.e.members ? seg.e.members.map((m) => m.title) : [seg.e.title];
     const runs = [];
     for (const seg of segs) {
       const labelWorthy = seg.band !== "low" || (seg.clusterKey != null && !seg.collapsed);
       const memberScore = labelWorthy ? Math.max(seg.e.score, 1) : 0;
       const last = runs[runs.length - 1];
-      if (last && last.host === seg.e.host) {
+      if (last && last.host === seg.e.host && seg.e.startTime - last.lastEnd < VISIT_GAP_MS) {
         last.end = seg.x + seg.w;
+        last.lastEnd = seg.e.endTime;
         last.bestScore = Math.max(last.bestScore, memberScore);
-        last.titles.push(...titlesOf(seg));
       } else {
         runs.push({
           // Stable identity across expand/collapse (the first member's seg
@@ -771,33 +793,77 @@
           host: seg.e.host,
           start: seg.x,
           end: seg.x + seg.w,
+          lastEnd: seg.e.endTime,
           bestScore: memberScore,
-          titles: titlesOf(seg),
         });
       }
     }
     return runs.map((r) => ({ ...r, center: (r.start + r.end) / 2 }));
   }
 
-  // Label = the site's own name, derived from titles (spec §6): pages suffix
-  // titles with the site name ("Coffee - Google Maps", "Post by X — Bluesky"),
-  // so take the most common trailing segment across the run's pages. Majority
-  // required for multi-page runs; single pages accept a short suffix.
-  // Hostname is the fallback — and identity (color/grouping) stays
-  // hostname-keyed regardless.
+  // Label = the site's own name, one per HOST per render (spec §6,
+  // 2026-07-18): the label names the host's identity, so it derives from
+  // ALL admitted titles across the stored week — never per-run (two runs
+  // of one hue answering to two names broke self-legending on NotebookLM).
+  // The site name is the INVARIANT segment: split each title on
+  // separators, candidates = first + last segments, winner = the
+  // candidate present in the most titles (majority of separator-bearing
+  // titles required). Ties prefer the FIRST-position candidate — the
+  // "App - page" house style (Voice, Meet) is invariant-first, while the
+  // classic "page - Site" shape never ties because leading segments vary.
+  // A lone separator-bearing title keeps the old trailing rule (no
+  // invariance evidence). Hostname is the fallback — and identity
+  // (color/grouping) stays hostname-keyed regardless.
   function siteNameOf(titles) {
-    const names = titles
-      .map((t) => {
-        const parts = (t || "").split(/\s+[-–—|·/]\s+/);
-        return parts.length > 1 ? parts[parts.length - 1].trim() : "";
-      })
-      .filter((n) => n && n.length <= 30);
-    if (!names.length) return null;
-    const counts = new Map();
-    for (const n of names) counts.set(n, (counts.get(n) || 0) + 1);
-    const [best, count] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (titles.length >= 2) return count * 2 >= names.length ? best : null;
-    return best.length <= 24 ? best : null;
+    const parted = titles
+      .map((t) => (t || "").split(/\s+[-–—|·/]\s+/))
+      .filter((p) => p.length > 1);
+    if (!parted.length) return null;
+    if (parted.length === 1) {
+      const tail = parted[0][parted[0].length - 1].trim();
+      return tail && tail.length <= 24 ? tail : null;
+    }
+    const counts = new Map(); // candidate -> { n, first }
+    for (const p of parted) {
+      const cands = new Map(); // per-title dedupe: count once per title
+      const first = p[0].trim();
+      const last = p[p.length - 1].trim();
+      if (first && first.length <= 30) cands.set(first, true);
+      if (last && last.length <= 30 && !cands.has(last)) cands.set(last, false);
+      for (const [name, isFirst] of cands) {
+        const c = counts.get(name) || { n: 0, first: false };
+        c.n++;
+        c.first = c.first || isFirst;
+        counts.set(name, c);
+      }
+    }
+    let best = null;
+    for (const [name, c] of counts) {
+      if (!best || c.n > best.c.n || (c.n === best.c.n && c.first && !best.c.first)) {
+        best = { name, c };
+      }
+    }
+    return best && best.c.n * 2 >= parted.length ? best.name : null;
+  }
+
+  // Names for every host with admitted sessions this week. Recomputed per
+  // render (cheap); merged-visit member titles are covered because this
+  // walks RAW sessions, pre-assembly.
+  function computeHostNames(sessions) {
+    const titlesByHost = new Map();
+    for (const s of sessions) {
+      if (!s.url || isTransit(s) || !s.title) continue;
+      const host = hostOf(s);
+      let arr = titlesByHost.get(host);
+      if (!arr) titlesByHost.set(host, (arr = []));
+      arr.push(s.title);
+    }
+    const names = new Map();
+    for (const [host, titles] of titlesByHost) {
+      const name = siteNameOf(titles);
+      if (name) names.set(host, name);
+    }
+    return names;
   }
 
   // Labels are importance-gated (spec §6): only runs holding a MEDIUM+ block
@@ -849,36 +915,32 @@
       ? dayStartOf(Math.min(...lastSessions.map((s) => s.startTime)))
       : dayStartOf(Date.now());
 
-  // --- Week strip (spec §6, 2026-07-17): one skyline cell per day, oldest →
-  // today, above the ribbon; click a cell to jump the viewed day there.
-  // Per 15-min bin, a bottom-flush bar at the MAX band of any session
-  // overlapping the bin — max, not time-dominant: that is what the ribbon's
-  // top edge is at any x. Raw per-session bands via the §6 formula — the
-  // display pipeline (visit merging, containers) is deliberately NOT invoked,
-  // so container days skyline lower than their ribbon (accepted; watch list).
+  // --- Week strip (spec §6, 2026-07-17; thread bands 2026-07-18): one
+  // skyline cell per day, oldest → today, above the ribbon; click a cell
+  // to jump the viewed day there. Per 15-min bin, a bottom-flush bar at
+  // the MAX band of any THREAD overlapping the bin — max, not
+  // time-dominant: that is what the ribbon's top edge is at any x. Bands
+  // come from the same assembled threads the ribbon draws (shared
+  // threadsByDay step), so container/meeting days skyline like their
+  // ribbon instead of lower (the old raw-band divergence, resolved).
   // All cells share one hour-aligned window, so hours align VERTICALLY
   // across days — the cross-day comparison the two-scale ribbon can't give.
-  function renderWeekStrip(sessions) {
+  function renderWeekStrip(dayThreads) {
     const strip = document.getElementById("week-strip");
     strip.replaceChildren();
-    // Same admission rules as the ribbon's parse step (web sessions only,
-    // transit filter) — only the TIERS stay raw.
-    const usable = sessions.filter((s) => s.url && !isTransit(s));
-    strip.hidden = !usable.length;
-    if (!usable.length) return;
+    const all = [...dayThreads.values()].flat();
+    strip.hidden = !all.length;
+    if (!all.length) return;
 
-    const byDay = new Map();
     let minOff = Infinity;
     let maxOff = 0;
-    for (const s of usable) {
-      const day = dayStartOf(s.endTime); // belongs to the day it ENDS in
-      let arr = byDay.get(day);
-      if (!arr) byDay.set(day, (arr = []));
-      arr.push(s);
-      // Offsets are time-of-day within the session's own day; midnight
-      // straddlers clamp to 0 rather than leaking into the previous day.
-      minOff = Math.min(minOff, Math.max(0, s.startTime - day));
-      maxOff = Math.max(maxOff, s.endTime - day);
+    for (const [day, threads] of dayThreads) {
+      for (const t of threads) {
+        // Offsets are time-of-day within the thread's own day; midnight
+        // straddlers clamp to 0 rather than leaking into the previous day.
+        minOff = Math.min(minOff, Math.max(0, t.startTime - day));
+        maxOff = Math.max(maxOff, t.endTime - day);
+      }
     }
     minOff = Math.floor(minOff / HOUR) * HOUR;
     maxOff = Math.min(24 * HOUR, Math.ceil(maxOff / HOUR) * HOUR);
@@ -905,15 +967,15 @@
       sky.style.height = STRIP_H + "px";
 
       const tiers = new Array(bins).fill(0);
-      for (const s of byDay.get(day) || []) {
-        const rank = STRIP_RANK[bandFor(scoreSession(s))];
+      for (const t of dayThreads.get(day) || []) {
+        const rank = STRIP_RANK[t.band];
         const from = Math.max(
           0,
-          Math.floor((Math.max(s.startTime - day, 0) - minOff) / STRIP_BIN_MS)
+          Math.floor((Math.max(t.startTime - day, 0) - minOff) / STRIP_BIN_MS)
         );
         const to = Math.min(
           bins - 1,
-          Math.floor((s.endTime - day - minOff - 1) / STRIP_BIN_MS)
+          Math.floor((t.endTime - day - minOff - 1) / STRIP_BIN_MS)
         );
         for (let i = from; i <= to; i++) tiers[i] = Math.max(tiers[i], rank);
       }
@@ -1044,14 +1106,19 @@
       });
       return;
     }
-    renderWeekStrip(sessions);
-    // Anchored hosts are judged over the WHOLE stored week (chain-level
+    // One quiet assembly of every stored day feeds the strip and color
+    // anchoring; the viewed day re-assembles loud below (identical
+    // functions, identical inputs — kept separate so the worker-console
+    // transit/container logs stay tied to the day on screen).
+    const dayThreads = threadsByDay(sessions);
+    const hostNames = computeHostNames(sessions);
+    renderWeekStrip(dayThreads);
+    // Anchored hosts are judged over the WHOLE stored week (thread-level
     // HIGH — spec §6, 2026-07-18), then claim/release registry slots
     // before painting.
-    const coloredHosts = computeAnchoredHosts(sessions);
+    const coloredHosts = anchoredHostsFrom(dayThreads);
     claimColors(coloredHosts);
-    const merged = mergeVisits(parseSessions(sessions));
-    const events = detectContainers(merged);
+    const events = assembleThreads(parseSessions(sessions));
     const items = clusterEvents(events);
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
 
@@ -1270,7 +1337,7 @@
       // non-anchored runs (gray MEDIUMs still label) use the gray rim —
       // label color must never leak an identity hue the blocks don't have.
       el.style.color = coloredHosts.has(run.host) ? rimOf(colorOf(run.host)) : GRAY_RIM;
-      const name = siteNameOf(run.titles) || run.host;
+      const name = hostNames.get(run.host) || run.host;
       el.textContent =
         name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;
       if (fresh) {

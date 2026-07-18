@@ -40,7 +40,29 @@ watch-list is consolidated in spec §6 ("Watch list").
 - **Labels are title-derived site names** ("Google Maps", not google.com): most
   common trailing title segment across a run's pages, hostname fallback.
   Identity (color/grouping) stays hostname-keyed. Known misfire: Meet titles
-  ("Scott").
+  ("Scott"). SUPERSEDED 2026-07-18 by host-level invariance naming (below).
+- **(2026-07-18) Host-level invariance naming — per-run trailing rule
+  superseded.** Two triggers the same day: (1) three NotebookLM visits drew
+  two different labels — one run caught a suffixed document title
+  ("… - Gemini Notebook") and resolved the name, its siblings only saw the
+  bare app title and fell back to hostname; same host, same hue, two names
+  breaks self-legending. (2) Scott flagged Google Voice: its "Voice - (29)
+  Messages" titles put the site name FIRST, so the trailing rule extracted
+  the unread counter as the label. Redesign: the label names the HOST, so
+  one name per host per render, derived from all admitted titles across the
+  stored week; the site name is the segment that stays INVARIANT while page
+  parts vary. Candidates = first + last segments only (middle segments
+  excluded — Gmail's "scott@jenson.org" lurks there); winner = most titles,
+  majority required; tie prefers first-position (App-page house style is
+  invariant-first; classic page-Site never ties since leading segments
+  vary). Validated offline against nine real shapes: Voice → "Voice",
+  Meet → "Meet" (the watch-listed misfire self-fixed), YouTube, Gmail
+  workspace name, NotebookLM consistent, Phanpy, single-title and
+  no-separator fallbacks. Named risk (watch-listed): a one-document host
+  ties toward the document name — accepted, self-corrects with a second
+  document. Titles no longer collected per run in groupRuns; render calls
+  computeHostNames(sessions) once (raw sessions, so merged-visit member
+  titles are covered).
 
 ## Color = identity, rationed by importance
 - Curated palette for hosts holding a MEDIUM+ block; LOW-only hosts and
@@ -475,6 +497,37 @@ watch-list is consolidated in spec §6 ("Watch list").
   amendments, and loose ends: `plans/rules_restructure_proposal.md`
   (ADOPTED). This log's older sections describe the pre-restructure rule
   names; the rules themselves are unchanged.
+
+## Post-restructure code review (2026-07-18)
+- Re-read timeline.js against the thread-first rulebook. Verdict: behavior
+  already thread-shaped; no rewrite. Four findings, all acted on:
+  1. **Absence-bridge join ignores tabId** — genuine rules/code divergence
+     (the LOW merge predates tab-thinking). Decided: spec amended, code
+     unchanged — LOW grazing is site-level behavior; requiring same-tab
+     would fragment noise for purity's sake. Recorded as the one licensed
+     exception to the thread's one-tab definition.
+  2. **Thread definition overstated departure joining** — sub-qualifying
+     departure chains don't assemble (correctly; the guards exist to
+     refuse weak frames). Spec sentence now says "by framing only."
+  3. **Assembly had no name** — extracted `assembleThreads(events, quiet)`
+     (= detectContainers∘mergeVisits) + `threadsByDay(sessions)`;
+     `computeAnchoredHosts` decomposed into threadsByDay +
+     `anchoredHostsFrom`. The viewed day still assembles separately and
+     loud, so worker-console transit/container logs stay tied to the day
+     on screen (accepted double assembly, ~1ms).
+  4. **Week strip was the last thread-blind surface** — Scott visually
+     confirmed the skyline diverged from the ribbon the same day. The
+     strip now bins thread bands from the shared threadsByDay step
+     (rank from `t.band`, no re-scoring); meeting/container days skyline
+     like their ribbon. Watch item resolved.
+- Follow-on bug (same day, Scott's screenshot): a "Jenson.org Mail" label
+  floated over Thursday's 8-hour away gap. Not stale data — groupRuns
+  merged morning and evening Gmail clusters into one title run because
+  they're ADJACENT in seg order (nothing renders between them), centering
+  the label mid-gap; the "rectangle" was just the away plate's designed
+  hover whisper. Pre-dated the day's changes; first layout extreme enough
+  to expose it. Fix: runs split at gaps ≥ VISIT_GAP_MS (same constant and
+  logic as fence splitting), via a lastEnd timestamp on the run.
 
 ## Doc structure (2026-07-17)
 - Spec §6 rewritten rules-only (44KB → ~21KB): evidence, history, and
