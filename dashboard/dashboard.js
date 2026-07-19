@@ -60,6 +60,9 @@ document.getElementById("scores").addEventListener("click", async () => {
         // candidate rules need them replayable offline. start is epoch ms —
         // exact gaps matter more than readability here.
         tabId: s.tabId,
+        // Opener edge (2026-07-19): audit column for tab-tree chaining —
+        // blank means cold tab / pre-opener data (flat behavior).
+        opener: s.openerTabId ?? "",
         start: s.startTime,
         reason: s.endReason,
         url: (s.url || "").slice(0, 80),
@@ -72,7 +75,7 @@ document.getElementById("scores").addEventListener("click", async () => {
   );
   console.log("[FS dash] bands:", bands.join(" / "), `of ${rows.length}`);
 
-  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "click", "mouse", "scroll", "scr", "score", "band", "tabId", "start", "reason", "url"];
+  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "click", "mouse", "scroll", "scr", "score", "band", "tabId", "opener", "start", "reason", "url"];
   const tsv = [header.join("\t"), ...rows.map((r) => header.map((h) => r[h]).join("\t"))].join("\n");
   const btn = document.getElementById("scores");
   try {

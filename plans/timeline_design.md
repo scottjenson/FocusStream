@@ -600,3 +600,89 @@ Decisions along the way:
   rejected alternatives moved here; #### subsection anchors added for
   targeted partial reads. Discipline going forward: a new decision lands as
   2–4 rule sentences + date in the spec, full story in plans/ — never both.
+
+## Own-host HIGH chaining (2026-07-19)
+- **The specimen (Scott's morning, 2026-07-19):** composing a thoughtful
+  Bluesky reply 7:44–8:14 while ping-ponging to Gemini for help. One lived
+  story — "it really was a Bluesky chain and I just used Gemini a lot" —
+  but the rules produced two rival containers and gave the territory to
+  the tool: gemini 7:59–8:05 (sum 924) containerized with two *Bluesky*
+  fragments as its children, backwards from intent.
+- **Mechanism:** atomicity guard 1 ("individually-HIGH never chains")
+  removed the Bluesky thread's two HIGHs (1290 + 1025 = 2315 points)
+  before chain-building, leaving a rump chain of 455 that lost the
+  overlap contest 455 v 924. The third rump fragment (8:05, score 175)
+  ended 9s past the winner's edge — not a member (chain rejected), not a
+  child (not fully inside the span), not joinable to the HIGH next door —
+  and rendered as an orphan block, which is what Scott noticed and asked
+  about. Guard 1's own success decapitated the true anchor.
+- **Scott's framing:** "as soon as one run becomes important it now stands
+  apart" — wanted one important thread able to subsume another, worried
+  this needed a top-down mechanism over the bottom-up assembly.
+- **Resolution — no new mechanism:** guard 1 conflated "a HIGH must never
+  be hidden/framed by something foreign or weaker" (the big-email
+  protection, correct) with "a HIGH may never associate at all" (the
+  decapitation). Split them: a HIGH may seed or join **its own host's
+  chain in its own tab**; a foreign-host same-tab HIGH now CLOSES the
+  chain (previously it was skipped and a chain could bridge across it,
+  caught only by the span-cover rejection — that rejection is now
+  structural). Territory contests are then fought with full evidence and
+  the overlap rule already picks the right winner: bsky 2881 v gemini 924.
+- **Validation (same method as the dominance guard):** replayed the whole
+  stored week from the Score-table TSV, current v variant. Two days
+  unchanged; three diffs, each a truer reading:
+  - 07-19: one bsky container 7:44–8:14 (7 frags, 2 HIGHs, 3 gemini
+    children, sum 2881) replacing the backwards gemini frame — exactly
+    the session as lived.
+  - 07-18: gemini 16:33–17:11 (2 HIGHs, 6 children, 3812) absorbing the
+    smaller 16:51–17:00 container — one long working session.
+  - 07-16: mail 6:12–6:32 (1 HIGH, 4 children, 1419) — morning triage
+    framing calendar checks; the big-email case's own territory, behaving
+    (interruptions still required, so an uninterrupted composition still
+    can't self-containerize).
+  No pathological fusions of two distinct HIGH stories appeared.
+- **Risks & knobs (watch list, container entry widened):** two distinct
+  HIGH watches on one host can now fuse — the audio-bookend bridge is the
+  main exposure (two long videos < 30 min apart). Knobs held in reserve:
+  HIGH joins via `VISIT_GAP_MS` only, or the resumed-read same-URL
+  restriction.
+- **Display trade accepted:** the two HIGH towers become one HIGH-tier
+  container at span width; the compositions stay distinguishable in the
+  tooltip's score-sorted page list. The return IS the story.
+
+## Overlap trim-and-retest (2026-07-19, same session as own-host HIGH chaining)
+- **The specimen (07-18, 17:12–17:46):** Scott's layered afternoon —
+  started in Bluesky, took what he learned to Gemini, acted on THAT in
+  Google Sheets, eventually returned to Bluesky. The bsky chain
+  17:12–17:25 (7 frags, sum 1453) qualified but lost the overlap contest
+  to gemini 17:21–17:37 (sum 1619) — and winner-take-all rejected it
+  WHOLESALE: a 13-minute chain destroyed over a ~4-minute seam. The
+  fragments inside the gemini span became its children (correct); the
+  uncontested 9 minutes before 17:21 shattered into unframed sticks
+  (the thing Scott noticed).
+- **Scott's read, adopted:** no über-container nesting the whole episode —
+  "it really was a Bluesky block that then went into a Gemini block, and I
+  just happened to return. That's the calmer, less complicated way to
+  interpret what I was doing." Sequential handoffs, flush blocks. The
+  Sheets visits stay children of Gemini (he went there to act on Gemini's
+  output — framed, not peer).
+- **Rule:** when a qualifying chain loses an overlap contest, trim instead
+  of discard — drop fragments overlapping any accepted container, split
+  the survivors into runs wherever an accepted container sits between
+  consecutive fragments, re-sum each run of ≥2, and re-insert into the
+  score-ordered worklist. Boundary-straddling fragments (overlap the
+  winner but aren't span-covered) drop out of the chain and render as
+  standalone blocks — rare, accepted. Termination: an overlap guarantees
+  every trimmed piece is strictly smaller than its chain.
+- **Validation (week replay, current v trim):** exactly two new containers
+  all week, both true positives — bsky 17:12–17:21 x6 sum=1221 (the
+  specimen, now flush against its Gemini successor) and mail 08:23–08:24
+  sum=212 on 07-16 (recovered from a chain that lost to keltas.lt). All
+  other days byte-identical, including 07-19's morning mega-container.
+  No fragment-dust containers appeared; the losing bsky return-chain
+  (17:35–17:46) correctly failed re-qualification and stays as blocks.
+- **Relation to the morning's HIGH fix:** same root phenomenon (interleaved
+  threads contesting a seam), two different failure modes — decapitation
+  fixed by own-host HIGH chaining, shattering fixed by trim-and-retest.
+  Between them, ping-pong episodes now read as: biggest thread frames the
+  overlap, neighbors frame their own uncontested runs, handoffs sit flush.

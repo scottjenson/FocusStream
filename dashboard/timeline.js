@@ -326,9 +326,38 @@
   }
   let viewDayStart = dayStartOf(Date.now());
 
+  // Tab trees (spec §3/§6, 2026-07-19): capture stores the raw opener edge
+  // (session.openerTabId); display resolves each tab to its tree ROOT and
+  // threads chain per tree — "one tab and its spawn" (the feed pattern:
+  // videos middle-clicked into their own tabs are one journey). Edges are
+  // read from ALL stored sessions — an edge is a fact about the tab, not
+  // the day, and transit-filtered sessions still testify (a filtered hop
+  // can be the link between a grandchild and the root). An edgeless tab is
+  // a tree of one, so cold tabs and pre-opener data stay flat.
+  function treeRootsOf(sessions) {
+    const opener = new Map();
+    for (const s of sessions) {
+      if (s.tabId != null && s.openerTabId != null) opener.set(s.tabId, s.openerTabId);
+    }
+    const roots = new Map();
+    return function rootOf(id) {
+      if (roots.has(id)) return roots.get(id);
+      const seen = new Set();
+      let t = id;
+      while (opener.has(t) && !seen.has(t)) {
+        seen.add(t);
+        t = opener.get(t);
+      }
+      seen.add(id);
+      for (const v of seen) roots.set(v, t);
+      return t;
+    };
+  }
+
   function parseSessions(sessions) {
     const from = viewDayStart;
     const to = nextDayStart(viewDayStart);
+    const rootOf = treeRootsOf(sessions);
     const inDay = sessions.filter((s) => s.endTime >= from && s.endTime < to && s.url);
     const transits = inDay.filter(isTransit);
     if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
@@ -342,6 +371,7 @@
           score,
           band: bandFor(score),
           durMs: s.endTime - s.startTime,
+          treeId: s.tabId != null ? rootOf(s.tabId) : undefined,
         };
       })
       .sort((a, b) => a.startTime - b.startTime);
@@ -392,9 +422,12 @@
           snapIds: [...run].sort((a, b) => b.score - a.score).map((m) => m.id),
           title: top.title,
           host: run[0].host,
-          // Containers chain by tabId; a merged visit keeps it only if
-          // unambiguous across members.
+          // Containers chain by tab TREE (2026-07-19; was tabId); a merged
+          // visit keeps an identity only if unambiguous across members —
+          // notably a cross-tab LOW merge within one tree stays
+          // chain-eligible now (the feed pattern's glue used to strip it).
           tabId: run.every((m) => m.tabId === run[0].tabId) ? run[0].tabId : undefined,
+          treeId: run.every((m) => m.treeId === run[0].treeId) ? run[0].treeId : undefined,
           // The LAST member's exit is the visit's exit — container guard 1
           // reads it to recognize departure-boundaries (spec §6).
           endReason: run[run.length - 1].endReason,
@@ -447,16 +480,23 @@
 
   // Container events (spec §6): a tab the user keeps RETURNING to is a
   // journey context — returning is the strongest intent signal we have.
-  // Same-tabId fragments chain when the excursion returns within
+  // Same-TREE fragments chain (2026-07-19; was same-tabId — treeId is the
+  // opener-resolved root, a tab tree being "one tab and its spawn") when
+  // the excursion returns within
   // VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS when both bookends are
   // audible-dominated. A chain whose SUMMED score reaches MEDIUM (lowered
   // from HIGH, 2026-07-18 — containers map the journey's shape, tier maps
   // importance) becomes a container: fragments merge into the anchor
   // (width = wall-clock span), foreign events inside the span become
   // contained children. Guards so the big-email case can never trigger
-  // this: foreign interruptions are REQUIRED (≥1 child), individually-HIGH
-  // events never chain, and a chain whose span holds a same-tab HIGH event
-  // is rejected (that event owns the story). Sub-HIGH chains additionally
+  // this: foreign interruptions are REQUIRED (≥1 child), and a HIGH event
+  // never joins a FOREIGN-host chain — it closes the chain instead, so no
+  // span can cover it. Since 2026-07-19 a HIGH MAY seed or join its own
+  // host's chain in its own tab: excluding the anchor's HIGHs decapitated
+  // the true anchor in territory contests (the bsky/gemini ping-pong —
+  // the rump bsky chain summed 455 against gemini's 924 while the bsky
+  // thread's two HIGHs held 2315 inadmissible points, so the tool framed
+  // the work; replay evidence in plans). Sub-HIGH chains additionally
   // require ANCHOR DOMINANCE (anchor sum > children sum) — a weak anchor
   // framing stronger children is a launcher, and the children are the
   // story (validated 2026-07-18: dominance rejected all five launcher
@@ -465,14 +505,24 @@
   // keeps its original guards; dominance is deliberately not applied there.
   function detectContainers(events, quiet) {
     const audibleDominated = (e) => (e.audibleMs || 0) >= 0.5 * e.durMs;
-    const open = new Map(); // tabId -> fragments of the currently open chain
+    // Chains key on the (tree, host) PAIR (2026-07-19): a thread is a
+    // same-host chain in one tab tree, so each host runs its own chain per
+    // tree — a spawned foreign-host read neither joins nor breaks its
+    // parent's chain (it becomes a child by falling inside the span), and
+    // two hosts ping-ponging inside one tree each keep their own thread.
+    // The pair key also makes relaxed guard 1 structural: a HIGH can only
+    // ever extend its own host's thread. A same-tree HIGH that a foreign
+    // chain's span would cover is handled by the covered-HIGH rejection
+    // below.
+    const open = new Map(); // treeId|host -> fragments of the open chain
     const chains = [];
     const close = (frags) => {
       if (frags.length >= 2) chains.push(frags);
     };
     for (const e of events) {
-      if (e.tabId == null || e.band === "high") continue;
-      const frags = open.get(e.tabId);
+      if (e.treeId == null) continue;
+      const key = e.treeId + "|" + e.host;
+      const frags = open.get(key);
       if (frags) {
         const last = frags[frags.length - 1];
         const gap = e.startTime - last.endTime;
@@ -484,24 +534,61 @@
           continue;
         }
         close(frags);
-        open.delete(e.tabId);
+        open.delete(key);
       }
-      open.set(e.tabId, [e]);
+      open.set(key, [e]);
     }
     for (const frags of open.values()) close(frags);
 
-    const qualifying = chains
-      .map((frags) => ({ frags, score: frags.reduce((t, f) => t + f.score, 0) }))
+    const chainScore = (frags) => frags.reduce((t, f) => t + f.score, 0);
+    const queue = chains
+      .map((frags) => ({ frags, score: chainScore(frags) }))
       .filter((c) => c.score >= MED_SCORE)
       .sort((a, b) => b.score - a.score);
 
     const containers = [];
     const absorbed = new Set();
-    for (const c of qualifying) {
+    while (queue.length) {
+      const c = queue.shift();
       const from = c.frags[0].startTime;
       const to = c.frags[c.frags.length - 1].endTime;
-      // Overlapping qualifying chains: higher sum already won (sort order).
-      if (containers.some((k) => from < k.endTime && to > k.startTime)) continue;
+      // Overlap contest (trim-and-retest, 2026-07-19): the higher sum wins
+      // the contested span, but the loser is trimmed, not discarded — a
+      // handoff between two interleaved threads must not shatter the
+      // loser's uncontested run (the 07-18 specimen: bsky's 13-minute
+      // chain lost wholesale over a 4-minute seam). Fragments overlapping
+      // an accepted container drop out (span-covered ones become its
+      // children); the rest re-enter the contest as runs, split wherever
+      // an accepted container sits between consecutive fragments,
+      // re-summed and re-inserted in score order. Every trimmed piece is
+      // strictly smaller than its chain, so the worklist terminates.
+      if (containers.some((k) => from < k.endTime && to > k.startTime)) {
+        const kept = c.frags.filter(
+          (f) => !containers.some((k) => f.startTime < k.endTime && f.endTime > k.startTime)
+        );
+        const runs = [];
+        let run = [];
+        for (const f of kept) {
+          const prev = run[run.length - 1];
+          if (
+            prev &&
+            containers.some((k) => k.startTime < f.startTime && k.endTime > prev.endTime)
+          ) {
+            runs.push(run);
+            run = [];
+          }
+          run.push(f);
+        }
+        if (run.length) runs.push(run);
+        for (const r of runs) {
+          if (r.length < 2) continue;
+          const score = chainScore(r);
+          if (score < MED_SCORE) continue;
+          const i = queue.findIndex((q) => q.score < score);
+          queue.splice(i < 0 ? queue.length : i, 0, { frags: r, score });
+        }
+        continue;
+      }
       const fragSet = new Set(c.frags);
       const children = events.filter(
         (e) => !fragSet.has(e) && e.startTime >= from && e.endTime <= to
@@ -518,7 +605,7 @@
         (f, i) => i < c.frags.length - 1 && f.endReason === "tab_hidden"
       ).length;
       if (!children.length && !departures) continue; // no interruptions at all
-      if (children.some((e) => e.tabId === c.frags[0].tabId && e.band === "high")) continue;
+      if (children.some((e) => e.treeId === c.frags[0].treeId && e.band === "high")) continue;
       // Anchor dominance (sub-HIGH only): the anchor must outscore its
       // children, or it's a launcher and the children are the story.
       if (c.score < HIGH_SCORE && c.score <= children.reduce((t, e) => t + e.score, 0)) continue;
@@ -586,6 +673,7 @@
   // week strip and color anchoring so both judge the same objects the
   // ribbon draws.
   function threadsByDay(sessions) {
+    const rootOf = treeRootsOf(sessions);
     const byDay = new Map();
     for (const s of sessions) {
       if (!s.url || isTransit(s)) continue;
@@ -596,6 +684,7 @@
         score,
         band: bandFor(score),
         durMs: s.endTime - s.startTime,
+        treeId: s.tabId != null ? rootOf(s.tabId) : undefined,
       };
       const day = dayStartOf(e.endTime);
       let arr = byDay.get(day);

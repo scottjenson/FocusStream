@@ -66,12 +66,18 @@ async function startSession(tab) {
     log("startSession: skipping non-web page", url || "(no url)");
     return;
   }
+  // Opener edge (spec §3, 2026-07-19): the onCreated map is authoritative;
+  // tab.openerTabId is the fallback for tabs created before this listener
+  // shipped (or an extension reload wiping storage.session mid-run).
+  const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
+  const openerTabId = openerEdges[tab.id] ?? tab.openerTabId;
   const session = {
     id: crypto.randomUUID(),
     url,
     title: tab.title || "",
     favIconUrl: tab.favIconUrl || "",
     tabId: tab.id,
+    ...(openerTabId != null ? { openerTabId } : {}),
     startTime: Date.now(),
     endTime: null,
     // Per-signal counts of active 10s heartbeats. Kept separate (not summed)
@@ -263,6 +269,22 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+// Opener edges (spec §3, 2026-07-19): record which tab SPAWNED which, at
+// creation — Chrome drops openerTabId from the Tab object once the opener
+// closes, so onCreated is the one reliable capture point. The map lives in
+// chrome.storage.session (worker-death-proof, and it empties on browser
+// restart, which is exactly right — tabIds don't survive restarts). Capture
+// stores the raw edge only; tree assembly is display-time (spec §6).
+chrome.tabs.onCreated.addListener((tab) => {
+  if (tab.id == null || tab.openerTabId == null) return;
+  log("event: onCreated tab", tab.id, "opener", tab.openerTabId);
+  enqueue("onCreated", async () => {
+    const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
+    openerEdges[tab.id] = tab.openerTabId;
+    await chrome.storage.session.set({ openerEdges });
+  });
+});
+
 // Tab switch: finalize the old session, start one for the newly active tab.
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   log("event: onActivated tab", tabId);
@@ -392,6 +414,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     const current = await getCurrent();
     if (current && current.tabId === tabId) {
       await finalizeCurrent("tab_closed");
+    }
+    // The closed tab can never start another session; drop its opener edge.
+    // Edges pointing AT it stay — they remain valid tree keys (spec §3).
+    const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
+    if (openerEdges[tabId] != null) {
+      delete openerEdges[tabId];
+      await chrome.storage.session.set({ openerEdges });
     }
   });
 });

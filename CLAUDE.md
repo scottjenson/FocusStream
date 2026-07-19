@@ -78,7 +78,17 @@ alternatives, dated history) lives in `plans/` — see the index below.
   dominance — SPA-continuation merging closed as subsumed (spec §6); color
   re-rationed to week-scoped HIGH anchoring with registry tombstones
   (transient colors retired — spec §6).
-- **Deferred:** `parentId`/opener tracking, zoom, date-picker day jumping (the
+- **2026-07-19:** atomicity guard 1 relaxed — a HIGH may seed/join its *own host's*
+  chain in its own tab (foreign-host HIGHs now close the chain); fixes the ping-pong
+  decapitation where the tool's chain framed the work's fragments; overlap contests
+  now trim-and-retest the loser instead of winner-take-all, so sequential handoffs
+  frame as flush containers rather than shattering the loser's uncontested run
+  (spec §6; stories + week replays in `plans/timeline_design.md`). Opener-edge
+  capture shipped (was deferred as `parentId`): sessions carry `openerTabId`, and
+  chains key on the (tab-tree, host) pair — a feed tab and its spawned tabs read as
+  one thread (spec §2/§3/§6; story in `plans/capture_design.md`; audit via the Score
+  table's new `opener` column — old data has no edges and stays flat).
+- **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
   "watch with data" item.

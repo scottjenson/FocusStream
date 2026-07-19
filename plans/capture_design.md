@@ -277,3 +277,47 @@ Fix shape (Scott's ad-flood concern drove the design):
   `ignoring nav in non-tracked tab … (no session, window unfocused)` —
   the one line adoption cannot rescue. The fullscreen-rescue design
   above stays on the shelf until a natural specimen justifies it.
+
+## Opener-edge capture: tab trees (2026-07-19)
+- **The specimen (07-18, 13:52–14:28):** Scott's YouTube feed session —
+  videos middle-clicked from the subscriptions tab into SIX separate tabs
+  (317/320/323/326 + a substack read spawned from a video + a "red hulk"
+  search spawned from another), each watched and closed. Tab-keyed chains
+  couldn't combine any of it: five unframed blocks plus one small container
+  where he happened to return to the feed tab itself. The cross-tab LOW
+  merge glued three videos but blanked its tabId, making the glue
+  chain-ineligible — it even stole the one legitimate same-tab pair.
+- **Why capture, not display:** the opener relationship is ephemeral
+  browser runtime state — Chrome drops `openerTabId` from the Tab object
+  once the opener closes, and nothing stored lets display reconstruct the
+  edge (tabId adjacency is an undocumented internal, not evidence). The
+  worker must record the edge at `tabs.onCreated` or it is lost. Fits the
+  philosophy: capture stores the raw fact, display interprets — which is
+  what let every 2026-07-19 display rule be validated by replay.
+- **Capture (spec §3):** `onCreated` writes `tabId → openerTabId` into an
+  `openerEdges` map in `chrome.storage.session` (worker-death-proof;
+  empties on browser restart, matching the accepted tabId lifetime), entry
+  pruned when the tab itself closes (edges pointing AT a closed tab stay —
+  still-valid tree keys). `startSession` stamps the edge onto the session
+  (`openerTabId?: number`, superseding the deferred `parentId` stub);
+  `tab.openerTabId` is the fallback path for pre-listener tabs. Score
+  table gains an `opener` audit column.
+- **Display (spec §6):** `treeRootsOf(sessions)` resolves every tabId to
+  its tree root by following stored edges (memoized, cycle-guarded; edges
+  read from ALL stored sessions — transit-filtered ones still testify).
+  Chains key on the **(treeId, host) pair** — refined during
+  implementation from plain treeId: a tree legitimately hosts one chain
+  PER host (feed + a repeatedly-visited spawned article), a spawned
+  foreign-host read neither joins nor breaks its parent's chain (it
+  becomes a child by falling inside the span), and relaxed guard 1 turns
+  structural — a HIGH cannot reach any chain but its own host's. The
+  covered-HIGH rejection keeps foreign frames off same-tree HIGHs.
+- **Validation:** cannot replay retroactively (stored week has no edges) —
+  the one 2026-07-19 change where evidence only accrues after shipping.
+  Shipped both sides anyway: display is structurally a no-op where edges
+  are absent, proven by a no-edge week replay reproducing the day's
+  validated containers line-for-line. A synthetic-edge replay of the
+  specimen (edges injected into the real 07-18 data) assembles the whole
+  episode as one youtube container 13:52–14:28 · 7 visits + 2 excursions
+  (substack, google search) · score 2104. First real-data audit: the
+  Score table's opener column, next feed session.
