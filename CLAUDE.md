@@ -87,7 +87,9 @@ alternatives, dated history) lives in `plans/` — see the index below.
   capture shipped (was deferred as `parentId`): sessions carry `openerTabId`, and
   chains key on the (tab-tree, host) pair — a feed tab and its spawned tabs read as
   one thread (spec §2/§3/§6; story in `plans/capture_design.md`; audit via the Score
-  table's new `opener` column — old data has no edges and stays flat).
+  table's new `opener` column — old data has no edges and stays flat). Site naming:
+  a title segment exactly matching a hostname label wins outright (WorkFlowy was
+  labeled by its tagline — spec §6; story in `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

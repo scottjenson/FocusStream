@@ -944,15 +944,20 @@
   // A lone separator-bearing title keeps the old trailing rule (no
   // invariance evidence). Hostname is the fallback — and identity
   // (color/grouping) stays hostname-keyed regardless.
-  function siteNameOf(titles) {
+  // Hostname match wins outright (spec §6, 2026-07-19): a candidate that IS
+  // the domain name — exact equality after normalization, never containment
+  // ("googledocs" must not match "docs") — is the site declaring its own
+  // name, corroborated by the URL, so it skips the count contest and the
+  // majority guard. Recurrence required (≥2 titles, waived for a lone parted
+  // title) so a one-off doc literally named "Docs" can't claim
+  // docs.google.com. Born of WorkFlowy's invariant "Organize your brain. -
+  // WorkFlowy": both segments tied every week and the first-position
+  // tie-break crowned the tagline.
+  function siteNameOf(titles, host) {
     const parted = titles
       .map((t) => (t || "").split(/\s+[-–—|·/]\s+/))
       .filter((p) => p.length > 1);
     if (!parted.length) return null;
-    if (parted.length === 1) {
-      const tail = parted[0][parted[0].length - 1].trim();
-      return tail && tail.length <= 24 ? tail : null;
-    }
     const counts = new Map(); // candidate -> { n, first }
     for (const p of parted) {
       const cands = new Map(); // per-title dedupe: count once per title
@@ -966,6 +971,19 @@
         c.first = c.first || isFirst;
         counts.set(name, c);
       }
+    }
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const labels = new Set(host.split(".").slice(0, -1).map(norm).filter(Boolean));
+    let match = null;
+    for (const [name, c] of counts) {
+      if (!labels.has(norm(name))) continue;
+      if (c.n < 2 && parted.length > 1) continue;
+      if (!match || c.n > match.c.n) match = { name, c };
+    }
+    if (match) return match.name;
+    if (parted.length === 1) {
+      const tail = parted[0][parted[0].length - 1].trim();
+      return tail && tail.length <= 24 ? tail : null;
     }
     let best = null;
     for (const [name, c] of counts) {
@@ -990,7 +1008,7 @@
     }
     const names = new Map();
     for (const [host, titles] of titlesByHost) {
-      const name = siteNameOf(titles);
+      const name = siteNameOf(titles, host);
       if (name) names.set(host, name);
     }
     return names;

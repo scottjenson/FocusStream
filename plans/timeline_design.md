@@ -63,6 +63,31 @@ watch-list is consolidated in spec §6 ("Watch list").
   document. Titles no longer collected per run in groupRuns; render calls
   computeHostNames(sessions) once (raw sessions, so merged-visit member
   titles are covered).
+- **(2026-07-19) Hostname match wins outright — the WorkFlowy tagline
+  crown.** Specimen: WorkFlowy's document title is the invariant
+  "Organize your brain. - WorkFlowy" (SPA, never changes), so both
+  segments appeared in every title — a perfect tie — and the
+  first-position tie-break (built for Voice/Meet's App-page style)
+  crowned the TAGLINE. The tooltip confirmed the inversion: clean()
+  stripped "Organize your brain." as boilerplate and listed "WorkFlowy"
+  as the page. Scott's framing, adopted over a tie-break-only fix: a
+  title segment that names the domain is the site declaring its own
+  name — that's not a hint to break ties with, it's the answer. Rule: a
+  candidate whose normalized form (lowercase, non-alphanumerics
+  stripped) EXACTLY equals a hostname label (TLD dropped) wins outright,
+  bypassing count contest and majority guard; counts arbitrate among
+  multiple matches. Two guards, both probed in review: (1) equality
+  never containment — "googledocs" must not match "docs", which is
+  precisely how docs.google.com still resolves to "Google Docs" (no
+  segment is ever bare "Docs"/"Google", so no match fires and the count
+  contest runs untouched); (2) recurrence — a matched candidate needs
+  ≥2 titles (waived for a lone parted title) so a one-off doc literally
+  named "Docs" can't claim the host for a week. Beyond the tie fix,
+  outright-win also rescues minority matches: a site name appearing in
+  only a few of many separator-free titles used to fail the majority
+  guard and fall back to the raw hostname; now one recurring matching
+  segment upgrades "workflowy.com" to "WorkFlowy" with the site's own
+  capitalization.
 
 ## Color = identity, rationed by importance
 - Curated palette for hosts holding a MEDIUM+ block; LOW-only hosts and
