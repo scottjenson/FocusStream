@@ -127,19 +127,43 @@
   // it sat to the session's death. Evidence only — the judgment (transit
   // filter's terminal discount) is display-side.
   let lastKeyTs = 0;
+
+  // Snapshot cue (spec §6 snapshot unification, 2026-07-24): the moment a
+  // transit-qualifying signal lands (keyboard/cut/copy/paste — the
+  // shared/transit.js list; downloads are background-observed), tell the
+  // background to capture NOW, while this tab is still on glass — sub-10s
+  // engaged sessions die before their first interval heartbeat. One cue
+  // per heartbeat window (re-armed on each send, so a fresh session on
+  // this same page — SPA nav, idle split — can cue again); the background
+  // dedupes with the session's `snapped` flag.
+  let snapshotCued = false;
+  function cueSnapshot() {
+    if (snapshotCued || document.visibilityState !== "visible") return;
+    snapshotCued = true;
+    try {
+      chrome.runtime.sendMessage({ type: "snapshot-cue" }).then(
+        () => log("snapshot cue sent"),
+        (e) => log("snapshot cue failed:", e.message)
+      );
+    } catch (e) {
+      teardown("extension context gone: " + e.message);
+    }
+  }
+
   window.addEventListener(
     "keydown",
     (e) => {
       if (MODIFIER_KEYS.has(e.key)) return;
       activity.keyboard++;
       lastKeyTs = Date.now();
+      cueSnapshot();
     },
     opts
   );
   window.addEventListener("mousedown", () => activity.click++, opts);
-  window.addEventListener("cut", () => activity.cut++, opts);
-  window.addEventListener("copy", () => activity.copy++, opts);
-  window.addEventListener("paste", () => activity.paste++, opts);
+  window.addEventListener("cut", () => { activity.cut++; cueSnapshot(); }, opts);
+  window.addEventListener("copy", () => { activity.copy++; cueSnapshot(); }, opts);
+  window.addEventListener("paste", () => { activity.paste++; cueSnapshot(); }, opts);
   window.addEventListener("mousemove", () => (activity.mouse = true), opts);
   window.addEventListener("wheel", () => (activity.scroll = true), opts);
   window.addEventListener("scroll", () => (activity.scroll = true), opts);
@@ -162,6 +186,9 @@
       for (const k of ["mouse", "scroll"]) {
         if (s[k]) activity[k] = true;
       }
+      // Relayed subframe input qualifies too (Google Docs types into an
+      // iframe — spec §3 iframe relay).
+      if (s.keyboard || s.cut || s.copy || s.paste) cueSnapshot();
     },
     { signal: ctrl.signal }
   );
@@ -196,6 +223,7 @@
   function sendHeartbeat(why) {
     const snapshot = { ...activity };
     resetActivity();
+    snapshotCued = false;
     const message = {
       type: "heartbeat",
       signals: snapshot,

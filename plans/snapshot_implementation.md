@@ -449,3 +449,65 @@ reproduction needed. Suspected cause of the specimen: content-script ticks
 align to page load, not session start, so a first beat can land <1s after a
 tab switch — `captureVisibleTab` mid-activation throws transient errors.
 The breadcrumb will confirm or refute before any retry logic is considered.
+
+## Capture unified with the transit filter (2026-07-24)
+
+**The bug that surfaced it:** an Airbnb tab, open <10s but genuinely worked
+(click 2, keyboard 6, mouse 1, scroll 1), survived the transit filter — the
+keystrokes exempt it — yet had no snapshot. `attended 10s` was the tell:
+exactly one heartbeat, the flush-on-hidden, which is barred from capture
+(wrong-page trap). The first interval heartbeat at the 10s mark never fired,
+so no capture was even attempted (no `snapErr:` either). Structural gap: the
+transit filter admits on *signals*, capture triggered on *time*.
+
+**The rule (Scott):** if it survives the transit filter, it has a
+screenshot — no timers, tie capture to the qualification to exist on the
+dashboard. Two rejected shapes on the way there:
+
+- *500ms suppression timer* on the first qualifying keystroke (to avoid
+  capturing Cmd+W bounces, mirroring `TERMINAL_KEY_MS`) — over-complicated;
+  the keep-or-delete at finalize makes it unnecessary.
+- *Always capture at session start* — two hard problems: at
+  activation/URL-commit the glass often still shows the *previous* page
+  (the wrong-content trap at the start edge), and `captureVisibleTab` is
+  rate-limited (~2/sec), which fast tab-cycling would blow through, one
+  wasted encode + ~30KB write per hop.
+
+**As built:**
+
+- Capture fires at whichever qualification arm wins first: the first
+  interval heartbeat (duration arm, unchanged) or the first
+  transit-qualifying *signal* — keyboard/cut/copy/paste send a one-shot
+  `snapshot-cue` from the content script (re-armed each heartbeat send so a
+  fresh session on the same page — SPA nav, idle split — can cue again;
+  relayed subframe input cues too); downloads capture directly in the
+  background handler. All triggers fire while the tracked tab is on glass.
+- Dedupe is an explicit `snapped` flag on the live session — the old
+  `heartbeats === 1` guard had a latent bug: a flush beat consumed slot #1
+  while being barred from capture. Flag is stripped before storage
+  (`snap:<id>` existence is the record).
+- **Finalize judges with full evidence** (final duration, `lastKeyGapMs`):
+  a `snapped` session the transit predicate rejects gets its
+  `snap:`/`snapErr:` keys removed. The session itself stays stored — the
+  display-time-filter audit property is untouched.
+- **Ordering, not timing:** cue/download captures are *awaited inside the
+  event queue* (unlike the heartbeat path's fire-and-forget). A Cmd+W
+  bounce goes keydown-cue → close → finalize; the queue serializes
+  capture-and-store before finalize, so the delete always sees the store.
+  Without the await, a late store would resurrect a wrong-page picture
+  under a transited session's id (invisible, but exactly the class of
+  stray this feature has been careful about).
+- **`shared/transit.js`** (new): `isTransit` + `TRANSIT_MS` +
+  `TERMINAL_KEY_MS` moved out of timeline.js to `globalThis.FS_TRANSIT`
+  (workers have no `window`) — dashboard loads it via a `<script>` before
+  timeline.js, the worker via `importScripts`. Scott's call: these are
+  knobs we'll revisit; both sides must read one copy so they can never
+  drift. Follows the `FS_SCORING` single-source precedent.
+
+**Residual (accepted):** a session whose only qualifying signal lands in a
+frame the flush never reports (tab killed before any message escapes) can
+be `snapped` with empty activity and hit the blip-discard path without the
+finalize delete — the startup orphan sweep collects those. And a genuine
+(non-terminal) lone keystroke still cues a capture that finalize may keep
+for a session the user considers noise — that's the transit rule's call,
+not capture's.

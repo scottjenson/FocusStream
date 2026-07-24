@@ -20,7 +20,9 @@ alternatives, dated history) lives in `plans/` — see the index below.
 - Vanilla JS, no build step, no framework, no dependencies. Load unpacked via
   `chrome://extensions` (Developer mode).
 - Files: `manifest.json`, `background.js` (service worker), `content.js`,
-  `dashboard/` (full-tab UI; `timeline.js` is the primary view's pipeline).
+  `dashboard/` (full-tab UI; `timeline.js` is the primary view's pipeline),
+  `shared/` (code loaded by both worker and dashboard — `transit.js` holds
+  `FS_TRANSIT`, the transit predicate + knobs).
 - **Logging convention (keep it):** liberal `console.log` with prefixes — `[FS bg]`,
   `[FS content]`, `[FS dash]`, `[FS timeline]` — so consoles are filterable. Log every
   lifecycle transition, heartbeat, and quiet window.
@@ -107,7 +109,14 @@ alternatives, dated history) lives in `plans/` — see the index below.
   flush-on-hidden + pure-modifier keydowns no longer count, display
   discounts one terminal keystroke (`TERMINAL_KEY_MS` 500ms); `keyGap`
   audit column in the Score table (spec §3; stories split
-  capture/display across the two plans logs).
+  capture/display across the two plans logs). Same day: snapshot capture
+  unified with the transit filter — every session that survives transit has
+  a screenshot: capture fires on first interval heartbeat OR first
+  qualifying-signal cue (whichever wins, deduped by an explicit `snapped`
+  flag), finalize deletes the picture of rejected sessions, and the transit
+  predicate moved to `shared/transit.js` (`FS_TRANSIT`, loaded by worker +
+  dashboard) so capture and display can never drift (spec §3/§6; story in
+  `plans/snapshot_implementation.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

@@ -31,10 +31,14 @@ const IDLE_SPLIT_MS = 5 * 60_000;
 // One heartbeat window: the idle clamp honors the last window's trailing edge.
 const HB_WINDOW_MS = 10_000;
 
-// Snapshot previews (spec §6): one screenshot per attended session, taken on
-// the first interval heartbeat, downscaled here in the worker, stored as a
-// data: URL under snap:<sessionId> (never inside SessionBlocks — those are
-// read in full on every render).
+// Snapshot previews (spec §6, unified with the transit filter 2026-07-24):
+// one screenshot per session, taken the moment it first QUALIFIES to display
+// — first interval heartbeat or first transit-qualifying signal cue,
+// whichever wins — downscaled here in the worker, stored as a data: URL
+// under snap:<sessionId> (never inside SessionBlocks — those are read in
+// full on every render). Finalize deletes the picture of any session the
+// shared transit predicate rejects.
+importScripts("shared/transit.js");
 const SNAP_WIDTH = 640; // fixed target width: predictable disk (~20-40KB), not screen-relative
 const SNAP_QUALITY = 0.6; // JPEG quality; tune by eye against disk cost
 
@@ -137,6 +141,15 @@ async function finalizeCurrent(endReason) {
   delete session.audibleSince; // live-session bookkeeping, not part of the stored schema
   delete session.lastUrlChange;
   delete session.lastActiveTs;
+  // Snapshot unification (spec §6, 2026-07-24): capture fires eagerly on the
+  // first qualifying signal, so judge NOW with full evidence (final duration,
+  // lastKeyGapMs) — a session the dashboard will reject keeps no picture.
+  // The session itself stays stored for audit; only its snapshot artifacts go.
+  if (session.snapped && FS_TRANSIT.isTransit(session)) {
+    await chrome.storage.local.remove(["snap:" + session.id, "snapErr:" + session.id]);
+    log("transit session, snapshot deleted", session.url);
+  }
+  delete session.snapped; // live-session bookkeeping; snap:<id> existence is the record
   // Blip filter (spec §3): transition machinery — nothing measured, too
   // short to be user activity. Log it, never store it.
   if (
@@ -200,8 +213,9 @@ async function blobToDataUrl(blob) {
 async function captureSnapshot(sessionId, windowId) {
   try {
     // captureVisibleTab photographs the currently visible tab — exactly the
-    // tracked tab, since only visible tabs send interval heartbeats (flush
-    // beats are excluded by the caller). Double JPEG encode (q90 → 0.6) is
+    // tracked tab, since every trigger (interval heartbeat, signal cue,
+    // download) fires only while it is on glass (flush beats are excluded
+    // by the caller). Double JPEG encode (q90 → 0.6) is
     // deliberate: generational loss is invisible at 640px, and a PNG
     // intermediate of a large screen is a multi-MB string.
     const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 90 });
@@ -484,12 +498,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // counts and add; continuous signals arrive as booleans and count the
     // window (+1). Unknown keys flow through, so new signals need no change.
     current.heartbeats = (current.heartbeats || 0) + 1;
-    // Snapshot on the FIRST heartbeat only (spec §6): ~10s in, page painted,
-    // user demonstrably attending — and never on flush-on-hidden, which fires
-    // exactly while the NEXT tab becomes visible (captureVisibleTab would
-    // photograph the wrong page). Fire-and-forget: a failed or slow capture
-    // must never delay a heartbeat.
-    if (current.heartbeats === 1 && msg.reason !== "flush-on-hidden") {
+    // Snapshot on the first qualifying heartbeat (spec §6 unification):
+    // guarded by the explicit `snapped` flag, never the heartbeat count —
+    // a flush beat would consume slot #1 while being barred from capture
+    // (it fires exactly while the NEXT tab becomes visible, and
+    // captureVisibleTab would photograph the wrong page). Fire-and-forget:
+    // a failed or slow capture must never delay a heartbeat.
+    if (!current.snapped && msg.reason !== "flush-on-hidden") {
+      current.snapped = true;
       captureSnapshot(current.id, sender.tab.windowId);
     }
     const signals = msg.signals || {};
@@ -510,6 +526,24 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   });
 });
 
+// Snapshot cue (spec §6 snapshot unification, 2026-07-24): the content
+// script saw the first transit-qualifying signal — capture NOW, while the
+// tab is still on glass, because a sub-10s engaged session dies before its
+// first interval heartbeat. AWAITED, unlike the heartbeat path: a close
+// chord fires cue → close within ~100ms, and the queue must order
+// capture-and-store before finalize so finalize's transit check can delete
+// a picture the session didn't earn (instead of racing a late store).
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type !== "snapshot-cue") return;
+  enqueue("snapshot-cue", async () => {
+    const current = await getCurrent();
+    if (!current || sender.tab?.id !== current.tabId || current.snapped) return;
+    current.snapped = true;
+    await setCurrent(current);
+    await captureSnapshot(current.id, sender.tab.windowId);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Downloads (spec §5 roadmap): "Save image as…" fires no DOM event, so this
 // is background-observed and attributed to the current session. Likely the
@@ -525,8 +559,19 @@ chrome.downloads.onCreated.addListener((item) => {
       return;
     }
     current.activity.download = (current.activity.download || 0) + 1;
+    // Downloads qualify a session to display (shared/transit.js) but are
+    // background-observed — no content-script cue arrives. Capture here,
+    // awaited like the cue path so finalize can't outrun the store. The
+    // session's tab IS the visible tab (capture invariant), so its window
+    // photographs the right page.
+    const needsSnap = !current.snapped;
+    if (needsSnap) current.snapped = true;
     await setCurrent(current);
     log("download ✓ count=" + current.activity.download, current.url);
+    if (needsSnap) {
+      const tab = await chrome.tabs.get(current.tabId).catch(() => null);
+      if (tab) await captureSnapshot(current.id, tab.windowId);
+    }
   });
 });
 
