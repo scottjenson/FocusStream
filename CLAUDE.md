@@ -90,6 +90,18 @@ alternatives, dated history) lives in `plans/` — see the index below.
   table's new `opener` column — old data has no edges and stays flat). Site naming:
   a title segment exactly matching a hostname label wins outright (WorkFlowy was
   labeled by its tagline — spec §6; story in `plans/timeline_design.md`).
+- **2026-07-24:** contained LOW children collapse to fence sticks (spec §6) —
+  containers were the one surface granting LOW block stature; "containment
+  frames, never confers" is now bidirectional. Same-day revision after visual
+  verification: LOW height lowered globally (86 → 40; one height per tier —
+  a contained-only stature would read as a fourth tier) and the stick seam
+  made transparent (visible slit 3px, hover box 7px). Story in
+  `plans/timeline_design.md`; escalation path — same-host stick
+  aggregation — on the watch list. Same day: fence split went plate-based
+  (`FENCE_SPLIT_GAP_MS` ≈ 16 min derives from `GAP_PLATE_MIN_PX`; was the
+  5-min `VISIT_GAP_MS`) — adjacent stick runs merge into one big expand
+  target, and a fence can only span gaps too small to hover; plate wording
+  is now "N brief visits".
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

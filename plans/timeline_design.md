@@ -711,3 +711,92 @@ Decisions along the way:
   fixed by own-host HIGH chaining, shattering fixed by trim-and-retest.
   Between them, ping-pong episodes now read as: biggest thread frames the
   overlap, neighbors frame their own uncontested runs, handoffs sit flush.
+
+## Contained LOW children collapse to sticks (2026-07-24)
+- **The specimen (07-23 screenshot):** the Activitypub Groups container and
+  the Jenson.org Mail container both shredded by evenly-spaced gray bars — a
+  frequent-toggling morning where every brief glance away landed back inside
+  the anchor's span. Every bar was LOW, yet together they read as a wall of
+  significant events. Scott: "if everything becomes important, the value is
+  lost."
+- **Diagnosis — display, not scoring:** nothing was being promoted. The
+  container display rule ("no fences or labels inside") made containers the
+  ONE surface where the LOW vocabulary is violated: a glance that anywhere
+  else on the ribbon collapses to a 3px stick instead got `MIN_W` block
+  width at full LOW height plus a 2px seam per side. A dozen glances = a
+  dozen framed gray blocks slicing the anchor into ribbons. The original
+  intent ("an interruption during a HIGH task is significant") is already
+  handled correctly by the taxonomy: a side-quest carries its own MEDIUM+
+  signal and keeps cut-out prominence; a LOW child is a graze that happened
+  to land inside a span.
+- **Why the fence objection dissolved:** the first instinct was to fence the
+  lows, rejected because interspersed children aren't consecutive — fences
+  group runs, and anchor returns separate every child. But singleton fencing
+  (2026-07-16) means a lone LOW already collapses to a lone stick: no
+  grouping is needed, just per-child demotion to the existing stick
+  vocabulary. Non-sequentiality is moot.
+- **Rule (spec §6):** LOW children keep the cut-out mechanics
+  (time-proportional position, seam, z-order, context line) but render at
+  `STICK_W` interior width, stick-gray (`STICK_FILL`) regardless of host
+  color, LOW stick stature. Unlike collapsed fence sticks they stay live
+  blocks — full tooltip, snapshot, click-to-open — because hover IS the
+  recovery path ("opinionated demoting with user exploration"). MEDIUM+
+  children untouched (§5 side-quest rule / atomicity guard 2).
+- **Rejected alternatives:** drop LOW children entirely (violates §5 —
+  interruptions are framed, never hidden); click-to-expand container with a
+  "+9" badge (a second expand interaction duplicating what hover already
+  gives); repetition-decay significance heuristics (solves a problem scoring
+  doesn't have — the inflation was purely display).
+- **Escalation path (watch list):** if ping-pong containers still read busy,
+  same-host stick aggregation (one stick + "×N") is next; independently, the
+  deferred sub-quantum anchor-return debounce would reduce stick count by
+  joining same-host children split by ~10s returns.
+
+### Same-day revision (2026-07-24, after Scott verified round 1)
+- **Sticks alone barely calmed the comb:** per glance the dark material went
+  from an 8px block to a 7px seam+stick slit at unchanged height — pitch
+  down ~12%, texture intact. Scott: "it's better... just not by much."
+- **Two knobs turned, one idea rejected:** the proposed contained-only notch
+  height was rejected on vocabulary grounds — two LOW heights imply FOUR
+  importance levels, not three. Adopted instead: (1) **global LOW lowering**
+  (`TIER_H.low` 86 → 40) — one height per tier stays invariant, and every
+  LOW surface (collapsed sticks, expanded fence members, contained sticks)
+  calms together; (2) **transparent seam** — the stick's 2px `.cut` border
+  goes `transparent` with `background-clip: padding-box` (without the clip
+  the fill would paint under the border), so the container's color shows
+  through and the visible slit is 3px while the hover box stays 7px.
+- **Width-inflation trade accepted explicitly:** the 7px hover box inflates
+  dense containers vs a true 3px footprint, but "this issue is centered
+  around visual clutter... we haven't had too much trouble with things
+  being overly wide yet" (Scott). Revisit under the existing
+  fixed-overhead-dilation watch if that changes.
+- **Escalation C (same-host stick aggregation) stays in reserve** on the
+  watch list — count is the one variable height and seam can't touch.
+- **Third knob, same day:** with LOW at 40, MEDIUM 115 read too close to
+  HIGH 144 — re-seated at the LOW/HIGH midpoint (92), making the three
+  tiers equidistant (40 / 92 / 144, 52px steps).
+
+## Fence split goes plate-based (2026-07-24, round 3 of the calming session)
+- **The specimen (07-24 screenshot, 6–7am):** two stick clusters flanking
+  localhost, each visually one group but internally split into multiple
+  fences by 5–15 min member gaps — expanding "one" cluster took several
+  fiddly clicks on adjacent small plates.
+- **The insight:** the 5-min fence split (`VISIT_GAP_MS`) was protecting a
+  hover plate that doesn't exist. Gap plates skip slivers (< 6px), and at
+  22px/hr a gap needs ~16.4 min to render 6px — so every 5–16 min gap split
+  the fence while rendering as a plateless sliver: all cost (shattered
+  targets), zero benefit.
+- **Rule:** fences split at member gaps whose RENDERED width earns a plate
+  (≥ `GAP_PLATE_MIN_PX` = 6, shared with the gap-plate sliver rule;
+  `FENCE_SPLIT_GAP_MS` derives from it, so the threshold self-adjusts with
+  `GAP_HOUR_PX`). "Never steal a gap's hover plate" now holds by
+  construction: a fence can only span gaps that were untargetable anyway.
+  Away detail inside a merged fence reappears on expansion (members lay out
+  normally, gap plates return).
+- **Vocabulary casualty:** plate tooltip "N rapid events" → "N brief
+  visits" — a fence can now span quiet minutes, and members are visits in
+  the §6 sense anyway. `VISIT_GAP_MS` itself untouched (absence-bridge
+  merging, label-run splitting).
+- **Scott's framing, adopted:** "expanding two adjacent fences has little
+  downside and makes for a bigger easier target" — opinionated grouping,
+  recoverable by expand.

@@ -46,15 +46,28 @@
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
-  const TIER_H = { high: 144, medium: 115, low: 86 }; // bottom-flush; top edge = importance contour
+  // Bottom-flush; top edge = importance contour. One height per tier —
+  // three tiers, three heights (spec §6, 2026-07-24): LOW lowered 86 → 40
+  // to calm the container comb globally, not via a fourth contained-only
+  // stature; MEDIUM re-seated at the LOW/HIGH midpoint (115 read too close
+  // to HIGH after the drop).
+  const TIER_H = { high: 144, medium: 92, low: 40 };
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
+  const CUT_SEAM = 2; // .blk.cut border-width (index.html): the page-background seam around contained children
   // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
   // renders at GAP_HOUR_PX per absent hour (~1/6 speed — halved together
   // with PX_PER_SEC 2026-07-17 to preserve the ratio; watch gap loudness).
   // Proportional everywhere — hour boundaries have no effect on width;
   // ticks just interpolate through gaps like they do through blocks.
   const GAP_HOUR_PX = 22;
+  // Sliver threshold, two surfaces (spec §6, 2026-07-24): gaps rendering
+  // narrower than this are untargetable (no hover plate) — and fences may
+  // span exactly those gaps, so a fence can never cover a plate. The
+  // fence-split test is this width converted back to time (~16 min at the
+  // current absence scale; self-adjusts if GAP_HOUR_PX is tuned).
+  const GAP_PLATE_MIN_PX = 6;
+  const FENCE_SPLIT_GAP_MS = (GAP_PLATE_MIN_PX / GAP_HOUR_PX) * HOUR;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
@@ -730,11 +743,12 @@
     };
     for (const event of events) {
       if (event.band === "low") {
-        // Absence splits fences (spec §5 generalized, same constant as
-        // visit merging): events separated by a real gap aren't "rapid",
-        // and a fence spanning an away-hole hid the gap's hover plate.
+        // Plate-worthy absence splits fences (spec §6, 2026-07-24; was
+        // VISIT_GAP_MS): a fence may span any gap too small to earn a
+        // hover plate — merging adjacent runs into one big expand target —
+        // but never covers a targetable away-hole.
         const prev = run[run.length - 1];
-        if (prev && event.startTime - prev.endTime >= VISIT_GAP_MS) flush();
+        if (prev && event.startTime - prev.endTime >= FENCE_SPLIT_GAP_MS) flush();
         run.push(event);
       } else {
         flush();
@@ -816,7 +830,14 @@
             const span = e.endTime - e.startTime;
             let prevRight = -Infinity;
             for (const k of e.children) {
-              const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
+              // LOW children collapse to fence sticks (spec §6, 2026-07-24):
+              // STICK_W interior plus the seam each side — the width floor
+              // must not confer block stature on a graze. MEDIUM+ children
+              // (side-quests) keep proportional block width.
+              const kw =
+                k.band === "low"
+                  ? STICK_W + 2 * CUT_SEAM
+                  : Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
               let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
               if (kx < prevRight + GAP) kx = prevRight + GAP;
               prevRight = kx + kw;
@@ -849,6 +870,10 @@
               // never destroys. A HIGH excursion keeps width + hover
               // truth but not the container's silhouette.
               band: kid.k.band === "high" ? "medium" : kid.k.band,
+              // A LOW child is a contained stick: stick paint, but — unlike
+              // collapsed fence sticks — a live block (tooltip, snapshot,
+              // click), because hover is the recovery path.
+              stick: kid.k.band === "low",
               w: kid.kw,
               x: cursor + kid.kx,
             });
@@ -1334,10 +1359,11 @@
       // thread's color). Non-anchored hosts are gray on every surface;
       // the old fence-open and contained-child color relaxations are
       // retired with transient colors (2026-07-18). Collapsed sticks
-      // stay stick-gray regardless.
-      const colored = !s.collapsed && coloredHosts.has(s.e.host);
+      // stay stick-gray regardless — contained LOW sticks too (spec §6,
+      // 2026-07-24): stick paint everywhere sticks appear.
+      const colored = !s.collapsed && !s.stick && coloredHosts.has(s.e.host);
       const fill = !colored
-        ? s.collapsed
+        ? s.collapsed || s.stick
           ? STICK_FILL
           : GRAY_FILL
         : s.band === "high"
@@ -1365,13 +1391,21 @@
       // dimmed) fill: the border carries identity at full strength on
       // every tier, so HIGH and MEDIUM read as one family (spec §6,
       // 2026-07-17).
-      el.style.borderColor = s.contained
-        ? PAGE_BG
-        : s.collapsed
-          ? STICK_FILL
-          : colored
-            ? rimOf(colorOf(s.e.host))
-            : GRAY_RIM;
+      // Contained sticks: transparent seam, fill clipped to the interior
+      // (spec §6, 2026-07-24) — the container's color shows through the
+      // 2px border, so the visible slit is STICK_W while the hover box
+      // keeps the full .cut footprint. background-clip is required:
+      // by default the background paints under the border.
+      el.style.backgroundClip = s.stick ? "padding-box" : "";
+      el.style.borderColor = s.stick
+        ? "transparent"
+        : s.contained
+          ? PAGE_BG
+          : s.collapsed
+            ? STICK_FILL
+            : colored
+              ? rimOf(colorOf(s.e.host))
+              : GRAY_RIM;
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).
@@ -1420,9 +1454,10 @@
     // tooltip-as-ground-truth convention as blocks. Not clickable — and
     // appended BEFORE fence plates so a hole inside a collapsed fence still
     // expands on click (the fence plate wins the overlap). Sliver gaps
-    // (<6px) skip the plate: untargetable, and they'd shadow neighbors.
+    // (< GAP_PLATE_MIN_PX) skip the plate: untargetable, and they'd shadow
+    // neighbors — the same threshold fences may span (clusterEvents).
     for (const g of gaps) {
-      if (g.w < 6) continue;
+      if (g.w < GAP_PLATE_MIN_PX) continue;
       const el = document.createElement("div");
       el.className = "gap transient";
       el.style.left = g.x + "px";
@@ -1442,11 +1477,11 @@
       el.style.top = TITLE_AREA + "px";
       el.style.height = BAND_H + "px";
       const active = p.members.reduce((t, m) => t + m.durMs, 0);
-      // A singleton stick isn't a burst of "rapid events" — name the page.
+      // A singleton stick isn't a run of "brief visits" — name the page.
       el.dataset.tip =
         p.members.length === 1
           ? `${p.members[0].host} · ${fmtDuration(active)} — click to expand`
-          : `${p.members.length} rapid events · ${fmtDuration(active)} — click to expand`;
+          : `${p.members.length} brief visits · ${fmtDuration(active)} — click to expand`;
       el.addEventListener("click", () => toggle(p.key));
       ribbon.appendChild(el);
     }
