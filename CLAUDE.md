@@ -116,7 +116,25 @@ alternatives, dated history) lives in `plans/` — see the index below.
   flag), finalize deletes the picture of rejected sessions, and the transit
   predicate moved to `shared/transit.js` (`FS_TRANSIT`, loaded by worker +
   dashboard) so capture and display can never drift (spec §3/§6; story in
-  `plans/snapshot_implementation.md`).
+  `plans/snapshot_implementation.md`). Same day: the traversal term —
+  `W_NAV` 50 per thread-assembly join (merged-visit navigations/returns +
+  container returns), the Airbnb-booking specimen's fix; user-act gate and
+  raw click weighting rejected on a one-day TSV replay; **retest with a
+  full week ~2026-07-28** (spec §6 Score v1 + watch list; story in
+  `plans/timeline_design.md`). Same day: the succession join — third merge
+  license (same-tree same-host across `tab_closed`, <30s): a middle-click
+  tab batch reads as ONE session; `tab_hidden` stays container territory
+  (spec §6; story in `plans/timeline_design.md`) — plus exit inheritance:
+  a transit-dropped stub bequeaths its `endReason` to the same-tab
+  machinery run it would have joined, so boundary testimony survives the
+  filter (spec §6, same story). Same day: gap-audio testimony — the
+  container audio-bookend bridge (≥50% bookends) replaced by direct
+  evidence: capture keeps a per-tab audible-continuity timestamp (event
+  transitions only, zero background polling) stamped as `audibleSinceTs`;
+  a long gap bridges only if the resuming fragment's audio predates the
+  gap. Kills the YouTube-binge-swallows-Claude false positive; meetings
+  still frame; additive schema, no history wipe (spec §2/§3/§6; stories in
+  both plans logs).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

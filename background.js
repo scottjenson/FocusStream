@@ -82,7 +82,10 @@ async function startSession(tab) {
   // Opener edge (spec §3, 2026-07-19): the onCreated map is authoritative;
   // tab.openerTabId is the fallback for tabs created before this listener
   // shipped (or an extension reload wiping storage.session mid-run).
-  const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
+  const { openerEdges = {}, audibleContinuity = {} } = await chrome.storage.session.get([
+    "openerEdges",
+    "audibleContinuity",
+  ]);
   const openerTabId = openerEdges[tab.id] ?? tab.openerTabId;
   const session = {
     id: crypto.randomUUID(),
@@ -106,6 +109,16 @@ async function startSession(tab) {
     // bookkeeping for an open interval, folded in at finalize.
     audibleMs: 0,
     ...(tab.audible ? { audibleSince: Date.now() } : {}),
+    // Gap-audio testimony (spec §3, 2026-07-24): when this tab's unbroken
+    // audible stretch began. Stored (survives finalize) — display bridges
+    // a long container gap only if it predates the previous fragment's
+    // end (§6). Fallback to now covers a missed transition: continuity
+    // from now can never falsely testify across a gap.
+    ...(audibleContinuity[tab.id] != null
+      ? { audibleSinceTs: audibleContinuity[tab.id] }
+      : tab.audible
+        ? { audibleSinceTs: Date.now() }
+        : {}),
     // Last proof of attention (spec §3 idle split): heartbeats refresh it,
     // audible pins it to now (open audibleSince interval), finalize clamps
     // a trailing gap against it. Live-session bookkeeping, never stored.
@@ -290,10 +303,27 @@ async function injectIntoExistingTabs() {
   log(`injected content.js into ${injected}/${tabs.length} existing tabs`);
 }
 
+// Seed audible continuity for tabs already making sound when the extension
+// (re)starts — storage.session is empty then, and their audible-on
+// transition is long past. Continuity from NOW, not their true start
+// (unknowable), which fails closed: a bridge needs audio since before the
+// user left, and "now" can never predate an existing gap (spec §3).
+async function seedAudibleContinuity() {
+  const tabs = await chrome.tabs.query({ audible: true });
+  if (!tabs.length) return;
+  const { audibleContinuity = {} } = await chrome.storage.session.get("audibleContinuity");
+  for (const t of tabs) {
+    if (audibleContinuity[t.id] == null) audibleContinuity[t.id] = Date.now();
+  }
+  await chrome.storage.session.set({ audibleContinuity });
+  log(`seeded audible continuity for ${tabs.length} audible tabs`);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   log("onInstalled");
   enqueue("onInstalled", async () => {
     await injectIntoExistingTabs();
+    await seedAudibleContinuity();
     await ensureSession();
     await sweepOrphanSnapshots();
   });
@@ -302,6 +332,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   log("onStartup");
   enqueue("onStartup", async () => {
+    await seedAudibleContinuity();
     await ensureSession();
     await sweepOrphanSnapshots();
   });
@@ -428,11 +459,26 @@ chrome.webNavigation.onReferenceFragmentUpdated.addListener((details) =>
 );
 
 // Audible transitions (spec Edge Case 1): event-driven — no polling, the
-// worker wakes for the event. Only the tracked tab's sound counts.
+// worker wakes for the event. Only the tracked tab's sound accrues
+// audibleMs, but EVERY tab's transitions feed the continuity map (below).
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === undefined) return;
   log("event: audible", changeInfo.audible, "tab", tabId);
   enqueue("audible", async () => {
+    // Audible continuity, all tabs (spec §3, 2026-07-24): one timestamp
+    // per tab — when its current unbroken audible stretch began. Written
+    // only on transitions, so a meeting talking through a 20-minute gap
+    // costs zero writes. startSession stamps it as audibleSinceTs; display
+    // bridges a long container gap only when the audio predates the gap
+    // (§6 gap-audio testimony).
+    const { audibleContinuity = {} } = await chrome.storage.session.get("audibleContinuity");
+    if (changeInfo.audible && audibleContinuity[tabId] == null) {
+      audibleContinuity[tabId] = Date.now();
+      await chrome.storage.session.set({ audibleContinuity });
+    } else if (!changeInfo.audible && audibleContinuity[tabId] != null) {
+      delete audibleContinuity[tabId];
+      await chrome.storage.session.set({ audibleContinuity });
+    }
     const current = await getCurrent();
     if (!current || current.tabId !== tabId) return;
     if (changeInfo.audible) {
@@ -457,10 +503,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
     // The closed tab can never start another session; drop its opener edge.
     // Edges pointing AT it stay — they remain valid tree keys (spec §3).
-    const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
+    // Its audible-continuity entry dies with it too.
+    const { openerEdges = {}, audibleContinuity = {} } = await chrome.storage.session.get([
+      "openerEdges",
+      "audibleContinuity",
+    ]);
     if (openerEdges[tabId] != null) {
       delete openerEdges[tabId];
       await chrome.storage.session.set({ openerEdges });
+    }
+    if (audibleContinuity[tabId] != null) {
+      delete audibleContinuity[tabId];
+      await chrome.storage.session.set({ audibleContinuity });
     }
   });
 });

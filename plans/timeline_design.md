@@ -834,3 +834,154 @@ Decisions along the way:
 - **Scott's framing, adopted:** "expanding two adjacent fences has little
   downside and makes for a bigger easier target" — opinionated grouping,
   recoverable by expand.
+
+## The traversal term — W_NAV (2026-07-24)
+
+**The specimen:** the Airbnb booking container (9:21 AM, 10m17s, 4 visits +
+3 excursions, 8 distinct pages) scored 623 MEDIUM while every other MEDIUM
+that day sat ~200. It *felt* HIGH — the morning's important activity,
+paired with the United booking — and Scott's diagnosis was structural:
+traversal breadth (multiple page views within a domain) scored nothing.
+
+**Why the formula couldn't see it:** clicks deliberately weigh 0 (they
+contribute via attendedSeconds only — "a click is how you leave a page"),
+and a container/merged visit scores as the plain SUM of member signal
+totals. The structure the display proudly renders — 4 visits, 3
+returns — was worth zero points. Scott's reframe, which won: a navigation
+event is a *higher-level click* — the click that created a committed page
+change rather than a scroll — and the capture pipeline already filters it
+for intent (SPA debounce absorbs Maps-pan churn, blip filter eats
+redirects, transit filter drops bounce hops). Count the survivors.
+
+**Rejected on the way (in order):**
+- *Lowering HIGH_SCORE to ~600* — Scott's instinct said risky; the replay
+  agreed (the 600–1000 band held YouTube watches and a Claude chat, not
+  just the trip cluster).
+- *Raw click weighting (W_CLICK)* — noisy counter (every Maps drag-pan is
+  a mousedown), and the replay showed nav counting covers the target case
+  without it. Held in reserve: the one thing only clicks caught was the
+  Google Vids editing session (click-heavy in-page work) — watch list.
+- *User-act gate on navigation counting* (a nav counts only if the
+  departing member had a discrete signal) — tested on real data and failed
+  BOTH ways: passed 15/16 YouTube-Shorts swipes (the swipe IS one
+  keystroke — the terminal-keystroke problem in a new hat) while killing
+  Kayak's genuine search navigation (the act landed in a boundary window
+  the departing member didn't report). No gate.
+
+**Validation (2026-07-24, ONE day, 202 sessions, post-schema-change data
+only):** offline Score-table TSV replay mirroring the display pipeline
+(transit → machinery join → absence-bridge → chain approximation).
+Candidates W_NAV ∈ {50, 100, 150} × (joins + returns) vs W_CLICK ∈
+{3, 5, 10}. Findings:
+- The trip-planning cluster rose coherently at every W_NAV: United
+  Reservations (4 navs, 902) → HIGH at W=50; the Airbnb container
+  (~8 navs + 3 returns on 623) → ~1170 HIGH at W=50. Goal met at the
+  conservative end.
+- W=100 additionally flipped single-nav glances to MEDIUM (Amazon "Your
+  Orders" 70→170, a Gmail inbox hop 71→171) — rejected as too hot.
+- Residual W=50 noise flips (LinkedIn feed 221, Akademy browse 227,
+  Simplenote verify 198) all land just over the 150 line — the
+  pre-existing "MEDIUM=150 may be too permissive" threshold question, not
+  a navigation problem.
+- The Shorts run (16 navs, 0 clicks, kbd=1/member) was ALREADY HIGH at
+  baseline 1577 via attended time — nav points inflate it invisibly
+  (three tiers have no display above HIGH). Latent, on the watch list.
+
+**As built:** `W_NAV = 50`. Merged visits: `scoreSession(merged) +
+W_NAV × (members − 1)` — machinery navigations and absence-bridge returns
+count alike (every join is a committed page view). Chains: `chainScore =
+Σ fragment scores + W_NAV × (fragments − 1)` — fragments already carry
+their internal bonuses, the chain adds only its returns; the term flows
+into container qualification (sum ≥ MEDIUM) and anchor dominance, both
+deliberate (returning strengthens the anchor's claim). Week strip inherits
+via threadsByDay.
+
+**Retest required (~2026-07-28):** tuned on one day. Replay a full week's
+TSV before touching the weight; check for Shorts-style inflation
+specimens, feed-graze MEDIUMs, and whether the Vids case argues clicks
+back in.
+
+## The succession join (2026-07-24)
+
+**The specimen:** after the traversal term shipped, the ribbon showed the
+midday YouTube binge as a HIGH block followed by two un-merged MEDIUM
+visits. Diagnosis: the tabs were a middle-click batch — Scott queues
+videos into tabs from the feed, then watches each and closes it, landing
+on the next queued tab. Every internal boundary was `tab_closed`, which
+(a) is not `tab_hidden`, so guard 1 saw no departures → no container
+(correctly: there was no interruption to frame), and (b) had no merge
+license: machinery is same-tab only, absence-bridge is LOW-only. Three
+same-host zero-gap blocks stood apart. Scott's call: one YouTube session
+across the tabs it spawned — the guard was over-protective.
+
+**The rule:** a third merge license. Same-TREE same-host neighbors whose
+boundary is `tab_closed` (< `CONTINUATION_GAP_MS`) merge regardless of
+band — closing a finished tab to advance to the next queued same-host tab
+is cross-tab machinery, not departure. The tree key (opener edges,
+2026-07-19) is the intent test: the middle-clicked tabs all root at the
+feed tab, while a stray same-host tab in another window/tree never joins.
+The boundary taxonomy stays clean: spa/navigated = same-tab machinery,
+tab_closed + same-tree successor = cross-tab machinery, tab_hidden =
+genuine departure (container territory, unchanged — a mid-binge Gmail
+check still frames as interruption). Individually-HIGH events still stand
+alone; each succession join earns the traversal term.
+
+**Replay (same one-day TSV):** the 11:49–12:23 binge fuses to one
+24-member HIGH (3364); the post-lunch resumption fuses to its own HIGH
+(2091) across a real 7-minute absence boundary. One imperfection observed
+and accepted: a transit-dropped 3s stub can carry the run's tab_closed
+boundary away with it (the surviving neighbor ends spa_navigation in a
+different tab), leaving a small visit un-joined ("Castella Cake",
+12:24–12:28). Boundary evidence lost to the transit filter — rare, fails
+toward showing structure, not worth a rule.
+
+**Same-day follow-up — exit inheritance:** the "Castella" imperfection
+above didn't survive contact with Scott ("almost — one of the trailing
+tabs was merged but not the last one?"). Rule: the transit filter drops a
+stub's PRESENCE, never its boundary testimony — a dropped stub that would
+have machinery-joined its same-tab predecessor (machinery boundary, <30s)
+bequeaths its endReason to that predecessor, since a visit's exit is its
+last member's exit. Precedent: opener edges already read from
+transit-filtered sessions ("a filtered hop can be the link between
+grandchild and root") — the boundary is a fact, the stub's screen time is
+the noise. Symmetric bonus: a stub exiting tab_hidden bequeaths honest
+departure testimony for container guard 1. Implemented as an overlay map
+in parseSessions (stored sessions untouched). Replay: the full binge is
+now ONE 26-member HIGH run (11:49–12:28, 3579); the post-lunch resumption
+stays separate across its real 7-minute absence.
+
+## Gap-audio testimony replaces the audio-bookend bridge (2026-07-24)
+
+**The specimen:** the succession join armed the watch-listed audio-bookend
+false positive the same day it shipped. The fused binge visit (82%
+audible) and the post-lunch resumption (99%) both passed the ≥50%
+audible-dominated bookend test, so the 7-minute lunch gap bridged and the
+container swallowed the WorkFlowy + Claude recipe work as contained
+children — "completely independent events" (Scott) framed as YouTube
+sub-events.
+
+**Dead ends worth recording:** every cheap discriminator fails this pair —
+Scott returned to the same TAB and even the same VIDEO as the
+meeting-whiteboard pattern would; a browser-empty-gap displacement test
+(first proposal) assumed whiteboards live outside the browser, which
+Scott rejected (browser-based whiteboards exist). His counter-hypothesis —
+YouTube audio is stop-start, meeting audio is continuous — was tested
+against the day's TSV: individual video sessions are ~100% audible
+(inter-video pauses vanish into session splits + Chrome's audible
+hysteresis), but the silence concentrates in browse/paused fragments (the
+homepage 0%, the pre-gap paused-video fragment 4%), yielding bookend
+ratios of 82% vs 99%. A ~95% continuity threshold would have worked for
+THIS specimen but fails a clean binge that's 100% audible up to the gap —
+ratio is proxy, not fact.
+
+**The rule:** bridge a long gap (VISIT_GAP_MS < gap < AUDIO_BOOKEND_GAP_MS)
+only on gap-audio testimony — the resuming fragment's `audibleSinceTs`
+(capture-side continuity stamp, `plans/capture_design.md`) predates the
+previous fragment's endTime. The tab demonstrably played through the gap.
+No thresholds, no ratios; audibleDominated deleted. Merged visits carry
+their FIRST member's stamp (the fragment that resumed). Old sessions lack
+the stamp and never long-bridge — fails closed, which today's specimen
+says is the right default. Watch: a meeting whose audible flag drops
+mid-gap loses its frame (two blocks, not wrong framing); fallback if a
+real specimen appears is a tolerance window on continuity, never a return
+to bookend ratios.

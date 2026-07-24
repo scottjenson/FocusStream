@@ -26,6 +26,15 @@
   // grazing/churn false positives. Tuned offline against a real day: W=5
   // promoted one block (a read article); W=3 rescued nothing.
   const W_SCROLL = 5;
+  // The traversal term (spec §6 Score v1, 2026-07-24): thread assembly adds
+  // this per JOIN — machinery navigations and returns alike — on top of the
+  // summed member totals. Multiple committed page views are intent the
+  // per-signal totals can't see; the joins counted are exactly the
+  // survivors of the SPA debounce, blip, and transit filters, so
+  // view-state churn and redirect machinery contribute nothing. No
+  // user-act gate (rejected on data — plans). Single-day-validated;
+  // retest before tuning (watch list).
+  const W_NAV = 50;
   const HIGH_SCORE = 1000;
   const MED_SCORE = 150;
 
@@ -33,9 +42,11 @@
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
   const VISIT_GAP_MS = 5 * 60 * 1000;
-  // Container chains bridge longer gaps when both bookend fragments are
-  // audible-dominated — a meeting's own audio testifies the context never
-  // ended while the user was off on a whiteboard (spec §6 containers).
+  // Container chains bridge longer gaps on gap-audio testimony (revised
+  // 2026-07-24; was audible-dominated bookends): the resuming fragment's
+  // audibleSinceTs must predate the gap — the tab's own audio testifies
+  // the context never ended while the user was off on a whiteboard
+  // (spec §6 containers).
   const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
@@ -366,12 +377,44 @@
     const inDay = sessions.filter((s) => s.endTime >= from && s.endTime < to && s.url);
     const transits = inDay.filter(isTransit);
     if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
+    // Exit inheritance (spec §6, 2026-07-24): dropping a transit stub must
+    // not drop its boundary testimony. A stub that would have machinery-
+    // joined its same-tab predecessor is that run's true TAIL — and a
+    // visit's exit is its last member's exit — so the predecessor inherits
+    // the stub's endReason (overlay only; stored sessions stay untouched).
+    // Without this a 3s next-video stub carries the run's tab_closed away
+    // with it and the next queued tab can't succession-join (the Castella
+    // specimen, plans); a stub ending tab_hidden likewise bequeaths honest
+    // departure testimony for container guard 1.
+    const inheritedExit = new Map(); // kept session id -> exit from dropped tail stubs
+    const runTail = new Map(); // tabId -> { keeperId, end, reason } of the tab's live run
+    for (const s of [...inDay].sort((a, b) => a.startTime - b.startTime)) {
+      if (s.tabId == null) continue;
+      const t = runTail.get(s.tabId);
+      if (!isTransit(s)) {
+        runTail.set(s.tabId, { keeperId: s.id, end: s.endTime, reason: s.endReason });
+      } else if (
+        t &&
+        t.keeperId != null &&
+        MACHINERY_BOUNDARY.has(t.reason) &&
+        s.startTime - t.end < CONTINUATION_GAP_MS
+      ) {
+        inheritedExit.set(t.keeperId, s.endReason);
+        runTail.set(s.tabId, { keeperId: t.keeperId, end: s.endTime, reason: s.endReason });
+      } else {
+        // A stub that DIDN'T continue the run starts no run of its own —
+        // it still occupies the tab slot so a later session can't inherit
+        // across it.
+        runTail.set(s.tabId, { keeperId: null, end: s.endTime, reason: s.endReason });
+      }
+    }
     return inDay
       .filter((s) => !isTransit(s))
       .map((s) => {
         const score = scoreSession(s);
         return {
           ...s,
+          endReason: inheritedExit.get(s.id) ?? s.endReason,
           host: hostOf(s),
           score,
           band: bandFor(score),
@@ -382,7 +425,7 @@
       .sort((a, b) => a.startTime - b.startTime);
   }
 
-  // Same-host visit merging (spec §6): two merge licenses, both strict-
+  // Same-host visit merging (spec §6): three merge licenses, all strict-
   // adjacency (nothing between members to hide):
   //   1. LOW rule (2026-07-15): consecutive same-host LOW events with gaps
   //      < VISIT_GAP_MS merge — a fragmented-but-engaged session (Maps
@@ -391,10 +434,16 @@
   //      boundary is navigation machinery (spa_navigation/navigated —
   //      attention never left the tab) merge REGARDLESS of band. Three
   //      back-to-back YouTube videos are one watch, not three slivers.
+  //   3. Succession rule (2026-07-24): same-TREE same-host fragments whose
+  //      boundary is tab_closed merge REGARDLESS of band — closing a
+  //      finished tab to land on the next queued same-host tab is
+  //      cross-tab machinery, not departure (the middle-click batch
+  //      pattern: one session across the tabs it spawned; the tree key is
+  //      the intent test).
   // Individually-HIGH events never merge — they split the run and stand
   // alone (a block that's HIGH by itself owns its story). tab_hidden
-  // boundaries never merge under rule 2: the user actually left, which is
-  // container territory. Scored and banded on the MERGED totals.
+  // boundaries never merge under rules 2/3: the user actually left, which
+  // is container territory. Scored and banded on the MERGED totals.
   const CONTINUATION_GAP_MS = 30_000; // sanity bound; machinery gaps are ~0
   const MACHINERY_BOUNDARY = new Set(["spa_navigation", "navigated"]);
   function mergeVisits(events) {
@@ -445,9 +494,15 @@
           // OR of members: the merged score must keep the scroll premium a
           // member earned (the gate would otherwise silently drop it).
           scrollable: run.some((m) => m.scrollable),
+          // The FIRST member is the one that resumed after any preceding
+          // gap — its gap-audio testimony is the visit's (spec §6).
+          ...(run[0].audibleSinceTs != null ? { audibleSinceTs: run[0].audibleSinceTs } : {}),
           members: run,
         };
-        merged.score = scoreSession(merged);
+        // Merged totals + the traversal term: every join — machinery
+        // navigation or absence-bridge return — is a committed page view
+        // the per-signal totals can't see (spec §6 Score v1, 2026-07-24).
+        merged.score = scoreSession(merged) + W_NAV * (run.length - 1);
         merged.band = bandFor(merged.score);
         out.push(merged);
       }
@@ -469,7 +524,15 @@
         prev.tabId === e.tabId &&
         MACHINERY_BOUNDARY.has(prev.endReason) &&
         e.startTime - prev.endTime < CONTINUATION_GAP_MS;
-      if (lowMerge || continuation) {
+      const succession =
+        e.band !== "high" &&
+        prev &&
+        prev.host === e.host &&
+        prev.treeId != null &&
+        prev.treeId === e.treeId &&
+        prev.endReason === "tab_closed" &&
+        e.startTime - prev.endTime < CONTINUATION_GAP_MS;
+      if (lowMerge || continuation || succession) {
         run.push(e);
       } else if (e.band !== "high") {
         flush();
@@ -488,8 +551,9 @@
   // Same-TREE fragments chain (2026-07-19; was same-tabId — treeId is the
   // opener-resolved root, a tab tree being "one tab and its spawn") when
   // the excursion returns within
-  // VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS when both bookends are
-  // audible-dominated. A chain whose SUMMED score reaches MEDIUM (lowered
+  // VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS on gap-audio testimony
+  // (the tab stayed audible through the gap — 2026-07-24, see the bridge
+  // test below). A chain whose SUMMED score reaches MEDIUM (lowered
   // from HIGH, 2026-07-18 — containers map the journey's shape, tier maps
   // importance) becomes a container: fragments merge into the anchor
   // (width = wall-clock span), foreign events inside the span become
@@ -509,7 +573,6 @@
   // where two sites each tried to containerize the other). The HIGH path
   // keeps its original guards; dominance is deliberately not applied there.
   function detectContainers(events, quiet) {
-    const audibleDominated = (e) => (e.audibleMs || 0) >= 0.5 * e.durMs;
     // Chains key on the (tree, host) PAIR (2026-07-19): a thread is a
     // same-host chain in one tab tree, so each host runs its own chain per
     // tree — a spawned foreign-host read neither joins nor breaks its
@@ -531,9 +594,19 @@
       if (frags) {
         const last = frags[frags.length - 1];
         const gap = e.startTime - last.endTime;
+        // Gap-audio testimony (spec §6, 2026-07-24): a long gap bridges
+        // only when the resuming fragment's unbroken audible stretch began
+        // BEFORE the previous fragment ended — the tab demonstrably kept
+        // playing the whole time the user was away (a meeting talks
+        // through its whiteboard gap; a paused video cannot testify).
+        // Replaces the audible-dominated bookend proxy, which the fused
+        // YouTube binge defeated (plans). Old sessions lack the stamp and
+        // never long-bridge — fails closed.
         const bridged =
           gap < VISIT_GAP_MS ||
-          (gap < AUDIO_BOOKEND_GAP_MS && audibleDominated(e) && audibleDominated(last));
+          (gap < AUDIO_BOOKEND_GAP_MS &&
+            e.audibleSinceTs != null &&
+            e.audibleSinceTs <= last.endTime);
         if (bridged) {
           frags.push(e);
           continue;
@@ -545,7 +618,13 @@
     }
     for (const frags of open.values()) close(frags);
 
-    const chainScore = (frags) => frags.reduce((t, f) => t + f.score, 0);
+    // Summed fragment scores + the traversal term for returns (spec §6
+    // Score v1, 2026-07-24): fragment scores already carry their internal
+    // join bonuses, so the chain adds only its own returns. Flows into
+    // qualification (sum ≥ MEDIUM) and anchor dominance — returning
+    // strengthens the anchor's claim, which is the point.
+    const chainScore = (frags) =>
+      frags.reduce((t, f) => t + f.score, 0) + W_NAV * (frags.length - 1);
     const queue = chains
       .map((frags) => ({ frags, score: chainScore(frags) }))
       .filter((c) => c.score >= MED_SCORE)
@@ -644,7 +723,7 @@
         audibleMs,
         activity,
         scrollable: c.frags.some((f) => f.scrollable),
-        score: c.score, // summed fragment scores: add up, then judge
+        score: c.score, // summed fragment scores + returns traversal term: add up, then judge
         band: bandFor(c.score),
         members: c.frags,
         children,

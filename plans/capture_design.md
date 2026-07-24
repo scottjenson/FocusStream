@@ -391,3 +391,37 @@ Fix shape (Scott's ad-flood concern drove the design):
   counted a keydown.
 - Pre-2026-07-24 sessions have no field and keep old behavior until the
   7-day prune (same stance as `lastActiveTs`).
+
+## Audible continuity — gap-audio testimony (2026-07-24)
+
+**Why:** the display's audio-bookend container bridge (both bookend
+fragments ≥50% audible → bridge up to 30 min) was defeated by the fused
+YouTube binge the day the succession join shipped: an 82%-audible binge
+bridged its 7-minute lunch gap and swallowed an independent Claude session
+as a contained child. Scott's insight: the real discriminator between a
+meeting and a video session isn't how audible the bookends were — it's
+whether the audio ran THROUGH the gap. A meeting keeps talking while the
+user is at a whiteboard (browser-based or not); a paused video is silent.
+That fact was structurally invisible: sessions only exist for the active
+tab, so gaps are dataless by design.
+
+**Design constraint (Scott):** no background heartbeats, no polling, no
+redundant sampling — one derived fact, not many samples. The refinement:
+"audible at return" alone is insufficient (already captured via
+tab.audible at adoption) — it can't distinguish continuous audio from
+stopped-and-restarted. Continuity needs exactly one remembered thing per
+tab: when the current unbroken audible stretch began.
+
+**As built:** the existing chrome.tabs.onUpdated audible listener (which
+already fires for every tab; only the current tab accrues audibleMs) now
+also maintains `audibleContinuity` in storage.session — {tabId: sinceTs},
+set on audible-on, cleared on audible-off. Writes only on transitions: a
+meeting talking through a 20-minute gap costs zero events; a stopping
+video costs one. Seeded at onInstalled/onStartup from
+tabs.query({audible:true}) with NOW (true start unknowable — fails
+closed: "now" can never predate an existing gap); entry dies with the tab
+in onRemoved. startSession stamps the value as `audibleSinceTs` on the
+session (stored, survives finalize; fallback to now when tab.audible but
+no entry). Display use: `plans/timeline_design.md` (gap-audio bridge).
+Additive schema — old data simply never long-bridges; no history wipe
+needed.
