@@ -240,7 +240,11 @@
   function fmtDuration(ms) {
     const secs = Math.round(ms / 1000);
     if (secs < 60) return secs + "s";
-    return Math.floor(secs / 60) + "m" + String(secs % 60).padStart(2, "0") + "s";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + "m" + String(secs % 60).padStart(2, "0") + "s";
+    // Hour scale drops seconds: "3h49m", not "229m00s" — a multi-hour away
+    // span is read at minute precision (spec §6 gap plates).
+    return Math.floor(mins / 60) + "h" + String(mins % 60).padStart(2, "0") + "m";
   }
 
   function hourNum(t) {
@@ -379,28 +383,32 @@
     if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
     // Exit inheritance (spec §6, 2026-07-24): dropping a transit stub must
     // not drop its boundary testimony. A stub that would have machinery-
-    // joined its same-tab predecessor is that run's true TAIL — and a
-    // visit's exit is its last member's exit — so the predecessor inherits
-    // the stub's endReason (overlay only; stored sessions stay untouched).
+    // joined its same-tab SAME-HOST predecessor is that run's true TAIL —
+    // and a visit's exit is its last member's exit — so the predecessor
+    // inherits the stub's endReason (overlay only; stored sessions stay
+    // untouched). The host test carries the full join conditions: a
+    // foreign-host stub (a link-out bounce) was never a would-be member
+    // and must not manufacture succession licenses or departure testimony.
     // Without this a 3s next-video stub carries the run's tab_closed away
     // with it and the next queued tab can't succession-join (the Castella
     // specimen, plans); a stub ending tab_hidden likewise bequeaths honest
     // departure testimony for container guard 1.
     const inheritedExit = new Map(); // kept session id -> exit from dropped tail stubs
-    const runTail = new Map(); // tabId -> { keeperId, end, reason } of the tab's live run
+    const runTail = new Map(); // tabId -> { keeperId, end, reason, host } of the tab's live run
     for (const s of [...inDay].sort((a, b) => a.startTime - b.startTime)) {
       if (s.tabId == null) continue;
       const t = runTail.get(s.tabId);
       if (!isTransit(s)) {
-        runTail.set(s.tabId, { keeperId: s.id, end: s.endTime, reason: s.endReason });
+        runTail.set(s.tabId, { keeperId: s.id, end: s.endTime, reason: s.endReason, host: hostOf(s) });
       } else if (
         t &&
         t.keeperId != null &&
+        t.host === hostOf(s) &&
         MACHINERY_BOUNDARY.has(t.reason) &&
         s.startTime - t.end < CONTINUATION_GAP_MS
       ) {
         inheritedExit.set(t.keeperId, s.endReason);
-        runTail.set(s.tabId, { keeperId: t.keeperId, end: s.endTime, reason: s.endReason });
+        runTail.set(s.tabId, { keeperId: t.keeperId, end: s.endTime, reason: s.endReason, host: t.host });
       } else {
         // A stub that DIDN'T continue the run starts no run of its own —
         // it still occupies the tab slot so a later session can't inherit
@@ -559,8 +567,9 @@
   // (width = wall-clock span), foreign events inside the span become
   // contained children. Guards so the big-email case can never trigger
   // this: foreign interruptions are REQUIRED (≥1 child), and a HIGH event
-  // never joins a FOREIGN-host chain — it closes the chain instead, so no
-  // span can cover it. Since 2026-07-19 a HIGH MAY seed or join its own
+  // never joins a FOREIGN-host chain — and no chain whose span would cover
+  // a HIGH non-member survives qualification (tree-blind, 2026-07-24).
+  // Since 2026-07-19 a HIGH MAY seed or join its own
   // host's chain in its own tab: excluding the anchor's HIGHs decapitated
   // the true anchor in territory contests (the bsky/gemini ping-pong —
   // the rump bsky chain summed 455 against gemini's 924 while the bsky
@@ -579,9 +588,9 @@
     // parent's chain (it becomes a child by falling inside the span), and
     // two hosts ping-ponging inside one tree each keep their own thread.
     // The pair key also makes relaxed guard 1 structural: a HIGH can only
-    // ever extend its own host's thread. A same-tree HIGH that a foreign
-    // chain's span would cover is handled by the covered-HIGH rejection
-    // below.
+    // ever extend its own host's thread; any HIGH non-member a chain's
+    // span would cover is handled by the tree-blind covered-HIGH
+    // rejection below (2026-07-24).
     const open = new Map(); // treeId|host -> fragments of the open chain
     const chains = [];
     const close = (frags) => {
@@ -689,7 +698,13 @@
         (f, i) => i < c.frags.length - 1 && f.endReason === "tab_hidden"
       ).length;
       if (!children.length && !departures) continue; // no interruptions at all
-      if (children.some((e) => e.treeId === c.frags[0].treeId && e.band === "high")) continue;
+      // Covered-HIGH guard, tree-blind (spec §6 atomicity, 2026-07-24):
+      // containment is a demotion and must be earned by evidence, never
+      // inferred from time-overlap — ANY individually-HIGH non-member
+      // inside the span rejects the chain. Members are exempt by
+      // construction: a HIGH in its own host's chain is a fragment, not a
+      // child, so a thread can never break its own container.
+      if (children.some((e) => e.band === "high")) continue;
       // Anchor dominance (sub-HIGH only): the anchor must outscore its
       // children, or it's a launcher and the children are the story.
       if (c.score < HIGH_SCORE && c.score <= children.reduce((t, e) => t + e.score, 0)) continue;
@@ -938,8 +953,9 @@
               // ("interruption inside Phanpy · visit 2 of 2").
               parent: e,
               // Capped at MEDIUM: containment frames — never confers,
-              // never destroys. A HIGH excursion keeps width + hover
-              // truth but not the container's silhouette.
+              // never destroys. Structurally unreachable since the
+              // tree-blind covered-HIGH guard (2026-07-24) — kept as a
+              // defensive invariant.
               band: kid.k.band === "high" ? "medium" : kid.k.band,
               // A LOW child is a contained stick: stick paint, but — unlike
               // collapsed fence sticks — a live block (tooltip, snapshot,

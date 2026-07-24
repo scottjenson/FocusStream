@@ -9,7 +9,8 @@ watch-list is consolidated in spec §6 ("Watch list").
 - Score v1 (spec §6): `attendedSeconds = max(heartbeats×10, audibleSeconds)` +
   weighted discrete signals. Weights are provisional — inherited from Desktop4's
   demo-tuned values; keep them named constants.
-- Score → three tiers/heights (144/115/86, bottom-flush) → picket fence.
+- Score → three tiers/heights (144/92/40 since 2026-07-24 — see the container-calming
+  entry; originally 144/115/86, bottom-flush) → picket fence.
   Design ported from the Desktop4 project (`~/Projects/Desktop4 (lifestreams)` —
   see its `plans/three_tier_focus_plan.md` and
   `src/components/canvas/TimelineView.jsx`; its WebGL/React stack and
@@ -950,6 +951,17 @@ in parseSessions (stored sessions untouched). Replay: the full binge is
 now ONE 26-member HIGH run (11:49–12:28, 3579); the post-lunch resumption
 stays separate across its real 7-minute absence.
 
+**Audit fix (same day, from the doc↔code audit):** the
+as-built overlay omitted the same-HOST condition that "would have
+machinery-joined" implies — it tested tab + machinery boundary + <30s
+only, so a foreign-host stub (a link-out bounce closed in 3s) could
+bequeath its `tab_closed`/`tab_hidden` to a predecessor it never could
+have joined, manufacturing succession licenses and false departure
+testimony (the exact evidence-strictness the covered-HIGH work was about).
+`runTail` now carries the keeper's host and inheritance requires the stub
+to match; a foreign stub falls into the existing didn't-continue branch,
+which already blocks inheritance across it.
+
 ## Gap-audio testimony replaces the audio-bookend bridge (2026-07-24)
 
 **The specimen:** the succession join armed the watch-listed audio-bookend
@@ -985,3 +997,50 @@ says is the right default. Watch: a meeting whose audible flag drops
 mid-gap loses its frame (two blocks, not wrong framing); fallback if a
 real specimen appears is a tolerance window on continuity, never a return
 to bookend ratios.
+
+## Covered-HIGH guard goes tree-blind (2026-07-24)
+
+**The finding:** a doc↔code audit (2026-07-24, working file since
+retired) surfaced a spec-internal contradiction: Atomicity guard 1 said a
+chain covering an individually-HIGH session is rejected — unqualified —
+while the 2026-07-19 keying entry said the covered-HIGH guard "widened to
+trees," and the code implemented the tree-scoped version: a HIGH in a
+*different* tab tree covered by a chain's span was silently absorbed as a
+contained child, display-capped at MEDIUM.
+
+**The discussion:** the initial audit lean was to bless the tree-scoped
+code (three passages + the MEDIUM cap + a watch-list entry all implied
+HIGH children could exist). Scott overruled on product grounds: the only
+*validated* containment-across-activity case is the meeting (Figma
+discussed while the call runs — earned by audio evidence, the gap-audio
+work above), and the tree-scoped guard had quietly generalized from that
+one case to ALL cross-tree overlap with nothing backing the general case.
+Containment is a demotion; for a data-gathering product the safe default
+is that an important object always breaks a frame that would cover it —
+important things must never get lost — and specific re-join licenses get
+earned back with specimens, exactly as gap-audio was.
+
+**The YouTube worry, resolved:** Scott's concern was losing the same-day
+succession-join win ("I do not want to lose a YouTube session to another
+YouTube session that is also HIGH"). Structurally unfounded: the guard
+tests only covered NON-members, and a HIGH YouTube video in the batch's
+tree is a *fragment* of its own host's chain (2026-07-19 relaxation,
+untouched), never a child. Joining ("is this part of the thread?" — host +
+tree + boundary evidence) and framing ("what does the span cover that
+ISN'T the thread?") are disjoint questions; the tree rule lives entirely
+in the first, this guard entirely in the second. A YouTube session cannot
+break its own YouTube container in any version of the rule.
+
+**What actually changes:** a foreign-host HIGH inside a container's span
+(the shape of the same morning's binge-swallows-Claude specimen, had that
+Claude session been HIGH) now rejects the chain wholesale instead of being
+demoted to a medium-capped child. Known costs, both watch-listed: a
+meeting whose covered discussion goes individually HIGH shatters the
+meeting's frame (re-join candidate: anchor audio testifying through the
+HIGH's own span — direct evidence, the gap-audio shape); a same-host
+HIGH in a *different* tree breaks a container rather than reading as
+"YouTube interrupting YouTube" (side-by-side is the conservative render).
+Rejection stays wholesale — split-at-the-HIGH (preserving the frame on
+either side) is a refinement that also waits for a specimen. Individually-
+HIGH ≈ 17+ attended minutes in ONE unmerged session, so typical 5–10 min
+discussion hops stay MEDIUM children and never trigger any of this.

@@ -511,3 +511,43 @@ finalize delete — the startup orphan sweep collects those. And a genuine
 (non-terminal) lone keystroke still cues a capture that finalize may keep
 for a session the user considers noise — that's the transit rule's call,
 not capture's.
+
+## Audit fixes: the duration arm's hole + the heartbeat race (2026-07-24)
+
+The 2026-07-24 doc↔code audit (working file, since retired) found
+two ways the unification's promise — survive transit ⇒ have a picture —
+was false as built. Both fixed the same day, Scott approving each.
+
+**The missing third trigger (issue 3):** the transit filter has THREE
+exemption arms (duration ≥ `TRANSIT_MS`, high-intent signal, and duration
+is checked FIRST), but capture had triggers for only two — the "duration
+arm" trigger was the first *interval heartbeat*, which is a proxy needing
+activity. A survivor with zero heartbeats and zero signals (a cross-origin
+embed playing hands-off; motionless reading) fired no trigger, ever.
+Fix: a true duration trigger — a one-shot worker timer armed at session
+start fires at the session's `TRANSIT_MS` birthday; if it's still the
+current session and unsnapped, capture. On the original "no timers" rule
+and the rejected capture-at-start shape: this is neither — it postdates
+qualification instead of suppressing capture, the glass has shown the
+session's own page for 10 continuous seconds (sessions finalize on hide,
+so current ⇒ on-glass since start — no start-edge wrong-content trap),
+and fast tab-cycling never reaches 10s (no rate-limit pressure). MV3
+caveat, accepted as best-effort: the timer dies with the worker, but
+workers idle-kill at ~30s and the timer is armed inside a live event, so
+it virtually always fires — and any later heartbeat/cue re-triggers.
+Coverage after the fix: every survivor gets an ATTEMPT by construction;
+what can still be missing is a picture whose capture failed (DRM, locked
+screen — `snapErr:` breadcrumb, the existing contract).
+
+**The heartbeat-path race (issue 4):** cue/download captures were awaited
+precisely so finalize couldn't outrun the store — but the heartbeat path
+stayed fire-and-forget ("a slow capture must never delay a heartbeat").
+A sub-10s SPA-born session can catch an interval heartbeat mid-window,
+die as transit, and have the unawaited `storage.set` land AFTER finalize's
+delete — and because rejected sessions stay stored for audit, the leaked
+`snap:` key is never an orphan; it lives until the block's 7-day prune.
+Fix: await the heartbeat path too — all event-driven triggers now
+serialize through the queue ahead of finalize. Cost: ~100ms once per
+session against a 10s cadence ("negligible" — Scott). The age trigger
+needs no await: it can't race by construction, since a 10s-old session
+has already out-aged the filter.

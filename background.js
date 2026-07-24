@@ -18,8 +18,8 @@ const BLIP_MS = 2_000;
 // Finalized blocks older than this are pruned at finalize: the sessions
 // array is rewritten in full on every finalize, so unbounded growth makes
 // every tab switch serialize the entire history (and walks toward the
-// storage.local quota). The dashboard shows 24h; 7 days leaves headroom
-// for future day-paging.
+// storage.local quota). Day paging (live 2026-07-16) reaches exactly this
+// window — the week strip always has a cell for every retained day.
 const RETENTION_MS = 7 * 24 * 3600 * 1000;
 
 // Idle split (spec §3, 2026-07-24): a focused-but-idle tab must render as
@@ -127,6 +127,30 @@ async function startSession(tab) {
   };
   await setCurrent(session);
   log("session START tab", tab.id, session.url);
+  // Age trigger (spec §6 snapshot unification, third arm — 2026-07-24):
+  // the transit filter's DURATION rung qualifies a session with zero
+  // signals (hands-off cross-origin embeds, motionless reading), so no
+  // heartbeat, cue, or download may ever fire — capture at the session's
+  // TRANSIT_MS birthday if nothing beat us to it. Not the rejected
+  // capture-at-start shape: by then the glass has shown this session's own
+  // page for 10 continuous seconds (current ⇒ on-glass since start), and
+  // fast tab-cycling never reaches the timer. Armed inside a live event
+  // and workers idle-kill at ~30s, so the timer virtually always fires;
+  // if the worker dies anyway, any later trigger still captures
+  // (best-effort, like all of capture). No await needed at the fire site:
+  // a 10s-old session has out-aged the filter, so finalize's transit
+  // deletion can never race this store.
+  const agedId = session.id;
+  setTimeout(() => {
+    enqueue("snapshot-age", async () => {
+      const current = await getCurrent();
+      if (!current || current.id !== agedId || current.snapped) return;
+      current.snapped = true;
+      await setCurrent(current);
+      const agedTab = await chrome.tabs.get(current.tabId).catch(() => null);
+      if (agedTab) await captureSnapshot(current.id, agedTab.windowId);
+    });
+  }, FS_TRANSIT.TRANSIT_MS);
 }
 
 async function finalizeCurrent(endReason) {
@@ -556,11 +580,16 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // guarded by the explicit `snapped` flag, never the heartbeat count —
     // a flush beat would consume slot #1 while being barred from capture
     // (it fires exactly while the NEXT tab becomes visible, and
-    // captureVisibleTab would photograph the wrong page). Fire-and-forget:
-    // a failed or slow capture must never delay a heartbeat.
+    // captureVisibleTab would photograph the wrong page). AWAITED like the
+    // cue/download paths (2026-07-24; was fire-and-forget): a sub-10s
+    // SPA-born session can heartbeat mid-window then die as transit, and
+    // an unawaited store could land AFTER finalize's snapshot deletion —
+    // and a rejected session stays stored for audit, so the leaked snap:
+    // key would never read as an orphan. ~100ms once per session against
+    // a 10s cadence.
     if (!current.snapped && msg.reason !== "flush-on-hidden") {
       current.snapped = true;
-      captureSnapshot(current.id, sender.tab.windowId);
+      await captureSnapshot(current.id, sender.tab.windowId);
     }
     const signals = msg.signals || {};
     for (const [key, value] of Object.entries(signals)) {
