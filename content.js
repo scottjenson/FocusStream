@@ -30,6 +30,11 @@
   const HEARTBEAT_MS = 10_000;
   const RELAY_MS = 1_000;
 
+  // Pure-modifier keydowns don't count (spec §3, 2026-07-24): a lone
+  // modifier press is half a chord, not typing — the chord's action key
+  // still counts, so Cmd+W is exactly one keystroke, not two.
+  const MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift"]);
+
   // Iframe relay (spec §3, 2026-07-18): input events never cross frame
   // boundaries, and app plumbing lives in same-origin subframes (Google
   // Docs types into a hidden about:blank iframe; Slides presents in one).
@@ -47,7 +52,16 @@
     const batch = { keyboard: 0, click: 0, cut: 0, copy: 0, paste: 0, mouse: false, scroll: false };
     const relayCtrl = new AbortController();
     const relayOpts = { capture: true, passive: true, signal: relayCtrl.signal };
-    window.addEventListener("keydown", () => batch.keyboard++, relayOpts);
+    let relayLastKeyTs = 0;
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (MODIFIER_KEYS.has(e.key)) return;
+        batch.keyboard++;
+        relayLastKeyTs = Date.now();
+      },
+      relayOpts
+    );
     window.addEventListener("mousedown", () => batch.click++, relayOpts);
     window.addEventListener("cut", () => batch.cut++, relayOpts);
     window.addEventListener("copy", () => batch.copy++, relayOpts);
@@ -61,7 +75,10 @@
       for (const k in batch) batch[k] = typeof batch[k] === "number" ? 0 : false;
       // file:// pages serialize origin as "null", which postMessage rejects
       // as a targetOrigin — fall back to "*" (payload is bare counts).
-      window.top.postMessage({ __fsRelay: true, signals }, topOrigin === "null" ? "*" : topOrigin);
+      window.top.postMessage(
+        { __fsRelay: true, signals, lastKeyTs: relayLastKeyTs || undefined },
+        topOrigin === "null" ? "*" : topOrigin
+      );
     };
     const relayId = setInterval(() => {
       if (!chrome.runtime?.id) {
@@ -105,7 +122,20 @@
   // capture:true so we still see events that page code stops from bubbling,
   // and so scroll events on inner containers (which don't bubble) reach us.
   const opts = { capture: true, passive: true, signal: ctrl.signal };
-  window.addEventListener("keydown", () => activity.keyboard++, opts);
+  // Terminal-keystroke evidence (spec §3, 2026-07-24): remember WHEN the
+  // last counted keydown landed, so flush-on-hidden can report how close
+  // it sat to the session's death. Evidence only — the judgment (transit
+  // filter's terminal discount) is display-side.
+  let lastKeyTs = 0;
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (MODIFIER_KEYS.has(e.key)) return;
+      activity.keyboard++;
+      lastKeyTs = Date.now();
+    },
+    opts
+  );
   window.addEventListener("mousedown", () => activity.click++, opts);
   window.addEventListener("cut", () => activity.cut++, opts);
   window.addEventListener("copy", () => activity.copy++, opts);
@@ -125,6 +155,9 @@
       const s = e.data.signals || {};
       for (const k of ["keyboard", "click", "cut", "copy", "paste"]) {
         if (s[k]) activity[k] += s[k];
+      }
+      if (typeof e.data.lastKeyTs === "number" && e.data.lastKeyTs > lastKeyTs) {
+        lastKeyTs = e.data.lastKeyTs;
       }
       for (const k of ["mouse", "scroll"]) {
         if (s[k]) activity[k] = true;
@@ -173,6 +206,9 @@
       // captureVisibleTab would photograph the wrong page (spec §6 snapshots).
       reason: why,
     };
+    if (why === "flush-on-hidden" && lastKeyTs) {
+      message.lastKeyGapMs = Date.now() - lastKeyTs;
+    }
     try {
       chrome.runtime.sendMessage(message).then(
         () => log(`heartbeat sent (${why})`, snapshot),

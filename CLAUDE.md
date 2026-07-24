@@ -101,7 +101,13 @@ alternatives, dated history) lives in `plans/` — see the index below.
   (`FENCE_SPLIT_GAP_MS` ≈ 16 min derives from `GAP_PLATE_MIN_PX`; was the
   5-min `VISIT_GAP_MS`) — adjacent stick runs merge into one big expand
   target, and a fence can only span gaps too small to hover; plate wording
-  is now "N brief visits".
+  is now "N brief visits". Same day: terminal-keystroke discount — a Cmd+W
+  glance no longer survives the transit filter (the close chord's keydown
+  was counting as engagement); capture records `lastKeyGapMs` on
+  flush-on-hidden + pure-modifier keydowns no longer count, display
+  discounts one terminal keystroke (`TERMINAL_KEY_MS` 500ms); `keyGap`
+  audit column in the Score table (spec §3; stories split
+  capture/display across the two plans logs).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

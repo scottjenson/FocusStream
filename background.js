@@ -498,6 +498,9 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       if (inc) current.activity[key] = (current.activity[key] || 0) + inc;
     }
     if (typeof msg.scrollable === "boolean") current.scrollable = msg.scrollable;
+    // Terminal-keystroke evidence (spec §3): only flush-on-hidden carries it,
+    // and the flush is the session's last word — stamp, don't judge.
+    if (typeof msg.lastKeyGapMs === "number") current.lastKeyGapMs = msg.lastKeyGapMs;
     // Titles/favicons arrive late on many pages (see spec Edge Case 5) —
     // refresh them on every heartbeat, keeping the last non-empty value.
     if (sender.tab.title) current.title = sender.tab.title;

@@ -362,3 +362,32 @@ Fix shape (Scott's ad-flood concern drove the design):
   the one-knob rule. Too low risks splitting slow reads (long-form articles
   produce sparse heartbeats but rarely 5-minute silences — scroll and mouse
   are continuous signals); too high leaks idle presence into blocks.
+
+## Keyboard counting: modifiers + terminal-keystroke evidence (2026-07-24)
+- Trigger: the transit filter's terminal-keystroke discount (full admission
+  story in `plans/timeline_design.md`, transit section). Capture's role is
+  two changes to what/how keydowns are recorded — judgment stays display-side.
+- **Pure-modifier keydowns don't count** (`Meta`/`Control`/`Alt`/`Shift` as
+  `e.key`, top frame and relay frames alike). A lone modifier press is half
+  a chord or a no-op, never typing; the chord's action key still counts, so
+  Cmd+F remains one keystroke of engagement. Necessary for the discount to
+  work at all: a fresh Cmd+W fires TWO keydowns (Meta, then W) — counting
+  the Meta would leave kbd=2 and a one-key discount couldn't drop the
+  session. (Scott's real specimen showed kbd=1 only because he held Cmd
+  across a run of tab closes, so each tab saw just the W.) Side effect on
+  scoring: keyboard counts everywhere shrink slightly (no more +1 per chord
+  for the modifier itself) — direction is honest, magnitude is noise against
+  the 200-key cap.
+- **`lastKeyGapMs` evidence field:** the top frame tracks the timestamp of
+  the last counted keydown; relay frames send theirs in the relay payload
+  (absolute epoch ms — same machine, same clock) and the top frame keeps the
+  max. Only the flush-on-hidden heartbeat computes and sends the gap
+  (`now - lastKeyTs`); the worker stamps it onto the session, overwriting is
+  moot since a hide ends the session. Interval heartbeats never send it —
+  the evidence is specifically about the terminal moment. `lastKeyTs` is
+  page-instance state, not session state: after an SPA split it can predate
+  the current session, which is harmless — a stale keydown yields a LARGE
+  gap (no discount), and the discount only matters when the session actually
+  counted a keydown.
+- Pre-2026-07-24 sessions have no field and keep old behavior until the
+  7-day prune (same stance as `lastActiveTs`).

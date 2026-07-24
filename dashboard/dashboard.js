@@ -46,6 +46,10 @@ document.getElementById("scores").addEventListener("click", async () => {
         cut: a.cut || 0,
         paste: a.paste || 0,
         dl: a.download || 0,
+        // Terminal-keystroke evidence (2026-07-24): audit column for the
+        // transit filter's terminal discount — blank means no flush or no
+        // keydown ever (pre-2026-07-24 data included).
+        keyGap: s.lastKeyGapMs ?? "",
         // Continuous signals + scrollable (added 2026-07-15): needed to
         // evaluate scroll-weight candidates offline — scroll counts active
         // windows, and a scroll term would be gated on scrollable=y.
@@ -75,7 +79,7 @@ document.getElementById("scores").addEventListener("click", async () => {
   );
   console.log("[FS dash] bands:", bands.join(" / "), `of ${rows.length}`);
 
-  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "click", "mouse", "scroll", "scr", "score", "band", "tabId", "opener", "start", "reason", "url"];
+  const header = ["host", "title", "secs", "attended", "hb", "aud", "kbd", "copy", "cut", "paste", "dl", "keyGap", "click", "mouse", "scroll", "scr", "score", "band", "tabId", "opener", "start", "reason", "url"];
   const tsv = [header.join("\t"), ...rows.map((r) => header.map((h) => r[h]).join("\t"))].join("\n");
   const btn = document.getElementById("scores");
   try {

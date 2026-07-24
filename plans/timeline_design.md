@@ -437,6 +437,40 @@ watch-list is consolidated in spec §6 ("Watch list").
   Paysera payment interstitials, calendar peeks — exactly the machinery the
   filter exists to drop. Purposeful visits in that band already survive via
   discrete signals (keltas form hops kbd=2, Phanpy reply kbd=1 click=3).
+- (2026-07-24) **Terminal-keystroke discount.** Specimen (Scott, tab-cleanup
+  after a walk): a 1s OpenStreetMap glance closed with Cmd+W rendered as a
+  LOW stick, score 11, attended 10s. The Cmd+W keydown reached the page
+  before the tab died, stamping `kbd=1` — the exact signal that exempts a
+  session from this filter. The keyboard exemption was admitting the act of
+  leaving.
+  - **Rejected: ignore chorded keydowns at capture** (Claude's first
+    proposal). Scott's counter: chords ARE engagement — Cmd+F is searching
+    within the page; cut/copy/paste being tracked proves chords can be
+    high-intent. Rejected outright.
+  - **Rejected: require kbd ≥ 2.** A count-threshold proxy; punishes a
+    genuine lone keystroke and, applied at capture, would miscount chords in
+    every session's score, not just transit-length ones.
+  - **The reframe:** what distinguishes the close chord is WHEN, not WHICH —
+    a signal coincident with the session's death testifies to departure, not
+    engagement (the click rule's timing-based generalization). That timing is
+    unknowable at display from stored counts, so: **capture records the
+    evidence, display makes the judgment** (matching this filter's
+    "auditable via Score table" philosophy — the earlier idea of silently
+    decrementing the count at capture destroys the evidence).
+  - **Mechanics:** content script tracks the last counted keydown's
+    timestamp (relay frames forward theirs); flush-on-hidden carries
+    `lastKeyGapMs`; the worker stamps it on the session. Display discounts
+    exactly ONE keystroke when `lastKeyGapMs` ≤ `TERMINAL_KEY_MS` (500ms,
+    provisional) before the exemption test. Typing-then-Cmd+W keeps its real
+    keystrokes; Cmd+F engagement is untouched (no flush follows a mid-session
+    chord). Audit column `keyGap` added to the Score table.
+  - **Companion capture fix** (pure-modifier keydowns no longer count —
+    without it a fresh Cmd+W is TWO keydowns, Meta then W, and a one-key
+    discount can't drop it): story in `plans/capture_design.md`.
+  - **Known edge, accepted:** a held auto-repeating key ending the session
+    leaves kbd > 1 with only the last gap recorded — discount lifts one,
+    session may still admit. Rare; revisit with keyGap data if it shows up.
+  - Old data has no `lastKeyGapMs` and keeps the old behavior until pruned.
 
 ## SPA-continuation merging — CLOSED 2026-07-18 (subsumed)
 - (2026-07-15, Scott) Continuous Gemini typing fragments into adjacent MEDIUM

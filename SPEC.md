@@ -77,12 +77,19 @@ A Session Block represents a **continuous period of focus** on a specific URL in
                             //   pre-2026-07-19 data — absent means exactly
                             //   the old flat behavior. Raw edge only; tree
                             //   assembly is display-time (§6).
+      lastKeyGapMs?: number;// Terminal-keystroke evidence (2026-07-24): ms
+                            //   between the session's last counted keydown
+                            //   and the flush-on-hidden that ended it.
+                            //   Pure evidence — counts are never mutated;
+                            //   the judgment (admission rung 2) is
+                            //   display-time. Absent if no flush or no
+                            //   keydown ever happened.
     }
 
 ### Session lifecycle semantics
 * **Admission filter (unified 2026-07-18; rungs agreed 2026-07-15):** one principle — *only what we measured is displayed* — at two rungs.
   * **Rung 1, capture-time (< 2s):** at finalize, sessions shorter than 2s with zero heartbeats, zero activity, and no audible time are discarded (logged, never stored) — the fingerprint of redirect machinery. Conservative: one click or one heartbeat keeps a session; A → redirect → B tells the same story as A → B.
-  * **Rung 2, display-time (< 10s):** sessions shorter than one heartbeat window (10s — the attention quantum, the only principled rung height) with **no high-intent discrete signal** (keyboard, cut, copy, paste, download) are dropped at display. Clicks/mouse/scroll do NOT save a session — a click is how you *leave* a page (covers SSO hoppers, consent interstitials, shortener hops; no host special-casing). A flushed partial-window heartbeat doesn't save it (the click's flush artifact). Audible time doesn't save it (amended 2026-07-18 — autoplay is the page's action, not the user's). Typing a password keeps it ("logged into Figma" is journey). Honest cost: sub-10s purely-visual glances drop.
+  * **Rung 2, display-time (< 10s):** sessions shorter than one heartbeat window (10s — the attention quantum, the only principled rung height) with **no high-intent discrete signal** (keyboard, cut, copy, paste, download) are dropped at display. Clicks/mouse/scroll do NOT save a session — a click is how you *leave* a page (covers SSO hoppers, consent interstitials, shortener hops; no host special-casing). A flushed partial-window heartbeat doesn't save it (the click's flush artifact). Audible time doesn't save it (amended 2026-07-18 — autoplay is the page's action, not the user's). Typing a password keeps it ("logged into Figma" is journey). Honest cost: sub-10s purely-visual glances drop. **Amended 2026-07-24 — terminal-keystroke discount:** when `lastKeyGapMs` ≤ `TERMINAL_KEY_MS` (500ms, provisional), ONE keystroke is discounted before the exemption test — the keystroke that killed the session (Cmd+W) is how you *leave* a page, the keyboard form of the click rule. A glance closed by chord drops; real typing before a close chord still exempts. (Story: `plans/timeline_design.md`, transit filter.)
   * Rung 2 is display-time deliberately: sessions stay in storage and the Score table so the rule can be audited against real data; promote to capture once trusted.
 * **Only web documents are captured (agreed 2026-07-15):** sessions start only for `http`, `https`, and `file` URLs. Browser-internal pages (`chrome://newtab`, `chrome://settings`, `about:`, extension pages — including our own dashboard) are skipped at capture: content scripts cannot run there, so they are *guaranteed* zero-attention blocks — pure noise with no future display-time value. Accepted trade-off: time in browser UI renders as a timeline gap, not a block.
 * **Tab adoption on navigation (2026-07-18):** when a main-frame navigation commits while no session is current, and the navigating tab is the active tab of the focused window, a session starts for it (URL filter applies). Closes the new-tab blind spot (fresh tab → filtered `chrome://newtab` → first real navigation was ignored). Navigations in background tabs stay ignored.
@@ -97,10 +104,12 @@ A Session Block represents a **continuous period of focus** on a specific URL in
 
 The Content Script evaluates activity in 10-second windows. Signals come in two kinds, counted differently because their raw event rates mean different things:
 
-* **Discrete signals — raw event counts per window:** `keyboard` (keydowns), `click` (mousedowns), `cut`, `copy`, `paste` (each clipboard type is its own signal — they are semantically distinct and may be weighted differently). Counts capture intensity: 12 copies in a window records as 12, not 1. Only counts are recorded — never keystroke identity or clipboard contents.
+* **Discrete signals — raw event counts per window:** `keyboard` (keydowns), `click` (mousedowns), `cut`, `copy`, `paste` (each clipboard type is its own signal — they are semantically distinct and may be weighted differently). Counts capture intensity: 12 copies in a window records as 12, not 1. Only counts are recorded — never keystroke identity or clipboard contents. **Amended 2026-07-24:** pure-modifier keydowns (`Meta`/`Control`/`Alt`/`Shift` alone) don't count — a lone modifier press is half a chord, not typing; the chord's action key still counts (Cmd+F is one keystroke). (Story: `plans/capture_design.md`.)
 * **Continuous signals — active/inactive boolean per window:** `mouse` (movement), `scroll` (scroll/wheel), `media` (unpaused `<video>`). Their raw event rates measure hardware sampling (~60+ mousemove events/sec; one wheel flick emits dozens of events), not attention, so each window contributes at most 1.
 
 *If ANY signal is nonzero during the window, the content script sends one heartbeat carrying the snapshot (e.g. `{ keyboard: 87, copy: 2, mouse: true, ... }`) plus the page's `scrollable` state, then resets the snapshot. If all signals are zero, nothing is sent. The background folds the snapshot into the session's per-signal totals: counts add; booleans increment by 1.*
+
+* **Terminal-keystroke evidence (2026-07-24):** the content script tracks the timestamp of the last counted keydown (relay frames forward theirs; the top frame keeps the max). The `flush-on-hidden` heartbeat carries `lastKeyGapMs` — how long before the hide that keystroke landed — stamped onto the session. Evidence only: no count is mutated; the judgment lives in admission rung 2. (Story: `plans/capture_design.md`.)
 
 ## 4. Technical Implementation Details & Edge Cases
 

@@ -317,10 +317,18 @@
   // user's) or a flush-artifact heartbeat. Display-time on purpose:
   // sessions stay in storage + Score table so the rule can be audited.
   const TRANSIT_MS = 10_000;
+  // Terminal-keystroke discount (spec §3, 2026-07-24): the keystroke that
+  // killed the session — a close chord landing within TERMINAL_KEY_MS of
+  // the hide — is how you LEAVE a page, the keyboard form of the click
+  // rule. Discounts exactly ONE keystroke, so typing before a close chord
+  // still exempts. Provisional per the one-knob rule.
+  const TERMINAL_KEY_MS = 500;
   function isTransit(s) {
     if (s.endTime - s.startTime >= TRANSIT_MS) return false;
     const a = s.activity || {};
-    return !(a.keyboard || a.cut || a.copy || a.paste || a.download);
+    let kb = a.keyboard || 0;
+    if (kb && typeof s.lastKeyGapMs === "number" && s.lastKeyGapMs <= TERMINAL_KEY_MS) kb--;
+    return !(kb || a.cut || a.copy || a.paste || a.download);
   }
 
   // Day window (spec §6, 2026-07-16): the ribbon shows ONE local calendar
