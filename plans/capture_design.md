@@ -321,3 +321,44 @@ Fix shape (Scott's ad-flood concern drove the design):
   episode as one youtube container 13:52–14:28 · 7 visits + 2 excursions
   (substack, google search) · score 2104. First real-data audit: the
   Score table's opener column, next feed session.
+
+## Idle split: the focused-but-idle tab (2026-07-24)
+- **The specimen (07-23, dinner):** Scott left for dinner with a Gemini tab
+  focused; the Mac never slept. Nothing triggered finalize — no tab switch,
+  no hide, no navigation — so one session ran 17:35:48–19:59:40: **8,632
+  seconds of wall clock carrying 10 heartbeats (100s attended)**. The
+  heartbeat data told the truth; the display couldn't use it, because block
+  width comes from start→finalize timestamps, and visit merging then glued
+  the slab to the genuine 17:30–17:35 HIGH session (same host, adjacent),
+  which donated its "Google Gemini" label. Two hours of absence rendered as
+  the day's biggest block.
+- **Why capture, not display:** band gating is irrelevant — even scored LOW
+  the block is 2.4 hours wide, because width IS duration. And sessions store
+  per-signal *counts*, not heartbeat timestamps, so display can never know
+  *where* inside the span the activity sat. Only the worker, at heartbeat
+  arrival time, knows the gap. (Corollary: pre-2026-07-24 sessions are
+  unrepairable — no `lastActiveTs` — and simply age out with the 7-day
+  prune.)
+- **The rule (spec §3):** session carries `lastActiveTs` — refreshed on
+  every heartbeat, pinned to now while the tab is audible (a movie playing
+  without input must never split; audible is already event-driven state in
+  the worker). A heartbeat arriving > `IDLE_SPLIT_MS` (5 min) late finalizes
+  the current session at `lastActiveTs + 10s` (reason `idle_split` — the
+  +10s honors the heartbeat's trailing window) and starts a fresh session
+  for the same tab/URL. Ordinary finalize applies the same clamp to a
+  trailing gap, covering "left and never came back before closing."
+- **Rejected: `chrome.idle` API.** It would split at idle *onset* instead of
+  retroactively, but costs a new permission, a polled detection interval,
+  and measures machine-wide idle rather than this-tab attention (a user
+  mousing in another app is idle to us already — no heartbeats). The
+  retroactive split needs no polling and no alarms: the worker wakes on the
+  next heartbeat anyway, and duration-from-timestamps means the correction
+  is exact.
+- **Downstream: no amendments needed.** The resulting away-gap exceeds
+  `VISIT_GAP_MS`, so fences, title runs, and visit merging already treat the
+  two halves as separate — the dinner renders as absence at gap scale with
+  the away hover plate.
+- **Threshold:** 5 minutes, named constant `IDLE_SPLIT_MS`, provisional per
+  the one-knob rule. Too low risks splitting slow reads (long-form articles
+  produce sparse heartbeats but rarely 5-minute silences — scroll and mouse
+  are continuous signals); too high leaks idle presence into blocks.

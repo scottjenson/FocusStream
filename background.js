@@ -22,6 +22,15 @@ const BLIP_MS = 2_000;
 // for future day-paging.
 const RETENTION_MS = 7 * 24 * 3600 * 1000;
 
+// Idle split (spec §3, 2026-07-24): a focused-but-idle tab must render as
+// absence, not presence — width IS duration, so no display rule can fix it.
+// A heartbeat arriving more than this after lastActiveTs splits the session
+// retroactively (no polling, no alarms, no chrome.idle permission — the
+// worker wakes on the heartbeat anyway). Provisional per the one-knob rule.
+const IDLE_SPLIT_MS = 5 * 60_000;
+// One heartbeat window: the idle clamp honors the last window's trailing edge.
+const HB_WINDOW_MS = 10_000;
+
 // Snapshot previews (spec §6): one screenshot per attended session, taken on
 // the first interval heartbeat, downscaled here in the worker, stored as a
 // data: URL under snap:<sessionId> (never inside SessionBlocks — those are
@@ -93,6 +102,10 @@ async function startSession(tab) {
     // bookkeeping for an open interval, folded in at finalize.
     audibleMs: 0,
     ...(tab.audible ? { audibleSince: Date.now() } : {}),
+    // Last proof of attention (spec §3 idle split): heartbeats refresh it,
+    // audible pins it to now (open audibleSince interval), finalize clamps
+    // a trailing gap against it. Live-session bookkeeping, never stored.
+    lastActiveTs: Date.now(),
     endReason: null,
   };
   await setCurrent(session);
@@ -111,8 +124,19 @@ async function finalizeCurrent(endReason) {
   if (session.audibleSince) {
     session.audibleMs = (session.audibleMs || 0) + session.endTime - session.audibleSince;
   }
+  // Trailing-gap clamp (spec §3 idle split): if the tab sat focused but
+  // untouched past the threshold — and wasn't audible to the end — the idle
+  // tail is absence, not presence. Clamp end to the last attended window.
+  if (!session.audibleSince && session.lastActiveTs != null) {
+    const idleTail = session.endTime - session.lastActiveTs;
+    if (idleTail > IDLE_SPLIT_MS) {
+      session.endTime = session.lastActiveTs + HB_WINDOW_MS;
+      log(`idle tail clamped: dropped ${Math.round(idleTail / 1000)}s of focused-but-idle time`, session.url);
+    }
+  }
   delete session.audibleSince; // live-session bookkeeping, not part of the stored schema
   delete session.lastUrlChange;
+  delete session.lastActiveTs;
   // Blip filter (spec §3): transition machinery — nothing measured, too
   // short to be user activity. Log it, never store it.
   if (
@@ -402,6 +426,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     } else if (current.audibleSince) {
       current.audibleMs = (current.audibleMs || 0) + Date.now() - current.audibleSince;
       delete current.audibleSince;
+      // Audible pinned attention to now; the idle-split clock starts here.
+      current.lastActiveTs = Date.now();
       log("audible interval closed, total", Math.round(current.audibleMs / 1000) + "s", current.url);
     }
     await setCurrent(current);
@@ -432,13 +458,28 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type !== "heartbeat") return;
   enqueue("heartbeat", async () => {
-    const current = await getCurrent();
+    let current = await getCurrent();
     if (!current || sender.tab?.id !== current.tabId) {
       // Can happen benignly when a flush-on-hidden message loses the race
       // against onActivated during a tab switch.
       log("heartbeat DROPPED from tab", sender.tab?.id, "(tracking:", current?.tabId + ")");
       return;
     }
+    // Idle split (spec §3): activity resuming after a long focused-but-idle
+    // stretch belongs to a NEW session — finalize the old one (the clamp in
+    // finalizeCurrent trims its idle tail) and restart for the same tab.
+    // An open audibleSince interval pins attention to now: media never splits.
+    const lastActive = current.audibleSince
+      ? Date.now()
+      : current.lastActiveTs ?? current.startTime;
+    if (Date.now() - lastActive > IDLE_SPLIT_MS) {
+      log(`idle split: ${Math.round((Date.now() - lastActive) / 1000)}s since last activity`, current.url);
+      await finalizeCurrent("idle_split");
+      await startSession(sender.tab);
+      current = await getCurrent();
+      if (!current || current.tabId !== sender.tab.id) return;
+    }
+    current.lastActiveTs = Date.now();
     // Hybrid folding rule (see spec): discrete signals arrive as raw event
     // counts and add; continuous signals arrive as booleans and count the
     // window (+1). Unknown keys flow through, so new signals need no change.
