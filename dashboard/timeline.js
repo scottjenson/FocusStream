@@ -354,11 +354,16 @@
   // the day, and transit-filtered sessions still testify (a filtered hop
   // can be the link between a grandchild and the root). An edgeless tab is
   // a tree of one, so cold tabs and pre-opener data stay flat.
+  // Raw edges kept for the spawn-edge dominance discount (spec §6,
+  // 2026-07-25): the discount walks the opener PATH, not the resolved
+  // root — same-tree via a common ancestor is not spawn testimony.
+  let openerEdges = new Map();
   function treeRootsOf(sessions) {
     const opener = new Map();
     for (const s of sessions) {
       if (s.tabId != null && s.openerTabId != null) opener.set(s.tabId, s.openerTabId);
     }
+    openerEdges = opener;
     const roots = new Map();
     return function rootOf(id) {
       if (roots.has(id)) return roots.get(id);
@@ -575,7 +580,8 @@
   // the rump bsky chain summed 455 against gemini's 924 while the bsky
   // thread's two HIGHs held 2315 inadmissible points, so the tool framed
   // the work; replay evidence in plans). Sub-HIGH chains additionally
-  // require ANCHOR DOMINANCE (anchor sum > children sum) — a weak anchor
+  // require ANCHOR DOMINANCE (anchor sum > children sum; spawn-edge
+  // discount 2026-07-25 — see the guard below) — a weak anchor
   // framing stronger children is a launcher, and the children are the
   // story (validated 2026-07-18: dominance rejected all five launcher
   // patterns in a week's replay, e.g. interleaved shop/pay ping-pong
@@ -707,7 +713,35 @@
       if (children.some((e) => e.band === "high")) continue;
       // Anchor dominance (sub-HIGH only): the anchor must outscore its
       // children, or it's a launcher and the children are the story.
-      if (c.score < HIGH_SCORE && c.score <= children.reduce((t, e) => t + e.score, 0)) continue;
+      // Spawn-edge discount (spec §6, 2026-07-25): a child whose tab's
+      // stored opener path reaches a member tab (≥1 edge — the anchor's
+      // own tab never counts, so same-tab redirect interleaves keep full
+      // weight) is the anchor's own dispatch and leaves the denominator;
+      // the anchor must still INDIVIDUALLY outscore every discounted
+      // spawn — a chain never frames a single event bigger than itself.
+      if (c.score < HIGH_SCORE) {
+        const memberTabs = new Set(
+          c.frags.flatMap((f) => (f.members ? f.members.map((m) => m.tabId) : [f.tabId]))
+        );
+        const spawned = (e) =>
+          (e.members ? e.members.map((m) => m.tabId) : [e.tabId]).every((t) => {
+            if (t == null || memberTabs.has(t)) return false;
+            const seen = new Set();
+            while (openerEdges.has(t) && !seen.has(t)) {
+              seen.add(t);
+              t = openerEdges.get(t);
+              if (memberTabs.has(t)) return true;
+            }
+            return false;
+          });
+        let denom = 0;
+        let spawnTooBig = false;
+        for (const e of children) {
+          if (spawned(e)) spawnTooBig ||= e.score >= c.score;
+          else denom += e.score;
+        }
+        if (spawnTooBig || c.score <= denom) continue;
+      }
       const activity = {};
       let heartbeats = 0;
       let audibleMs = 0;
@@ -1021,8 +1055,12 @@
     for (const seg of segs) {
       const labelWorthy = seg.band !== "low" || (seg.clusterKey != null && !seg.collapsed);
       const memberScore = labelWorthy ? Math.max(seg.e.score, 1) : 0;
+      // Runs join on the LABEL key, not the host (spec §6, 2026-07-25):
+      // on a label-split host a Search run and a Maps run must answer to
+      // their own names. Everywhere else labelKey === host.
+      const labelKey = labelKeyOf(seg.e.host, seg.e.url);
       const last = runs[runs.length - 1];
-      if (last && last.host === seg.e.host && seg.e.startTime - last.lastEnd < VISIT_GAP_MS) {
+      if (last && last.labelKey === labelKey && seg.e.startTime - last.lastEnd < VISIT_GAP_MS) {
         last.end = seg.x + seg.w;
         last.lastEnd = seg.e.endTime;
         last.bestScore = Math.max(last.bestScore, memberScore);
@@ -1033,6 +1071,7 @@
           // animate rather than being rebuilt.
           key: seg.e.host + ":" + seg.key,
           host: seg.e.host,
+          labelKey,
           start: seg.x,
           end: seg.x + seg.w,
           lastEnd: seg.e.endTime,
@@ -1043,10 +1082,11 @@
     return runs.map((r) => ({ ...r, center: (r.start + r.end) / 2 }));
   }
 
-  // Label = the site's own name, one per HOST per render (spec §6,
-  // 2026-07-18): the label names the host's identity, so it derives from
-  // ALL admitted titles across the stored week — never per-run (two runs
-  // of one hue answering to two names broke self-legending on NotebookLM).
+  // Label = the site's own name, one per LABEL KEY per render (spec §6,
+  // 2026-07-18; key = host, except label-split hosts — see labelKeyOf):
+  // the label names the site's identity, so it derives from ALL admitted
+  // titles across the stored week — never per-run (two runs of one hue
+  // answering to two names broke self-legending on NotebookLM).
   // The site name is the INVARIANT segment: split each title on
   // separators, candidates = first + last segments, winner = the
   // candidate present in the most titles (majority of separator-bearing
@@ -1071,6 +1111,7 @@
       .filter((p) => p.length > 1);
     if (!parted.length) return null;
     const counts = new Map(); // candidate -> { n, first }
+    const midCounts = new Map(); // middle segments — hostname-match candidates ONLY
     for (const p of parted) {
       const cands = new Map(); // per-title dedupe: count once per title
       const first = p[0].trim();
@@ -1083,11 +1124,25 @@
         c.first = c.first || isFirst;
         counts.set(name, c);
       }
+      for (const name of new Set(
+        p.slice(1, -1).map((s) => s.trim()).filter((s) => s && s.length <= 30 && !cands.has(s))
+      ))
+        midCounts.set(name, (midCounts.get(name) || 0) + 1);
     }
     const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
     const labels = new Set(host.split(".").slice(0, -1).map(norm).filter(Boolean));
+    // Middle segments participate HERE only (spec §6, 2026-07-25): the
+    // Workspace "domain - App - page" house style hides the URL-
+    // corroborated segment in the middle ("Jenson.org - Calendar - Week
+    // of …"). The invariance contest below stays first/last, where
+    // recurring middle noise can't win on popularity.
+    const matchable = new Map(counts);
+    for (const [name, n] of midCounts) {
+      const c = matchable.get(name);
+      matchable.set(name, { n: (c ? c.n : 0) + n, first: c ? c.first : false });
+    }
     let match = null;
-    for (const [name, c] of counts) {
+    for (const [name, c] of matchable) {
       if (!labels.has(norm(name))) continue;
       if (c.n < 2 && parted.length > 1) continue;
       if (!match || c.n > match.c.n) match = { name, c };
@@ -1106,22 +1161,41 @@
     return best && best.c.n * 2 >= parted.length ? best.name : null;
   }
 
-  // Names for every host with admitted sessions this week. Recomputed per
-  // render (cheap); merged-visit member titles are covered because this
+  // google.com label split (spec §6, 2026-07-25): the one recorded
+  // multi-app host — Search and Maps share the hostname, namespaced by
+  // first path segment. For LABELS ONLY, the grouping key appends that
+  // segment (google.com/maps, google.com/search) and the invariance
+  // machinery names each group from its own titles. Identity — color,
+  // merging, chains — stays hostname-keyed. Extended per specimen, never
+  // speculatively; the rejected general mechanism is in plans.
+  const LABEL_SPLIT_HOSTS = new Set(["google.com"]);
+  function labelKeyOf(host, url) {
+    if (!LABEL_SPLIT_HOSTS.has(host)) return host;
+    try {
+      const seg = new URL(url).pathname.split("/")[1];
+      return seg ? host + "/" + seg : host;
+    } catch {
+      return host;
+    }
+  }
+
+  // Names for every label key with admitted sessions this week. Recomputed
+  // per render (cheap); merged-visit member titles are covered because this
   // walks RAW sessions, pre-assembly.
   function computeHostNames(sessions) {
-    const titlesByHost = new Map();
+    const titlesByKey = new Map();
     for (const s of sessions) {
       if (!s.url || isTransit(s) || !s.title) continue;
       const host = hostOf(s);
-      let arr = titlesByHost.get(host);
-      if (!arr) titlesByHost.set(host, (arr = []));
-      arr.push(s.title);
+      const key = labelKeyOf(host, s.url);
+      let g = titlesByKey.get(key);
+      if (!g) titlesByKey.set(key, (g = { host, titles: [] }));
+      g.titles.push(s.title);
     }
     const names = new Map();
-    for (const [host, titles] of titlesByHost) {
-      const name = siteNameOf(titles, host);
-      if (name) names.set(host, name);
+    for (const [key, g] of titlesByKey) {
+      const name = siteNameOf(g.titles, g.host); // hostname matching stays host-level
+      if (name) names.set(key, name);
     }
     return names;
   }
@@ -1511,12 +1585,12 @@
         let ctx = null;
         if (s.contained && s.parent) {
           const sibs = s.parent.children.filter((c) => c.host === s.e.host);
-          const pname = hostNames.get(s.parent.host) || s.parent.host;
+          const pname = hostNames.get(labelKeyOf(s.parent.host, s.parent.url)) || s.parent.host;
           ctx =
             `↩ interruption inside ${pname}` +
             (sibs.length > 1 ? ` · visit ${sibs.indexOf(s.e) + 1} of ${sibs.length}` : "");
         }
-        el._tipData = tipDataOf(s.e, hostNames.get(s.e.host) || s.e.host, ctx);
+        el._tipData = tipDataOf(s.e, hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host, ctx);
         // Snapshot candidates, best first: merges/containers carry snapIds
         // (members in score order); raw blocks, contained children, and
         // expanded fence members are their own only candidate. Ids are
@@ -1664,7 +1738,7 @@
       // non-anchored runs (gray MEDIUMs still label) use the gray rim —
       // label color must never leak an identity hue the blocks don't have.
       el.style.color = coloredHosts.has(run.host) ? rimOf(colorOf(run.host)) : GRAY_RIM;
-      const name = hostNames.get(run.host) || run.host;
+      const name = hostNames.get(run.labelKey) || run.host;
       el.textContent =
         name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;
       if (fresh) {

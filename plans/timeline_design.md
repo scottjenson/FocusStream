@@ -1044,3 +1044,129 @@ Rejection stays wholesale — split-at-the-HIGH (preserving the frame on
 either side) is a refinement that also waits for a specimen. Individually-
 HIGH ≈ 17+ attended minutes in ONE unmerged session, so typical 5–10 min
 discussion hops stay MEDIUM children and never trigger any of this.
+
+## Spawn-edge dominance discount (2026-07-25)
+
+**The specimen:** a 9-minute morning scheduling shuffle (07:02–07:11):
+Gmail → cal.com (opened FROM the Gmail tab) → Calendar → back to Gmail.
+Scott's read: "a Gmail container with small trips to cal.com and
+Calendar." The pipeline's read: nothing — three chains each tried to
+qualify and each failed anchor dominance independently (Gmail 517 vs
+627, cal.com 280 vs 397), the emergent three-way version of the
+keltas/Paysera standoff the guard was validated on. Note dominance is
+one-sided per chain ("do you outweigh what you'd frame?"), never
+pairwise; standoffs are emergent, not fought.
+
+**The insight:** the Gmail anchor was being outvoted partly by its own
+dispatches — the cal.com tab carried a stored opener edge back to the
+Gmail tab. A spawn edge is *recorded intent* ("I opened this trip from
+there"), the same evidence-over-proxy standard as gap-audio: demotion to
+"trip taken from the anchor" isn't inferred from time-overlap, it's
+testified by the edge. The pinned Calendar tab (edgeless, own tree)
+rightly keeps full dominance weight — the anchor must still outweigh all
+genuinely foreign material.
+
+**Rejected: max-child dominance** (anchor > largest single child) — would
+re-admit the validated 2026-07-18 rejections of weak keltas containers
+framing 21 and 5 tiny children.
+
+**Rejected: same-tree discount** (my first formulation) — "same tree"
+includes the anchor's own tab, and foreign hosts land in your own tab
+with zero intent (payment redirects, SSO hops). Under it, keltas and
+Paysera would each discount the *other's* same-tab fragments, both would
+pass dominance, and the contest would crown a false container. Hence the
+≥ 1-edge clause: landing in the anchor's own tab traverses zero opener
+edges and testifies nothing.
+
+**Rejected: full spawn discount without the individual cap** — the week
+replay produced two vacuous-denominator containers (all children spawned,
+dominance tested against 0): apple.com 525 framing a craigslist read
+scoring 649, and news.google.com 305 framing three feed reads including
+variety.com at 325 — the Gmail-as-launcher pattern reborn through the
+spawn door. Both are exactly the "children are the story" pathology.
+The fix: a spawn drops out of the collective denominator but must still
+be individually outscored by the anchor — a hub returns to something
+bigger than each errand; a launcher dispatches things bigger than itself.
+
+**Validation (offline replay, scores TSV 2026-07-24 + 07-25, 234 display
+events; harness reproduced all 24 live containers on the A side; no
+audibleSinceTs in the TSV so audio bridges didn't replay — shared by both
+modes, diff unaffected):** exactly two changes. (1) The target specimen
+frames: Gmail container MEDIUM 517, Calendar a visible MEDIUM cut-out
+child, the cal.com pair discounted (denominator 627 → 397). (2) One
+winner flip on 07-24 08:46–08:53 — another scheduling ping-pong, where
+calendar.google.com 348 (4 fragments) now frames the episode instead of
+google.com 320, its spawned google child discounted (denominator 412 →
+202); the higher-sum chain wins, judged more truthful (Scott approved).
+No new HIGHs; every demoted child stays a visible cut-out or stick.
+One-week caveat, same as W_NAV: fold into the ~2026-07-28 full-week
+retest.
+
+## Middle segments join the hostname match (2026-07-25)
+
+**The specimen:** Gmail and Calendar both labeled around "Jenson.org" —
+Gmail correctly as "Jenson.org Mail" (invariant last segment of the
+Workspace `page - account - Jenson.org Mail` shape), Calendar wrongly as
+bare "Jenson.org": its house style is `Jenson.org - Calendar - Week of
+August 2, 2026`, the last segment varies weekly, and the invariant first
+segment is the Workspace domain. The kicker: "Calendar" — the one
+segment the 2026-07-19 hostname-match rule was built for, exactly
+equal to the `calendar` label of calendar.google.com — is a MIDDLE
+segment, and candidates were only ever first + last. The rule's own
+specimen class, structurally invisible to it.
+
+**The fix, deliberately asymmetric:** middle segments become candidates
+for the hostname-equality test ONLY — all existing guards intact
+(normalized exact equality, never containment; recurrence ≥ 2; counts
+arbitrate) — and stay out of the invariance contest, where recurring
+middle noise could win a popularity contest that the URL never
+corroborates. Week check: no other stored host even has a spaced-
+separator middle segment except Meet's participant name, which matches
+no label. Calendar → "Calendar"; Gmail unchanged.
+
+**Watch:** on `*.google.com` hosts a recurring middle segment exactly
+"Google" would claim the name "Google" (current Google suffixes are
+compounds — "Google Docs", "Google Maps" — which fail equality). If a
+real misfire appears, the tightening is to exclude the registrable-
+domain label from MIDDLE matching only — a subdomain label ("calendar",
+"docs") is the specific claim; first/last matching keeps all labels.
+
+## google.com label split (2026-07-25)
+
+**The specimen:** the 7:11 Sintra Maps exploration labeled "Google
+Search". google.com is two apps in one hostname this week — a pile of
+"… - Google Search" titles and a pile of "… - Google Maps" — and labels
+are one-name-per-host by design, so the week's invariance contest
+crowned Search and every google.com block inherited it. The host = one
+app assumption is simply false for google.com (Search, Maps, Flights,
+Finance, all path-namespaced); it holds almost everywhere else because
+the modern idiom is subdomains, which hostname keying already handles.
+
+**Rejected: the general multi-app mechanism** (designed first, then
+dropped on Scott's simplicity challenge): week-level "app-name sets"
+(last-position candidates, recurrence ≥2, normalized label containment)
+with render-time per-run picks. It worked on paper — containment guards
+kept Meet's "Scott" and Gmail's "Jenson.org Mail" safe — but it adds a
+second naming mechanism whose guards defend only against enumerable
+hosts, and exactly one host on the planet exhibits the problem. Kept in
+this log as the escalation path if multi-app specimens accumulate.
+
+**The special case, taken deliberately:** for hosts in
+`LABEL_SPLIT_HOSTS` (= {google.com}), the LABEL grouping key appends the
+URL's first path segment — google.com/maps, google.com/search — at all
+three label surfaces (week-name computation, run segmentation for
+titling, tooltip headline). No new naming logic: the existing invariance
+machinery, fed honest groups, names them "Google Maps" / "Google Search"
+by itself, and unseen segments (/travel, /finance) would self-name from
+their own titles with no code change. Identity is untouched — color,
+merging, chains stay hostname-keyed, so Search↔Maps interleaves still
+thread as one journey; only the name stops lying. Philosophy match:
+licenses are earned per-case with data — one specimen, one recorded
+special case, generality only when specimens demand it.
+
+**Accepted costs:** a list to maintain (possibly a list of one,
+forever); one-off Google paths (/url redirect stubs) form tiny groups
+that fall back to the trailing rule or bare hostname — a stray block may
+label "google.com", honest if inelegant; a container's label keys on its
+click-target URL (top-scoring member), so a genuinely mixed
+Search/Maps container is named by its strongest member.

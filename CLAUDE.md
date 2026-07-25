@@ -135,6 +135,21 @@ alternatives, dated history) lives in `plans/` — see the index below.
   gap. Kills the YouTube-binge-swallows-Claude false positive; meetings
   still frame; additive schema, no history wipe (spec §2/§3/§6; stories in
   both plans logs).
+- **2026-07-25:** spawn-edge dominance discount — a contained child whose tab's
+  opener path reaches a chain member's tab (≥1 edge; same-tab interleaves keep
+  full weight) drops out of the dominance denominator, but the anchor must still
+  individually outscore every discounted spawn. Fixes the Gmail↔Calendar↔cal.com
+  scheduling-shuffle standoff (three chains mutually failing dominance); week
+  replay showed exactly two changes, both approved (spec §6; story + rejected
+  variants in `plans/timeline_design.md`; retest with the ~07-28 `W_NAV` week).
+  Same day: middle title segments join the hostname match (naming only, never
+  the invariance contest) — Workspace's `domain - App - page` style had Calendar
+  labeled "Jenson.org"; now "Calendar" (spec §6; story in the same plans log).
+  Same day: google.com label split — the one recorded multi-app host; for LABELS
+  ONLY the grouping key appends the first path segment (`google.com/maps` vs
+  `google.com/search`, `LABEL_SPLIT_HOSTS`), so Maps blocks stop labeling
+  "Google Search"; identity stays hostname-keyed; general multi-app mechanism
+  designed and rejected (spec §6; story in `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
