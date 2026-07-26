@@ -150,6 +150,29 @@
     }
   }
 
+  // Click cue (spec §3 download presence gate, 2026-07-26): a real-time
+  // proof-of-presence signal for the background's download gate. Separate
+  // from cueSnapshot — clicks are deliberately excluded there as too noisy
+  // for screenshot timing, but here a click IS the bar (Rung 1: one click OR
+  // one heartbeat). One cue per heartbeat window (re-armed on each send,
+  // same as snapshotCued) so it reaches background storage before or
+  // alongside a fast click-then-download (e.g. an email link's "Download"
+  // button), instead of waiting for the next batched heartbeat send. The
+  // background dedupes with the session's `hadClick` flag.
+  let clickCued = false;
+  function cueClick() {
+    if (clickCued) return;
+    clickCued = true;
+    try {
+      chrome.runtime.sendMessage({ type: "click-cue" }).then(
+        () => log("click cue sent"),
+        (e) => log("click cue failed:", e.message)
+      );
+    } catch (e) {
+      teardown("extension context gone: " + e.message);
+    }
+  }
+
   window.addEventListener(
     "keydown",
     (e) => {
@@ -160,7 +183,7 @@
     },
     opts
   );
-  window.addEventListener("mousedown", () => activity.click++, opts);
+  window.addEventListener("mousedown", () => { activity.click++; cueClick(); }, opts);
   window.addEventListener("cut", () => { activity.cut++; cueSnapshot(); }, opts);
   window.addEventListener("copy", () => { activity.copy++; cueSnapshot(); }, opts);
   window.addEventListener("paste", () => { activity.paste++; cueSnapshot(); }, opts);
@@ -224,6 +247,7 @@
     const snapshot = { ...activity };
     resetActivity();
     snapshotCued = false;
+    clickCued = false;
     const message = {
       type: "heartbeat",
       signals: snapshot,

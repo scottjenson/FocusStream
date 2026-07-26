@@ -182,6 +182,8 @@ This replaces the 2026-07-15 "strict adjacency / gap-tolerant merging is forbidd
 ### Capture roadmap addition: `download` signal (implemented)
 Copying an image we see; "Save image as…" fires no DOM event and is invisible to the content script. `chrome.downloads.onCreated` in the background (requires the `downloads` permission) increments the current session's `download` count — likely the strongest single intent signal we have. Background-observed: it does not ride the heartbeat.
 
+**Presence gate (2026-07-26):** a `download` event only counts if the session already has proof of user presence — a heartbeat, or a click (via a real-time click cue, since `activity.click` otherwise only arrives batched on the next heartbeat). Same bar as Rung 1 session admission (one click OR one heartbeat), applied in real time so it can gate a signal mid-session rather than only at finalize. Presence-less downloads are dropped, not deferred. Fixes a torrent-client tab (`utweb.rainberrytv.com`) firing 1500+ `onCreated` events on tab restore after reboot, with zero attended time — the web UI replays its download history to the browser on reconnect, none of it user-initiated. (Story: `plans/capture_design.md`.)
+
 ## 6. UI/UX Directives
 
 **Rules only.** Evidence, dated history, and rejected alternatives live in `plans/` — display decisions in `plans/timeline_design.md`, tooltips/snapshots in `plans/snapshot_implementation.md`. A date tag like (2026-07-16) marks when a rule was agreed; the story behind it is in plans.

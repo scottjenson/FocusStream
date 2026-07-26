@@ -425,3 +425,67 @@ session (stored, survives finalize; fallback to now when tab.audible but
 no entry). Display use: `plans/timeline_design.md` (gap-audio bridge).
 Additive schema — old data simply never long-bridges; no history wipe
 needed.
+
+## Download presence gate (2026-07-26)
+
+**Why:** Scott rebooted his Mac; `utweb.rainberrytv.com` (BitTorrent
+Web's own UI tab, auto-restored by Chrome) scored 313,200 — `download`
+count 1566 × `W_DOWNLOAD` (200) — with 0 attended seconds. No torrents
+were active afterward, so this wasn't real download traffic: the web
+UI's local daemon replays its download history to the browser tab on
+reconnect, and `chrome.downloads.onCreated` fires once per replayed
+entry, indistinguishable at the API level from a real "Save As". The
+first fix considered — capping `W_DOWNLOAD` or requiring a minimum
+attended time — was a scoring-formula patch; Scott redirected to the
+actual defect: capture is trusting an event that isn't proof of user
+intent, so the fix belongs at capture time, not display time.
+
+**Rejected: burst detection.** Drop/clamp counts when N downloads fire
+within a short window. General-purpose, but indirect — it infers
+non-intent from event shape rather than checking for user presence
+directly, and needs its own threshold tuning.
+
+**Rejected: domain special-case.** Blocklist `rainberrytv.com`. Violates
+the project's standing preference for general mechanisms over
+site-specific patches (cf. the google.com label-split precedent, which
+designed and rejected a general multi-app mechanism rather than
+special-casing further).
+
+**Considered and refined: heartbeat-only gate.** Require
+`current.heartbeats >= 1` before counting a download — reuses the
+existing attention proxy (`attendedSeconds = heartbeats × 10`) with no
+new plumbing. Kills the rainberrytv burst (fires before any heartbeat
+can land). But Scott caught a real miss: email → click a download
+button in a fresh tab → download starts → tab closes, all inside one
+10s window, before the first heartbeat. A heartbeat-only gate drops
+this legitimate, fast, click-driven download — worse than the bug being
+fixed, since it silently loses signal instead of adding noise.
+
+**Apparent rule conflict, resolved:** gating on anything other than
+heartbeats looked like it might contradict a "heartbeat required" rule.
+Checked against spec §3 Rung 1 (session admission): the existing rule
+there is already "one click OR one heartbeat" — clicks are co-equal
+proof-of-life, not a heartbeat substitute. So a click-or-heartbeat gate
+for downloads isn't a competing rule, it's the same Rung-1 bar applied
+to a second gate. The real difference: Rung 1 reads stored
+`heartbeats`/`activity.click` at *finalize*, long after content.js's
+batched signals have flushed. The download gate needs presence proof
+**in real time**, mid-session — `activity.click` isn't reliably in
+storage yet when `onCreated` fires seconds after the click. That's a
+timing gap, not a rule conflict.
+
+**As built:** `mousedown` gets a dedicated real-time cue, parallel to
+but distinct from `cueSnapshot()` (deliberately not folded into it —
+`cueSnapshot` was scoped to exclude clicks as the noisiest, least
+intentional signal for triggering screenshots; this is a different
+consumer with a different bar). Content script sends a one-shot
+`{type: "click-cue"}` message on first `mousedown` per session;
+background sets `current.hadClick = true`, awaited into storage like
+the existing `snapshot-cue` listener. The download handler gates on
+`current.heartbeats || current.hadClick` — drop, not defer, when
+neither is present.
+
+**Known miss, accepted:** a download that starts from raw navigation
+with no in-tab click (a direct link straight to a file, no landing page
+— the content script may not have attached listeners yet) still won't
+be caught. Narrower than Scott's email example; out of scope for now.

@@ -627,6 +627,24 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   });
 });
 
+// Click cue (spec §3 download presence gate, 2026-07-26): a real-time
+// proof-of-presence signal, separate from the batched heartbeat activity
+// counts, so it's visible in storage the instant a click happens — needed
+// because a click-triggered download can fire within the same 10s window,
+// before content.js's next batched send. Deliberately not folded into
+// cueSnapshot(), which excludes clicks as too noisy for screenshot timing;
+// this is a different consumer with a different bar (Rung 1's "one click OR
+// one heartbeat"), applied in real time instead of only at finalize.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type !== "click-cue") return;
+  enqueue("click-cue", async () => {
+    const current = await getCurrent();
+    if (!current || sender.tab?.id !== current.tabId || current.hadClick) return;
+    current.hadClick = true;
+    await setCurrent(current);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Downloads (spec §5 roadmap): "Save image as…" fires no DOM event, so this
 // is background-observed and attributed to the current session. Likely the
@@ -639,6 +657,16 @@ chrome.downloads.onCreated.addListener((item) => {
     const current = await getCurrent();
     if (!current) {
       log("download with no current session, dropped");
+      return;
+    }
+    // Presence gate (spec §3, 2026-07-26): a download only counts as intent
+    // if the session already has proof the user was there — a heartbeat or
+    // a click (Rung 1's bar, checked in real time). Without this, apps that
+    // programmatically replay download history on tab load/reconnect (seen:
+    // a torrent client's web UI firing 1500+ onCreated events on restore,
+    // zero attended time) inflate the score with events nobody caused.
+    if (!current.heartbeats && !current.hadClick) {
+      log("download with no presence signal yet, dropped", current.url);
       return;
     }
     current.activity.download = (current.activity.download || 0) + 1;
