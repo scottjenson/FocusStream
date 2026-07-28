@@ -150,6 +150,21 @@ alternatives, dated history) lives in `plans/` — see the index below.
   `google.com/search`, `LABEL_SPLIT_HOSTS`), so Maps blocks stop labeling
   "Google Search"; identity stays hostname-keyed; general multi-app mechanism
   designed and rejected (spec §6; story in `plans/timeline_design.md`).
+- **2026-07-28:** fences bridge breaks, split at departures —
+  `FENCE_BRIDGE_GAP_MS` (30 min, wall-clock and deliberately NOT derived from
+  `GAP_HOUR_PX`; replaces the ~16 min `FENCE_SPLIT_GAP_MS`) encodes "a step
+  away vs. a walk away from the machine". A scattered grazing morning is now
+  one expand target instead of three. The same constant now gates the away
+  hover plate — only departures get one, `GAP_PLATE_MIN_PX` retired — so a
+  collapsed fence is one hover target by construction and small gaps stop
+  being tedious targets (a week had ~28 plated gaps, half inside fences).
+  Retires "never steal a gap's hover plate"; layering the gap plates over
+  the fence was tried first and made hovering alternate stick by stick
+  (story in plans). Gap rendering never changed. Threshold picked
+  off a bimodal histogram (07-28: grazing < 8 min, step-aways 19–21 min,
+  nothing between — the 22–40 min dead zone is recorded); untested against a
+  real lunch break, on the watch list (spec §6; story in
+  `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

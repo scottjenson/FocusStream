@@ -836,6 +836,99 @@ Decisions along the way:
   downside and makes for a bigger easier target" — opinionated grouping,
   recoverable by expand.
 
+## Fences bridge breaks, split at departures (2026-07-28)
+
+**The specimen (07-28 screenshot, 6:35–8:53am):** a scattered grazing
+morning — mail/calendar/localhost sticks with breaks between — rendering as
+three separate fences. Scott: "it's a bit tedious to open a range of low
+fence items with breaks. It's a fairly common pattern."
+
+- **The insight:** the 07-24 rule above tied two things that don't have to
+  be tied — (1) the gap stays hoverable, (2) the fence doesn't span it.
+  Only (1) is load-bearing; (2) was just the mechanism that guaranteed it.
+  A fence plate and a gap plate can coexist in one span if precedence is
+  explicit, so the guarantee can move from *geometry* to *layering*.
+- **Scott's distinction, which set the threshold:** there are two kinds of
+  break — a step away, and an intentional walk away from the machine
+  (lunch). The hover-plate protection matters for the second and is
+  pointless for the first. That makes the constant a fact about the USER,
+  not about the render — hence wall-clock `FENCE_BRIDGE_GAP_MS` = 30 min,
+  deliberately NOT derived from `GAP_HOUR_PX` the way its predecessor was.
+  Retuning the absence scale must not silently redefine "lunch".
+- **The evidence (Score-table TSV, 2120 sessions):** the 07-28 morning has
+  exactly three gaps over the old ~16min split — 19.0 and 20.9 min (plus a
+  14.1 that already didn't split). Everything else across 2h18m is under
+  8 min. The histogram is cleanly **bimodal**: grazing rhythm < 8 min,
+  genuine step-away 19–21 min, nothing in between. So any threshold from
+  ~22 to ~40 min produces an identical result on this day; 30 sits
+  mid-dead-zone rather than on an edge. Three fences → one.
+- **Method note worth keeping:** the pixel estimate off the screenshot said
+  "50–110 min gaps, probably won't all collapse" and was wrong — those wide
+  blanks were mostly neighbors' *presence* width, not absence. Reading the
+  TSV flipped the answer. Measure the absence scale, don't eyeball it.
+- **Rule:** fence spans any member gap < `FENCE_BRIDGE_GAP_MS`, splits at
+  anything longer. The same constant gates the gap hover plate, so a
+  collapsed fence owns its entire span as ONE hover target by construction.
+- **Rejected first cut — plate layering (same day):** the initial fix kept
+  the gap plates and painted them *over* the fence plate, on the theory that
+  "never steal a gap's hover plate" (07-24) still had to hold. Scott, on
+  the 7am fence: "it seems to alternate between hovering on the gaps and
+  hovering on the fence… I would think there would only be one hover target
+  for the entire fence." Correct — `allocGap` runs per fence member, so a
+  bridged fence emits a gap region between every pair of sticks, and
+  layering made the cursor cross away/visits/away/visits across the run.
+- **The lesson worth keeping:** the old invariant was imported without
+  re-testing its premise. It was free only while fences spanned solely
+  *untargetable* slivers — a spanned gap had no plate to lose. The moment a
+  fence bridges real absence, "preserve the gap's plate" directly
+  contradicts "the fence is one target", which was the whole point of the
+  change. Preserving the letter of an invariant broke the thing it
+  protected. When a rule's enabling condition changes, re-derive the rule.
+- **Recovery, unchanged in spirit from 07-24:** away detail reappears on
+  expansion. Structurally free — an expanded run pushes to `bars`, never
+  `plates`, so its gaps fall outside every plate span and get their tooltips
+  back. Gap *rendering* never varied: absence occupies proportional width in
+  both states (a 19-min gap is ~7px at 22px/hr — visible, if subtle; whether
+  bridged breaks read clearly enough when open is a watch item, and its knob
+  is the gap scale, not this rule).
+- **Vocabulary:** plate tooltip gains a span note when span ≥ 2× attended +
+  1 min — `7 brief visits · 4m 12s over 2h 18m`. A bridged fence can cover
+  hours, and the bare attended figure would imply continuous activity.
+
+### Only departures earn an away plate (same day, third cut)
+
+Suppressing gap plates *inside fences* fixed the alternation but left the
+mechanism arbitrary — two thresholds, one for splitting (30 min, wall-clock)
+and one for hovering (`GAP_PLATE_MIN_PX`, 6px ≈ 16 min, render-derived).
+Scott: "you have to wonder why we need to hover the gaps… there's no real
+value other than knowing the duration, which is implied already." Then the
+sharpening that set the scope: **"I'm not trying to get rid of gaps at all.
+I'm saying that small gaps are tedious and I'm trying to remove them."**
+
+- **The week's gap census (2120 sessions, 5 days):** 658 boundaries with no
+  gap at all, 1306 under 16 min (already plateless), **14** in 16–30 min,
+  and **14** over 30 min (6 at 30–60m, 6 at 1–3h, 2 at 3h+). So the hover
+  layer fired ~28 times a week, half of which the fence change had just
+  suppressed.
+- **The asymmetry that decided it:** the plate is informative only where the
+  gap is already obvious, and tedious only where the gap is small. A 19-min
+  gap renders ~7px — a slit you don't care about. A 2-hour gap renders ~44px
+  — plainly visible, and its *clock times* ("away 12:04 – 1:38") are the one
+  fact width genuinely cannot carry. Hence: keep the ~14 departures, drop
+  the rest.
+- **Rule:** `FENCE_BRIDGE_GAP_MS` gates the gap plate too. `GAP_PLATE_MIN_PX`
+  deleted — the duration test subsumes both the old sliver test and the
+  collapsed-fence suppression (a gap inside a fence is sub-threshold by
+  construction), so ~20 lines of special-casing collapsed into one condition.
+- **Considered and not taken:** dropping gap plates entirely. Simpler still,
+  but it costs the clock times on real departures for no gain — the tedium
+  was never in the 14 big gaps. Trivial to do later if they prove noisy.
+- **Untested, on the watch list:** no real lunch walk-away exists in the
+  specimen morning. A habitual 25-min absence would wrongly bridge; a 35-min
+  one correctly splits. The 19-min gap inside today's bridged fence is the
+  specimen to hover when checking whether a bridge ever spans something that
+  *felt* like leaving.
+
 ## The traversal term — W_NAV (2026-07-24)
 
 **The specimen:** the Airbnb booking container (9:21 AM, 10m17s, 4 visits +

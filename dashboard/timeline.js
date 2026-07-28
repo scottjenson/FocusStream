@@ -72,13 +72,17 @@
   // Proportional everywhere — hour boundaries have no effect on width;
   // ticks just interpolate through gaps like they do through blocks.
   const GAP_HOUR_PX = 22;
-  // Sliver threshold, two surfaces (spec §6, 2026-07-24): gaps rendering
-  // narrower than this are untargetable (no hover plate) — and fences may
-  // span exactly those gaps, so a fence can never cover a plate. The
-  // fence-split test is this width converted back to time (~16 min at the
-  // current absence scale; self-adjusts if GAP_HOUR_PX is tuned).
-  const GAP_PLATE_MIN_PX = 6;
-  const FENCE_SPLIT_GAP_MS = (GAP_PLATE_MIN_PX / GAP_HOUR_PX) * HOUR;
+  // The break/departure line (spec §6, 2026-07-28) — ONE constant, two
+  // surfaces: fences bridge gaps under it and split at gaps over it, and
+  // only gaps over it get an away hover plate. Wall-clock on purpose: this
+  // encodes "how long before a break is a walk away from the machine", a
+  // fact about the user, so it must NOT be derived from GAP_HOUR_PX the way
+  // the old ~16min FENCE_SPLIT_GAP_MS (and the retired GAP_PLATE_MIN_PX
+  // hover threshold) were — retuning the absence scale must not silently
+  // redefine "lunch". Provisional: 30 min sits mid-dead-zone on the 07-28
+  // histogram (grazing < 8min, step-aways 19–21min, nothing between) —
+  // watch list.
+  const FENCE_BRIDGE_GAP_MS = 30 * 60 * 1000;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
@@ -863,12 +867,12 @@
     };
     for (const event of events) {
       if (event.band === "low") {
-        // Plate-worthy absence splits fences (spec §6, 2026-07-24; was
-        // VISIT_GAP_MS): a fence may span any gap too small to earn a
-        // hover plate — merging adjacent runs into one big expand target —
-        // but never covers a targetable away-hole.
+        // Departures split fences, breaks don't (spec §6, 2026-07-28): a
+        // scattered grazing stretch is one expand target. Bridged gaps that
+        // are still wide enough to hover keep their away plate on top of the
+        // fence plate, so nothing is stolen — only leaving ends the run.
         const prev = run[run.length - 1];
-        if (prev && event.startTime - prev.endTime >= FENCE_SPLIT_GAP_MS) flush();
+        if (prev && event.startTime - prev.endTime >= FENCE_BRIDGE_GAP_MS) flush();
         run.push(event);
       } else {
         flush();
@@ -1612,13 +1616,21 @@
     }
 
     // Invisible hover plate over each gap region: the exact away-span, same
-    // tooltip-as-ground-truth convention as blocks. Not clickable — and
+    // tooltip-as-ground-truth convention as blocks. Not clickable, and
     // appended BEFORE fence plates so a hole inside a collapsed fence still
-    // expands on click (the fence plate wins the overlap). Sliver gaps
-    // (< GAP_PLATE_MIN_PX) skip the plate: untargetable, and they'd shadow
-    // neighbors — the same threshold fences may span (clusterEvents).
+    // expands on click (the fence plate wins the overlap).
+    //
+    // ONLY departures get a plate (spec §6, 2026-07-28): the same
+    // FENCE_BRIDGE_GAP_MS that splits fences gates the tooltip, so one
+    // constant carries one meaning on both surfaces — under it a break the
+    // timeline doesn't annotate, over it a departure that both ends a fence
+    // and earns "away 12:04 – 1:38". Sub-threshold gaps were tedious hover
+    // targets whose duration the width already implies; a week of data had
+    // 14 of them inside fences alone. This also subsumes the collapsed-fence
+    // suppression it replaces: a gap inside a fence is < the threshold by
+    // construction, so it can never reach this point.
     for (const g of gaps) {
-      if (g.w < GAP_PLATE_MIN_PX) continue;
+      if (g.to - g.from < FENCE_BRIDGE_GAP_MS) continue;
       const el = document.createElement("div");
       el.className = "gap transient";
       el.style.left = g.x + "px";
@@ -1638,11 +1650,16 @@
       el.style.top = TITLE_AREA + "px";
       el.style.height = BAND_H + "px";
       const active = p.members.reduce((t, m) => t + m.durMs, 0);
+      // Span is narrated only when it materially exceeds the attended time —
+      // a bridged fence can cover hours, and "7 brief visits · 4m" alone
+      // would imply four continuous minutes.
+      const span = p.members[p.members.length - 1].endTime - p.members[0].startTime;
+      const spanNote = span >= active * 2 + 60000 ? ` over ${fmtDuration(span)}` : "";
       // A singleton stick isn't a run of "brief visits" — name the page.
       el.dataset.tip =
         p.members.length === 1
           ? `${p.members[0].host} · ${fmtDuration(active)} — click to expand`
-          : `${p.members.length} brief visits · ${fmtDuration(active)} — click to expand`;
+          : `${p.members.length} brief visits · ${fmtDuration(active)}${spanNote} — click to expand`;
       el.addEventListener("click", () => toggle(p.key));
       ribbon.appendChild(el);
     }
