@@ -164,6 +164,16 @@ alternatives, dated history) lives in `plans/` — see the index below.
   off a bimodal histogram (07-28: grazing < 8 min, step-aways 19–21 min,
   nothing between — the 22–40 min dead zone is recorded); untested against a
   real lunch break, on the watch list (spec §6; story in
+  `plans/timeline_design.md`). Same day: site naming simplified — the
+  hostname match now reads EVERY segment of EVERY title (a separator-free
+  title is a one-segment title) and matches a hostname label **or the full
+  hostname**; the invariance contest keeps the separator/first-last filters
+  it actually needs. Subsumes the 07-25 middles carve-out (`midCounts` and
+  the `matchable` merge deleted — fewer passes, one less rule). Fixes
+  rutracker labeled "Smart Girl" (ten `RuTracker.org` titles were filtered
+  out before the match could see them) plus Gemini/Plex/Vercel/Scatterpad,
+  and names 9 previously-unnamed hosts incl. Amazon.com. Week replay: 137
+  keys, 123 unchanged, 14 changed, zero regressions (spec §6; story in
   `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).

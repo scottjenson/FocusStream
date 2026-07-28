@@ -1195,7 +1195,11 @@ No new HIGHs; every demoted child stays a visible cut-out or stick.
 One-week caveat, same as W_NAV: fold into the ~2026-07-28 full-week
 retest.
 
-## Middle segments join the hostname match (2026-07-25)
+## Middle segments join the hostname match (2026-07-25) — SUBSUMED 2026-07-28
+
+*(Superseded by "Every segment declares the name" below: all positions now
+participate in the hostname match, so the asymmetric middles carve-out and
+its watch item are gone. Kept for the specimen and the reasoning.)*
 
 **The specimen:** Gmail and Calendar both labeled around "Jenson.org" —
 Gmail correctly as "Jenson.org Mail" (invariant last segment of the
@@ -1223,6 +1227,75 @@ compounds — "Google Docs", "Google Maps" — which fail equality). If a
 real misfire appears, the tightening is to exclude the registrable-
 domain label from MIDDLE matching only — a subdomain label ("calendar",
 "docs") is the specific claim; first/last matching keeps all labels.
+
+## Every segment declares the name (2026-07-28)
+
+**The specimen:** the 10:22 rutracker.org block labeled **"Smart Girl"** —
+a torrent listing, not a site name. Scott: "That appears to be a local page
+title and not the site name."
+
+**Two independent gaps, both in the hostname-match rule:**
+
+1. **The separator filter hid the evidence.** `siteNameOf` opened with
+   `titles.filter(p => p.length > 1)` — only separator-bearing titles ever
+   reached any contest. Of rutracker's 15 admitted titles that week, ten say
+   `RuTracker.org` / `rutracker.org` / `Tracker` with no separator and were
+   discarded before the hostname match could look. The four survivors were
+   all torrent listings, and "Smart girl" (visited twice) cleared the
+   `n*2 >= parted` majority guard 2-of-4. The site's own name was in the data
+   ten times and was structurally unreachable.
+2. **The TLD mismatch.** `norm("RuTracker.org")` = `rutrackerorg`, but the
+   candidate labels were `host.split(".").slice(0,-1)` = `rutracker` — the
+   TLD is stripped from the hostname and kept in the title, so exact equality
+   failed. Same for `Amazon.com` (105 titles, unnamed) and `social.coop`
+   (labeled "social").
+
+**Scott's constraint, which shaped the fix:** "I'm trying to keep this rule
+simple… I just get worried when you say multiple passes." Right instinct —
+the function had accreted five passes because each new specimen widened the
+hostname match one position at a time (first/last → +middles in 07-25).
+
+**The restructure:** stop widening and separate the two rules that were
+sharing one candidate set.
+
+- *Hostname match* asks "does the host declare its own name?" — the right
+  candidate set is **every segment of every title**, where a separator-free
+  title is a one-segment title. Match against a hostname label **or the full
+  hostname**.
+- *Invariance contest* asks "which segment stays put while pages vary?" —
+  that genuinely needs an `App - page` structure, so the `parted` filter and
+  the first/last candidates move here, where they belong.
+
+Net: the 07-25 middles carve-out, the `midCounts` map, and the `matchable`
+merge all **delete** — three concepts collapse into "every segment is a
+candidate." One loop over titles building two maps, then two scans. Fewer
+passes than before, and one less rule in the spec. The deletion is the tell
+that this is simplification rather than another patch.
+
+**Week replay (137 label keys, transit-filtered as the dashboard does):**
+123 unchanged, **14 changed, zero regressions.** Five outright bugs fixed —
+gemini.google.com "Bike Light Lumens Explained" → **Gemini** (85 titles!),
+app.plex.tv "E1" → **Plex**, scatterpad.com "July 26" → **Scatterpad**,
+vercel.com "Usage" → **Vercel**, rutracker.org "Smart girl" →
+**RuTracker.org** — plus nine hosts that had no name at all: Amazon.com,
+Perplexity, memeorandum, Simplenote, Flight Network, OpenStreetMap, The
+Atlantic, Laws of Software Engineering, and social.coop (was truncated to
+"social"). Every prior specimen holds: Calendar, Meet, WorkFlowy, Phanpy,
+the google.com Search/Maps split.
+
+**Method note:** the first replay ran on RAW sessions and showed rutracker
+already correct — the bug vanished. `computeHostNames` filters with
+`isTransit` first, and re-running on transit-filtered titles reproduced
+"Smart girl" exactly. Replay the pipeline's actual input, not the raw table.
+
+**Verbatim names, decided deliberately:** the match returns the most frequent
+spelling as written — `Amazon.com`, not "Amazon"; `memeorandum`, not
+"Memeorandum". Stripping a TLD or fixing case would be *inventing* a name,
+which is the failure mode this whole rule exists to prevent.
+
+**Noticed, not fixed:** mail.google.com labels as `"scott@jenson.org -"`
+(trailing separator, an email address as a site name). Pre-existing, produced
+identically by both versions — a separate specimen for a separate day.
 
 ## google.com label split (2026-07-25)
 

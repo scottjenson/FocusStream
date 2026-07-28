@@ -1100,69 +1100,79 @@
   // A lone separator-bearing title keeps the old trailing rule (no
   // invariance evidence). Hostname is the fallback — and identity
   // (color/grouping) stays hostname-keyed regardless.
-  // Hostname match wins outright (spec §6, 2026-07-19): a candidate that IS
-  // the domain name — exact equality after normalization, never containment
+  // Hostname match wins outright (spec §6, 2026-07-19; widened 2026-07-28):
+  // a segment that IS the domain name — exact equality after normalization
+  // against a hostname label OR the full hostname, never containment
   // ("googledocs" must not match "docs") — is the site declaring its own
   // name, corroborated by the URL, so it skips the count contest and the
-  // majority guard. Recurrence required (≥2 titles, waived for a lone parted
+  // majority guard. Recurrence required (≥2 titles, waived for a lone
   // title) so a one-off doc literally named "Docs" can't claim
   // docs.google.com. Born of WorkFlowy's invariant "Organize your brain. -
   // WorkFlowy": both segments tied every week and the first-position
   // tie-break crowned the tagline.
+  //
+  // The two rules are separate passes over one loop (2026-07-28): the
+  // hostname match reads every segment of every title (separator-free
+  // titles included — they are one-segment titles), while invariance keeps
+  // its first/last candidates over separator-bearing titles only. That
+  // split subsumed the 2026-07-25 middles carve-out and fixed rutracker,
+  // where ten "RuTracker.org" titles were filtered out before the match
+  // could see them and two "Smart girl" torrent listings won by majority.
   function siteNameOf(titles, host) {
-    const parted = titles
-      .map((t) => (t || "").split(/\s+[-–—|·/]\s+/))
-      .filter((p) => p.length > 1);
-    if (!parted.length) return null;
-    const counts = new Map(); // candidate -> { n, first }
-    const midCounts = new Map(); // middle segments — hostname-match candidates ONLY
-    for (const p of parted) {
+    const SEP = /\s+[-–—|·/]\s+/;
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    // Hostname labels AND the full hostname (spec §6, 2026-07-28): a title
+    // may carry the TLD ("RuTracker.org", "Amazon.com", "social.coop"),
+    // where label-only matching missed or truncated the name.
+    const labels = new Set(host.split(".").slice(0, -1).map(norm).filter(Boolean));
+    labels.add(norm(host));
+    const declared = new Map(); // exact spelling -> n  (hostname match)
+    const counts = new Map(); // first/last -> { n, first }  (invariance)
+    let parted = 0; // titles with a separator — invariance evidence
+    let lastTail = null;
+    for (const t of titles) {
+      const segs = (t || "").split(SEP).map((s) => s.trim()).filter(Boolean);
+      if (!segs.length) continue;
+      // Hostname match sees EVERY segment of EVERY title — a separator-free
+      // title is a one-segment title, not an excluded one. Subsumes the
+      // 2026-07-25 middles carve-out (all positions participate now).
+      for (const s of new Set(segs)) {
+        if (s.length <= 30 && labels.has(norm(s))) declared.set(s, (declared.get(s) || 0) + 1);
+      }
+      // Invariance needs an App/page structure, so it alone filters to
+      // separator-bearing titles and to first/last candidates, where
+      // recurring middle noise can never win on popularity.
+      if (segs.length < 2) continue;
+      parted++;
+      lastTail = segs[segs.length - 1];
       const cands = new Map(); // per-title dedupe: count once per title
-      const first = p[0].trim();
-      const last = p[p.length - 1].trim();
-      if (first && first.length <= 30) cands.set(first, true);
-      if (last && last.length <= 30 && !cands.has(last)) cands.set(last, false);
+      if (segs[0].length <= 30) cands.set(segs[0], true);
+      if (segs[segs.length - 1].length <= 30 && !cands.has(segs[segs.length - 1]))
+        cands.set(segs[segs.length - 1], false);
       for (const [name, isFirst] of cands) {
         const c = counts.get(name) || { n: 0, first: false };
         c.n++;
         c.first = c.first || isFirst;
         counts.set(name, c);
       }
-      for (const name of new Set(
-        p.slice(1, -1).map((s) => s.trim()).filter((s) => s && s.length <= 30 && !cands.has(s))
-      ))
-        midCounts.set(name, (midCounts.get(name) || 0) + 1);
     }
-    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const labels = new Set(host.split(".").slice(0, -1).map(norm).filter(Boolean));
-    // Middle segments participate HERE only (spec §6, 2026-07-25): the
-    // Workspace "domain - App - page" house style hides the URL-
-    // corroborated segment in the middle ("Jenson.org - Calendar - Week
-    // of …"). The invariance contest below stays first/last, where
-    // recurring middle noise can't win on popularity.
-    const matchable = new Map(counts);
-    for (const [name, n] of midCounts) {
-      const c = matchable.get(name);
-      matchable.set(name, { n: (c ? c.n : 0) + n, first: c ? c.first : false });
-    }
+    // The site declaring its own name, corroborated by the URL: most
+    // frequent spelling, returned verbatim (shortening would invent a name).
     let match = null;
-    for (const [name, c] of matchable) {
-      if (!labels.has(norm(name))) continue;
-      if (c.n < 2 && parted.length > 1) continue;
-      if (!match || c.n > match.c.n) match = { name, c };
+    for (const [name, n] of declared) {
+      if (n < 2 && titles.length > 1) continue;
+      if (!match || n > match.n) match = { name, n };
     }
     if (match) return match.name;
-    if (parted.length === 1) {
-      const tail = parted[0][parted[0].length - 1].trim();
-      return tail && tail.length <= 24 ? tail : null;
-    }
+    if (!parted) return null;
+    if (parted === 1) return lastTail && lastTail.length <= 24 ? lastTail : null;
     let best = null;
     for (const [name, c] of counts) {
       if (!best || c.n > best.c.n || (c.n === best.c.n && c.first && !best.c.first)) {
         best = { name, c };
       }
     }
-    return best && best.c.n * 2 >= parted.length ? best.name : null;
+    return best && best.c.n * 2 >= parted ? best.name : null;
   }
 
   // google.com label split (spec §6, 2026-07-25): the one recorded
