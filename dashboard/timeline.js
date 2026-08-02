@@ -1126,7 +1126,8 @@
     // where label-only matching missed or truncated the name.
     const labels = new Set(host.split(".").slice(0, -1).map(norm).filter(Boolean));
     labels.add(norm(host));
-    const declared = new Map(); // exact spelling -> n  (hostname match)
+    const declared = new Map(); // exact spelling -> n  (hostname match, equality)
+    const contained = new Map(); // exact spelling -> n  (hostname match, word-boundary)
     const counts = new Map(); // first/last -> { n, first }  (invariance)
     let parted = 0; // titles with a separator — invariance evidence
     let lastTail = null;
@@ -1137,7 +1138,19 @@
       // title is a one-segment title, not an excluded one. Subsumes the
       // 2026-07-25 middles carve-out (all positions participate now).
       for (const s of new Set(segs)) {
-        if (s.length <= 30 && labels.has(norm(s))) declared.set(s, (declared.get(s) || 0) + 1);
+        if (s.length > 30) continue;
+        if (labels.has(norm(s))) {
+          declared.set(s, (declared.get(s) || 0) + 1);
+          continue;
+        }
+        // Word-boundary containment fallback (2026-08-02): the brand is
+        // embedded in the segment ("Car Rentals from Avis"), not the whole
+        // segment. Weaker than equality, so it's a separate tally consulted
+        // only when equality finds nothing.
+        const words = s.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+        for (const w of words) {
+          if (labels.has(norm(w))) contained.set(w, (contained.get(w) || 0) + 1);
+        }
       }
       // Invariance needs an App/page structure, so it alone filters to
       // separator-bearing titles and to first/last candidates, where
@@ -1164,6 +1177,13 @@
       if (!match || n > match.n) match = { name, n };
     }
     if (match) return match.name;
+    // Weaker fallback: the brand embedded mid-segment (2026-08-02).
+    let containMatch = null;
+    for (const [name, n] of contained) {
+      if (n < 2 && titles.length > 1) continue;
+      if (!containMatch || n > containMatch.n) containMatch = { name, n };
+    }
+    if (containMatch) return containMatch.name;
     if (!parted) return null;
     if (parted === 1) return lastTail && lastTail.length <= 24 ? lastTail : null;
     let best = null;

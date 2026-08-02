@@ -1336,3 +1336,29 @@ that fall back to the trailing rule or bare hostname — a stray block may
 label "google.com", honest if inelegant; a container's label keys on its
 click-target URL (top-scoring member), so a genuinely mixed
 Search/Maps container is named by its strongest member.
+
+## Word-boundary hostname match fallback (2026-08-02)
+
+**The specimen:** the 6:57 Avis rental block labeled "Car Rentals from
+Avis" — accurate but far too long for a site name. Avis's titles never
+carry a segment that's *exactly* "Avis" (always embedded: "Car Rentals
+from Avis", "Reservation Details | Avis Rental Cars", "Avis Rent a
+Car..."), so the equality-based hostname match never fires and the
+invariance contest picks the most-repeated first-segment instead —
+correct by its own rules, just the wrong tool for a brand-in-the-middle
+title.
+
+**The fix:** the hostname match gets a second, weaker pass — whole-word
+containment — tried only when equality finds nothing. "Car Rentals from
+Avis" contains "Avis" as a whole word; the returned name is that word as
+spelled in the title, not a hostname-derived form (same verbatim
+principle as the equality match). Whole-word (regex boundary) keeps the
+`googledocs`/`docs` guard intact — a containment match without a
+boundary would defeat the reason equality-only was chosen in the first
+place.
+
+**Rejected: hostname-derived casing.** Deriving "Avis" from `avis.com`
+directly (capitalize the label) was simpler but breaks the "never
+invent, always verbatim" principle already established for equality
+matches — a lowercase-brand site would get a wrong-cased name no title
+ever displayed.
