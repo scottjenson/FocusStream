@@ -79,8 +79,9 @@
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
     /* Contained children (spec §6, 2026-07-17): cut out of the container's
        solid interior by a page-background seam — the container itself paints
-       like any other HIGH block. */
-    .blk.cut { border-width: 2px; }
+       like any other HIGH block. Border narrowed 2px -> 1px (2026-08-02) to
+       cut a less heavy seam. */
+    .blk.cut { border-width: 1px; }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;

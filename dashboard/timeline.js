@@ -81,7 +81,9 @@
   const TIER_H = { high: 144, medium: 92, low: 40 };
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
-  const CUT_SEAM = 2; // .blk.cut border-width (index.html): the page-background seam around contained children
+  const CUT_SEAM = 1; // .blk.cut border-width (index.html): the page-background seam around contained children
+  const CONTAIN_INSET = 6; // px shaved off a contained child's top edge, so a same-tier child (e.g. MEDIUM-in-MEDIUM) still shows a strip of the container above it
+  const CONTAIN_BOTTOM_INSET = 1; // px the child sits above the container floor, matching .blk's own border-width so the container's bottom border shows through
   // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
   // renders at GAP_HOUR_PX per absent hour (~1/6 speed — halved together
   // with PX_PER_SEC 2026-07-17 to preserve the ratio; watch gap loudness).
@@ -1610,13 +1612,16 @@
       // sub-pixel edges anti-alias, which reads as fuzz on narrow blocks.
       // Rounding the right edge (not the width) keeps snapped neighbors
       // adjacent.
+      const topInset = s.contained ? CONTAIN_INSET : 0;
+      const bottomInset = s.contained ? CONTAIN_BOTTOM_INSET : 0;
       el.style.left = Math.round(s.x) + "px";
       el.style.width = Math.round(s.x + s.w) - Math.round(s.x) + "px";
-      el.style.top = bandBottom - h + "px";
-      el.style.height = h + "px";
+      el.style.top = bandBottom - h + topInset + "px";
+      el.style.height = h - topInset - bottomInset + "px";
       // Containers paint like any other solid block (spec §6, 2026-07-17 —
       // wash retired); contained children are cut out of the interior by a
-      // 2px page-background seam (.cut CSS carries the width).
+      // page-background seam (.cut CSS carries the width) and inset off the
+      // container's top/bottom edges (spec §6, 2026-08-02).
       el.classList.toggle("cut", !!s.contained);
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
@@ -1627,7 +1632,7 @@
       // 2026-07-17).
       // Contained sticks: transparent seam, fill clipped to the interior
       // (spec §6, 2026-07-24) — the container's color shows through the
-      // 2px border, so the visible slit is STICK_W while the hover box
+      // CUT_SEAM border, so the visible slit is STICK_W while the hover box
       // keeps the full .cut footprint. background-clip is required:
       // by default the background paints under the border.
       el.style.backgroundClip = s.stick ? "padding-box" : "";
