@@ -1362,3 +1362,43 @@ directly (capitalize the label) was simpler but breaks the "never
 invent, always verbatim" principle already established for equality
 matches — a lowercase-brand site would get a wrong-cased name no title
 ever displayed.
+
+## Floor-attended copy/cut discount (2026-08-02)
+
+**The specimen:** the 6:58am Google Voice container child (a 9s SMS
+security-code check, one copy click) rendered MEDIUM and visually
+dominated the Avis container it interrupted — Scott's original
+hypothesis was "the Voice visit shouldn't be MEDIUM." First pass wrongly
+suspected `W_PASTE` (the Avis session, not Voice, had the paste); Scott
+redirected to check both signals properly.
+
+**The data:** every `copy=1, attended≤20s` row in the week's Score
+Table scores exactly 160 or 161 — `W_COPY(150) + attended(10 or 20)` —
+regardless of host or context: a Voice message check, a WorkFlowy
+glance, a YouTube page, an Amazon audiobook listing, a Perplexity
+search. `W_COPY` alone crosses `MED_SCORE` (150) on its own. Contrast
+with `paste=1` rows at the same attended range: they top out around
+90-121, staying LOW — paste was never the actual problem at these
+durations.
+
+**Ruled out: a `kbd` co-condition.** Sessions with `copy=1` and real
+composition activity (Phanpy replies, Gemini conversations — kbd in the
+tens to thousands) score correctly high and look nothing like the
+noise cases. But `kbd` itself forms a smooth continuum (0, 1, 2, 3, 4,
+… 913) with no gap to split "noise click" from "real typing" — any
+threshold would be arbitrary. Attended time turned out to be the clean
+discriminator: every copy-inflated MEDIUM sits at attended≤20s, and
+composition-heavy sessions clear that floor by construction (real
+typing takes measurable time, which shows up as heartbeats). So the
+gate is attended-time alone, matching the existing terminal-keystroke
+discount's shape (a time/attention-based gate, not a signal-count
+threshold).
+
+**Magnitude:** discounted copy/cut land at `W_PASTE`'s tier (80), not
+zero — a copy-in-passing still represents something happened, symmetric
+with how paste is already treated at these durations. Zeroing was
+considered (mirroring the terminal-keystroke discount, which does drop
+its keystroke to nothing) but rejected: a keystroke that closes the tab
+(Cmd+W) is definitionally the user leaving, whereas a copy click's
+content is unknown — it could still be minor real work, just not enough
+to independently promote a floor-attended session to MEDIUM.

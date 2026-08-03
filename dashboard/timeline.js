@@ -15,11 +15,16 @@
 
   // --- Score (spec §6). ⚠ Provisional weights inherited from Desktop4's
   // demo-tuned values — expected to be revisited against real data.
-  const W_COPY = 150;
-  const W_CUT = 150;
+  const W_COPY = 150; // shared by cut — same weight, one constant (copyCutWeight below)
   const W_PASTE = 80;
   const W_DOWNLOAD = 200;
   const KBD_CAP = 200; // 1 point per keystroke, capped: composition ≈ copy-tier
+  // Floor-attended copy/cut discount (spec §6, 2026-08-02): at ≤2 heartbeats
+  // attended, a copy/cut is copying-in-passing (stray selection, SMS 2FA
+  // code) — W_COPY/W_CUT alone was crossing MED_SCORE regardless of
+  // context. Drops to W_PASTE's tier, same as paste already gets. Gates on
+  // attended time only — kbd count has no natural noise/signal split.
+  const COPY_CUT_FLOOR_ATTENDED_S = 20;
   // "The read" premium (spec §6, 2026-07-15): per active scroll window, ONLY
   // on scrollable pages — app-style SPAs (feeds, Maps, Gemini) scroll inner
   // containers and read scrollable=false, so the gate excludes exactly the
@@ -111,10 +116,12 @@
 
   function scoreSession(s) {
     const a = s.activity || {};
+    const attended = attendedSeconds(s);
+    const copyCutWeight = attended <= COPY_CUT_FLOOR_ATTENDED_S ? W_PASTE : W_COPY;
     return (
-      attendedSeconds(s) +
-      W_COPY * (a.copy || 0) +
-      W_CUT * (a.cut || 0) +
+      attended +
+      copyCutWeight * (a.copy || 0) +
+      copyCutWeight * (a.cut || 0) +
       W_PASTE * (a.paste || 0) +
       W_DOWNLOAD * (a.download || 0) +
       Math.min(a.keyboard || 0, KBD_CAP) +

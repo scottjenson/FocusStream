@@ -221,14 +221,17 @@ Rendering model ported from the Desktop4 demo (`~/Projects/Desktop4 (lifestreams
 attendedSeconds = max(heartbeats × 10, audibleMs / 1000)
                   // measured attention: active windows OR audible playback
                   // (max, not sum — same-frame video counts in both)
+copyCutWeight = attendedSeconds <= 20 ? 80 : 150
+                  // floor-attended discount (2026-08-02, below)
 score = attendedSeconds
-      + 150 × copy + 150 × cut + 80 × paste
+      + copyCutWeight × copy + copyCutWeight × cut + 80 × paste
       + 200 × download                      // strongest intent signal we have
       + min(keyboard, 200)                  // 1/keystroke, capped: composition ≈ copy-tier
       + 5 × scroll, ONLY when scrollable    // the "read" premium (added 2026-07-15)
 Tiers: HIGH ≥ 1000, MEDIUM ≥ 150
 ```
 * Simpler than Desktop4's formula by design: heartbeats measure attention directly, and background tabs can't inflate dwell (sessions only exist while visible + focused). mouse/click/media contribute via `attendedSeconds` (they make windows active), not separate weights.
+* **Floor-attended copy/cut discount (2026-08-02):** a session at or below 20s attended time (≤2 heartbeats) whose ONLY real signal is a copy or cut click scores MEDIUM off that single click alone — `W_COPY`/`W_CUT` (150) plus a floor attended value already exceeds `MED_SCORE` (150), regardless of what was actually copied or what page it happened on. At this attended floor a copy reads as copying-in-passing (a stray selection, an SMS 2FA code), not the deliberate composition the full weight is calibrated for, so both weights drop to `W_PASTE`'s tier (80) — parity with paste's existing "clipboard thing happened, can't tell if it mattered" treatment. Above the 20s floor, copy/cut are unchanged; sessions with real composition naturally clear the floor via attended time. `W_PASTE` itself is untouched. Attended time alone gates the discount — keyboard count forms a smooth continuum with no natural noise/signal split, so a `kbd` co-condition was rejected as arbitrary (week replay + rationale in `plans/timeline_design.md`).
 * **The scroll term — "the read" (2026-07-15):** `W_SCROLL` = 5 per active scroll window, **gated on `scrollable = true`** — the gate is load-bearing: app-style SPAs scroll an inner container, so `documentElement.scrollHeight` never exceeds the viewport and feeds/Maps noise reads `scrollable = false` by architecture. Merged visits and containers inherit `scrollable` as the OR of their members. Validation method + numbers: plans.
 * **The traversal term — `W_NAV` (2026-07-24, provisional):** thread assembly adds `W_NAV` (50) per join, on top of the summed member totals — a merged visit adds `W_NAV × (members − 1)` (machinery navigations and absence-bridge returns alike) and a container chain adds a further `W_NAV × (fragments − 1)` (returns). Multiple committed page views within a domain are intent the per-signal totals can't see, and the joins counted are exactly the survivors of the SPA debounce, blip filter, and transit filter — view-state churn and redirect machinery contribute nothing by architecture. No user-act gate (rejected on data). Tuned on ONE real day — **retest with a fuller week before touching it** (watch list); validation + rejected alternatives: plans.
 * **⚠ Provisional:** all weights/thresholds are Desktop4-inherited. Keep every weight a named constant; thresholds held while label gating is evaluated (one knob at a time).
