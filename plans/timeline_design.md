@@ -1402,3 +1402,67 @@ its keystroke to nothing) but rejected: a keystroke that closes the tab
 (Cmd+W) is definitionally the user leaving, whereas a copy click's
 content is unknown — it could still be minor real work, just not enough
 to independently promote a floor-attended session to MEDIUM.
+
+## Adjacent-container chaining (2026-08-02)
+
+**The specimen:** Scott asked why a 3:04pm run of 3 LinkedIn visits (Feed,
+Audience analytics ×2) with "no significant gaps" wasn't one container.
+Investigation (with a temporary debug log traced through mergeVisits and
+detectContainers, confirmed against a screenshot) found the merge/container
+machinery was working exactly as designed at the fragment level — those 3
+raw sessions correctly machinery-joined into ONE merged visit (score 631,
+MEDIUM). The screenshot showing 3 separate bordered rectangles under one
+"LinkedIn" label turned out to be 3 SEPARATE containers/visits sitting near
+each other in time (2:52pm block, 3:04pm block, 3:13pm block, 3:18pm block),
+each independently built by detectContainers, with one shared label only
+because titleRuns() (a cosmetic collision-avoidance pass, not a semantic
+grouping) drops overlapping label text and keeps the highest scorer —
+visually implying a grouping the data didn't have.
+
+**Root cause:** detectContainers keys chains by `(treeId, host)` and closes
+the chain the moment a gap exceeds `VISIT_GAP_MS` (5 min) — exactly like
+raw-fragment merging. Once closed, a chain is never reconsidered against
+its neighbors: two containers (or a container and a leftover merged visit)
+sitting a few minutes apart on the same host/tree never get a second look,
+even though a human clearly reads "three LinkedIn check-ins ten minutes
+apart" as one returning pattern, not three unrelated visits.
+
+**Specimen collection:** since the Score Table TSV lacks `id`/`treeId`
+(can't reconstruct assembled threads offline), a second temporary debug log
+walked `threadsByDay`'s output for the whole stored week, logging every
+same-host gap where at least one side was a container. 55 specimens, gaps
+9s–1737s (29 min), smooth and continuous — no bimodal cliff like the
+fence-bridge histogram had. Our two specimens (334s, 703s) sat mid-cluster
+with nothing distinguishing them from many "just a real visit ended" gaps.
+
+**Rejected: file-system read of chrome.storage.local.** Considered reading
+the extension's LevelDB storage directly to skip the manual debug-log
+round-trip. Rejected as unnecessarily risky (locating the right unpacked
+extension's profile directory, parsing LevelDB while Chrome may hold a
+lock) for what a temporary console.log solved safely in one round-trip.
+
+**The fix — flatten, same guards, recurse:** `assembleThreads` now calls
+`detectContainers` twice: pass one at `VISIT_GAP_MS` on raw fragments
+(unchanged), pass two on ITS OWN output (containers + leftover merged
+visits) at a new `CONTAINER_CHAIN_GAP_MS` (10 min). Same chain-and-qualify
+algorithm both times — `detectContainers` took `chainGapMs` as a parameter
+instead of hardcoding `VISIT_GAP_MS`. No nesting: a chained container is
+just a bigger flat container, fragments and children pooled at one level
+(Scott's call — simpler mental model, most code reuse, and containers
+already tolerate a fragment that's itself a merged visit, so a fragment
+that's itself a container needed only two additive fields to work:
+`treeId` — containers previously had none, so the second pass silently
+couldn't key them at all — and `endReason` (last fragment's exit,
+same principle as `mergeVisits`), so a container can testify as a
+departure boundary if it becomes a non-final fragment upstream.
+
+**Threshold — no data cliff, picked by judgment:** with a smooth
+distribution, `CONTAINER_CHAIN_GAP_MS` = 10 min was chosen as a round
+number between `VISIT_GAP_MS` (5 min, raw-fragment strictness) and
+`AUDIO_BOOKEND_GAP_MS`/`FENCE_BRIDGE_GAP_MS` (30 min, "walk away" scale) —
+chaining assembled threads is a coarser claim than raw fragments (deserves
+more room) but isn't the audio-evidenced or purely-cosmetic fence case
+(deserves less than 30 min). Verified against real data: bridges both
+LinkedIn specimens, and incidentally merged an unrelated same-day Gemini
+cluster too — confirmed working as a general fix, not a LinkedIn special
+case.

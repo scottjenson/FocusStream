@@ -53,6 +53,17 @@
   // the context never ended while the user was off on a whiteboard
   // (spec §6 containers).
   const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
+  // Adjacent-container chaining (spec §6, 2026-08-02): detectContainers only
+  // ever chains RAW fragments — two already-assembled same-host containers
+  // (or a container and a leftover merged visit) sitting a few minutes
+  // apart never get a second look, so a returning-to-LinkedIn pattern with
+  // brief step-aways reads as unrelated blocks. Looser than VISIT_GAP_MS
+  // (chaining assembled threads is a coarser claim than chaining raw
+  // fragments) but tighter than AUDIO_BOOKEND_GAP_MS (no audio evidence
+  // requirement at this level) — no natural cliff in a week's gap
+  // distribution (9s–29min, smooth), so this is a judgment call pending
+  // more data (story: plans/timeline_design.md).
+  const CONTAINER_CHAIN_GAP_MS = 10 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
   // for a NORMAL day (spec §6, halved again 2026-07-17 on real data):
@@ -598,7 +609,7 @@
   // patterns in a week's replay, e.g. interleaved shop/pay ping-pong
   // where two sites each tried to containerize the other). The HIGH path
   // keeps its original guards; dominance is deliberately not applied there.
-  function detectContainers(events, quiet) {
+  function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     // Chains key on the (tree, host) PAIR (2026-07-19): a thread is a
     // same-host chain in one tab tree, so each host runs its own chain per
     // tree — a spawned foreign-host read neither joins nor breaks its
@@ -608,6 +619,10 @@
     // ever extend its own host's thread; any HIGH non-member a chain's
     // span would cover is handled by the tree-blind covered-HIGH
     // rejection below (2026-07-24).
+    // chainGapMs (2026-08-02): the bridging gap is a parameter, not always
+    // VISIT_GAP_MS — assembleThreads calls this fn a second time at
+    // CONTAINER_CHAIN_GAP_MS to chain already-assembled containers/visits
+    // (adjacent-container chaining, below).
     const open = new Map(); // treeId|host -> fragments of the open chain
     const chains = [];
     const close = (frags) => {
@@ -629,7 +644,7 @@
         // YouTube binge defeated (plans). Old sessions lack the stamp and
         // never long-bridge — fails closed.
         const bridged =
-          gap < VISIT_GAP_MS ||
+          gap < chainGapMs ||
           (gap < AUDIO_BOOKEND_GAP_MS &&
             e.audibleSinceTs != null &&
             e.audibleSinceTs <= last.endTime);
@@ -776,6 +791,11 @@
         title: top.title,
         host: c.frags[0].host,
         tabId: c.frags[0].tabId,
+        // treeId (2026-08-02): needed so a container can itself become a
+        // fragment on assembleThreads' second, looser chaining pass
+        // (adjacent-container chaining, below) — without it a container
+        // silently can't ever be chained again.
+        treeId: c.frags[0].treeId,
         startTime: from,
         endTime: to,
         durMs: to - from, // SPAN — the width-rule exception (spec §6)
@@ -785,6 +805,11 @@
         scrollable: c.frags.some((f) => f.scrollable),
         score: c.score, // summed fragment scores + returns traversal term: add up, then judge
         band: bandFor(c.score),
+        // The LAST fragment's exit is the container's exit (2026-08-02,
+        // same principle as mergeVisits): needed so a container can
+        // testify as a departure boundary if it becomes a non-final
+        // fragment on the second, adjacent-container chaining pass.
+        endReason: c.frags[c.frags.length - 1].endReason,
         members: c.frags,
         children,
       });
@@ -809,7 +834,14 @@
   // operation; every consumer (ribbon, week strip, color anchoring) goes
   // through here.
   function assembleThreads(events, quiet) {
-    return detectContainers(mergeVisits(events), quiet);
+    // Adjacent-container chaining (spec §6, 2026-08-02): the first pass
+    // chains raw fragments at VISIT_GAP_MS; a second pass re-runs the exact
+    // same chain-building + qualification on ITS OWN output (containers and
+    // leftover merged visits alike), at the looser CONTAINER_CHAIN_GAP_MS —
+    // an already-assembled same-host container/visit is a coarser claim
+    // than a raw fragment, so it earns a longer bridge. Idempotent when
+    // nothing chains (detectContainers returns its input unchanged).
+    return detectContainers(detectContainers(mergeVisits(events), quiet), quiet, CONTAINER_CHAIN_GAP_MS);
   }
 
   // Threads for every stored day (admission-filtered, scored, assembled;

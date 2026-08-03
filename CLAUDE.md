@@ -175,6 +175,27 @@ alternatives, dated history) lives in `plans/` — see the index below.
   and names 9 previously-unnamed hosts incl. Amazon.com. Week replay: 137
   keys, 123 unchanged, 14 changed, zero regressions (spec §6; story in
   `plans/timeline_design.md`).
+- **2026-08-02:** site naming gained a word-boundary containment fallback —
+  when no segment equality-matches a hostname label, a segment may still
+  contain one as a whole word ("Car Rentals from Avis" contains "Avis"),
+  returning the verbatim-cased word; tried only after equality fails (spec
+  §6; story in `plans/timeline_design.md`). Same day: floor-attended
+  copy/cut discount — a lone copy/cut on a session at or below 20s attended
+  time (≤2 heartbeats) was crossing `MED_SCORE` on that single click alone
+  regardless of context (a 9s SMS 2FA copy, a WorkFlowy glance, a YouTube
+  page); `W_COPY`/`W_CUT` now discount to `W_PASTE`'s tier (80) at that
+  floor — gate is attended-time only, since keyboard count had no natural
+  noise/signal split across a week's data (spec §6 Score v1; story in
+  `plans/timeline_design.md`). Same day: adjacent-container chaining —
+  `detectContainers` never reconsidered its own output, so same-host
+  containers/visits a few minutes apart (a returning-to-LinkedIn pattern
+  with brief step-aways) rendered as unrelated blocks under one
+  collision-avoided label; `assembleThreads` now runs the identical
+  chain-and-qualify logic a second time on its own output at a new, looser
+  `CONTAINER_CHAIN_GAP_MS` (10 min, no natural cliff in a week's gap
+  distribution — judgment call, watch list). Verified against live data on
+  the LinkedIn specimen and an unrelated same-day Gemini cluster (spec §6;
+  story in `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every
