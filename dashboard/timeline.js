@@ -65,6 +65,12 @@
   // audibleSinceTs must predate the gap — the tab's own audio testifies
   // the context never ended while the user was off on a whiteboard
   // (spec §6 containers).
+  // Currently equals FENCE_BRIDGE_GAP_MS below by coincidence, not by
+  // reference (rules audit, 2026-08-06 — plans/rules_restructure2.md):
+  // this is a fact about the TAB (its audio never stopped); the fence
+  // constant is a fact about the USER (how long a break reads as leaving
+  // the machine). Keep them independently tunable — retune one without
+  // assuming the other should follow.
   const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
   // Adjacent-container chaining (spec §6, 2026-08-02): detectContainers only
   // ever chains RAW fragments — two already-assembled same-host containers
@@ -113,6 +119,8 @@
   // redefine "lunch". Provisional: 30 min sits mid-dead-zone on the 07-28
   // histogram (grazing < 8min, step-aways 19–21min, nothing between) —
   // watch list.
+  // Currently equals AUDIO_BOOKEND_GAP_MS above by coincidence, not by
+  // reference (rules audit, 2026-08-06) — see that constant's comment.
   const FENCE_BRIDGE_GAP_MS = 30 * 60 * 1000;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles

@@ -27,6 +27,11 @@
   }
   window.__fsLoaded = true;
 
+  // Same "one heartbeat window" concept as shared/transit.js's TRANSIT_MS
+  // and background.js's HB_WINDOW_MS — kept as its own constant because
+  // this isolated content-script world has no access to shared/transit.js
+  // (rules audit, 2026-08-06). If it ever needs to change, change it there
+  // too — the three currently agree by convention, not by reference.
   const HEARTBEAT_MS = 10_000;
   const RELAY_MS = 1_000;
 

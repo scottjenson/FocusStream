@@ -7,6 +7,12 @@
 
 const log = (...args) => console.log("[FS bg]", ...args);
 
+// Loaded early: shared/transit.js is the single source of truth for the
+// admission predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one
+// heartbeat window" constant reused below instead of a second local copy
+// (rules audit, 2026-08-06 — plans/rules_restructure2.md).
+importScripts("shared/transit.js");
+
 // SPA URL changes arriving faster than this are view-state churn (map pans,
 // filter tweaks), not navigation — absorbed into the current session.
 const SPA_DEBOUNCE_MS = 15_000;
@@ -28,8 +34,12 @@ const RETENTION_MS = 7 * 24 * 3600 * 1000;
 // retroactively (no polling, no alarms, no chrome.idle permission — the
 // worker wakes on the heartbeat anyway). Provisional per the one-knob rule.
 const IDLE_SPLIT_MS = 5 * 60_000;
-// One heartbeat window: the idle clamp honors the last window's trailing edge.
-const HB_WINDOW_MS = 10_000;
+// One heartbeat window: the idle clamp honors the last window's trailing
+// edge. Reuses FS_TRANSIT.TRANSIT_MS (shared/transit.js) rather than a
+// second local 10s constant (rules audit, 2026-08-06) — same concept, one
+// definition. (content.js's own HEARTBEAT_MS stays separate: it runs in an
+// isolated content-script world with no access to shared/transit.js.)
+const HB_WINDOW_MS = FS_TRANSIT.TRANSIT_MS;
 
 // Snapshot previews (spec §6, unified with the transit filter 2026-07-24):
 // one screenshot per session, taken the moment it first QUALIFIES to display
@@ -38,7 +48,6 @@ const HB_WINDOW_MS = 10_000;
 // under snap:<sessionId> (never inside SessionBlocks — those are read in
 // full on every render). Finalize deletes the picture of any session the
 // shared transit predicate rejects.
-importScripts("shared/transit.js");
 const SNAP_WIDTH = 640; // fixed target width: predictable disk (~20-40KB), not screen-relative
 const SNAP_QUALITY = 0.6; // JPEG quality; tune by eye against disk cost
 
