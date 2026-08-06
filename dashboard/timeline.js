@@ -43,6 +43,19 @@
   const HIGH_SCORE = 1000;
   const MED_SCORE = 150;
 
+  // "Earned" vs. "accumulated" HIGH (2026-08-06, exploratory — see plans):
+  // a thread's tier is the band of the SUMMED fragments (spec §6
+  // Aggregation), which conflates two different shapes of intent — one
+  // fragment that was HIGH on its own (a real, concentrated moment) vs.
+  // several lesser fragments piling up via revisits/W_NAV traversal until
+  // the sum crosses HIGH_SCORE. A week's data showed these are NOT
+  // proxies for each other (only 4/35 HIGH containers that week had an
+  // individually-HIGH member) — earned HIGH is rare and worth marking.
+  function hasEarnedHigh(e) {
+    const members = e.members ? e.members.flatMap((m) => m.members || [m]) : [e];
+    return members.some((m) => m.score >= HIGH_SCORE);
+  }
+
   const HOUR = 3600 * 1000;
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
@@ -252,6 +265,10 @@
     return idx !== -1 ? PALETTE[idx % PALETTE.length] : GRAY_FILL;
   }
   const rimOf = (color) => `color-mix(in srgb, ${color} 65%, white)`;
+  // Higher-contrast rim for earned-HIGH borders (2026-08-06, exploratory):
+  // more white than the standard rim, still hue-derived — the border must
+  // still carry identity, just louder.
+  const earnedRimOf = (color) => `color-mix(in srgb, ${color} 40%, white)`;
 
   // Keep the in-memory registry in sync with storage — covers "Clear data"
   // (dashboard.js removes the key) without a page reload. Our own writes
@@ -291,15 +308,19 @@
   // renderer (fillTip) lands them via textContent only, never innerHTML.
   const TIP_DEBUG = true; // demo period: scores + signals visible; flip off for normal use
   const TIP_TITLES_MAX = 8;
-  function tipDataOf(e, siteName, ctx) {
+  // Untitled pages fall back to the URL, which can be a 2000-char OAuth
+  // monster — cap every listed string (display truncation is CSS ellipsis;
+  // this bounds what we store on the element). Module-level: both the page
+  // dedupe below and tipDataOf's debug section need it.
+  const cap = (t) => (t.length > 80 ? t.slice(0, 80) + "…" : t);
+  // Flatten a thread (container/merged-visit/lone session) to its member
+  // pages, cleaned and deduped by title (best score wins) — used by the
+  // tooltip's page list.
+  function dedupedPagesOf(e, siteName) {
     // A container's fragments can themselves be merged visits — flatten to
-    // the underlying pages so the list shows what was actually read.
+    // the underlying pages so callers see what was actually read.
     const members = e.members ? e.members.flatMap((m) => m.members || [m]) : [e];
-    // Untitled pages fall back to the URL, which can be a 2000-char OAuth
-    // monster — cap every listed string (display truncation is CSS ellipsis;
-    // this bounds what we store on the element).
-    const cap = (t) => (t.length > 80 ? t.slice(0, 80) + "…" : t);
-    // Page titles carry noise the tooltip shouldn't: leading unread
+    // Page titles carry noise callers shouldn't see: leading unread
     // counters ("(379) …" — they also churn, defeating dedupe) and the
     // boilerplate site-name segment ("… - YouTube") that the bold headline
     // already states. Both stripped generically, front or back position
@@ -310,7 +331,7 @@
         .replace(/^\(\d+\)\s*/, "")
         .replace(new RegExp(`\\s+[-–—|·/]\\s+${esc}\\s*$`), "")
         .replace(new RegExp(`^${esc}\\s+[-–—|·/]\\s+`), "");
-    const byTitle = new Map(); // dedupe: one line per title, best score wins
+    const byTitle = new Map(); // dedupe: one entry per title, best score wins
     for (const m of members) {
       const t = cap(clean(m.title || m.url || ""));
       if (!t) continue;
@@ -322,6 +343,11 @@
       .sort((a, b) => b.score - a.score);
     // A lone page repeating the site name says nothing — drop it.
     if (pages.length === 1 && pages[0].title === siteName) pages = [];
+    return pages;
+  }
+
+  function tipDataOf(e, siteName, ctx) {
+    const pages = dedupedPagesOf(e, siteName);
     const debug = [
       e.children
         ? `container: ${e.members.length} visits` +
@@ -1681,6 +1707,13 @@
       // keeps the full .cut footprint. background-clip is required:
       // by default the background paints under the border.
       el.style.backgroundClip = s.stick ? "padding-box" : "";
+      // Earned-HIGH border (2026-08-06, exploratory): the container/block
+      // itself, never its contained children — this marks how the THREAD
+      // reached HIGH, a fact about the frame, not about any one interior
+      // moment (which already has its own display treatment).
+      const earned =
+        s.band === "high" && !s.contained && !s.collapsed && !s.stick && hasEarnedHigh(s.e);
+      el.classList.toggle("earned-high", earned);
       el.style.borderColor = s.stick
         ? "transparent"
         : s.contained
@@ -1688,8 +1721,12 @@
           : s.collapsed
             ? STICK_FILL
             : colored
-              ? rimOf(colorOf(s.e.host))
-              : GRAY_RIM;
+              ? earned
+                ? earnedRimOf(colorOf(s.e.host))
+                : rimOf(colorOf(s.e.host))
+              : earned
+                ? "white"
+                : GRAY_RIM;
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).

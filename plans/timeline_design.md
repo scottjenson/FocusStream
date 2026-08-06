@@ -1538,3 +1538,140 @@ already computed one line above), which correctly ignores an irrelevant
 `prev` regardless of its tab/host. Lesson: `run[run.length-1]` truthiness
 is never a safe proxy for "no same-tab predecessor exists" — it only means
 "some event, possibly unrelated, was processed last."
+
+## Gmail focus: from content-labels to earned-vs-accumulated HIGH (2026-08-06)
+
+**The trigger:** two Gmail containers on 2026-08-06 (8:22–8:57am, morning
+review) were working correctly per spec — but read as generic "Gmail"
+blocks when Scott felt what actually happened was socially specific
+("working on this particular email to Bob"). Unlike YouTube (dozens of
+unrelated navigations, no single one matters more), Gmail sessions tend to
+be one focused task with "Inbox"/"Sent" as pure navigation chrome around it.
+
+**Data check #1 — does a dominant thread actually exist?** Pulled the full
+week's Score-table TSV (1919 rows), isolated `mail.google.com` (194 rows),
+grouped into same-tab contiguous runs (≥3 fragments, crude approximation of
+real thread assembly). 22 qualifying runs: 19/22 (86%) had one specific
+(non-chrome) title accounting for >60% of the specific-title score — often
+100%, since it was the ONLY non-generic title in the run. 2/22 were
+genuinely multi-thread skimming (several distinct real emails, no
+dominant one) and correctly should NOT get a forced single label. This
+validated that "one dominant thread" is a real, common shape for Gmail,
+not a cherry-picked anecdote.
+
+**First design — anchor-label promotion (rejected before building):**
+proposed making the container's LABEL itself become the dominant child's
+title ("Re: contract draft" instead of "Gmail"). Rejected on Scott's own
+follow-up: labels are short by convention across the whole ribbon: a
+subject line is much longer, and — more importantly — the tooltip/snapshot
+hover ALREADY shows full content at full width. Re-deriving that same
+information into the compact label was solving the problem in the wrong
+layer. Reframed: the label's job is compact wayfinding, not content
+delivery; something SHORT that signals "how focused was this" was the
+better target.
+
+**Second design — a `(N)` focus-count label suffix (built, then reverted):**
+count of distinct MEDIUM+-band titles among a run's deduped member pages
+(reusing the tooltip's existing `tipDataOf` dedupe — cleaned/boilerplate-
+stripped, best score per title), appended as `Gmail (1)` / `Gmail (3)`.
+Validated as non-noisy against the full week (170 label-earning containers:
+N=0 in 31%, N=1 in 46%, N≥2 in 23% — a discriminating distribution, not
+uniform). Implemented in `dashboard/timeline.js` (`focusCountOf`,
+`groupRuns` entity tracking, label-render suffix) and `SPEC.md`. This also
+closed the long-open watch-list item "Key-email visibility inside merged
+runs" (2026-07-18), whose deferred mitigation was exactly "surface MEDIUM+
+members inside merged blocks."
+
+**Why it was reverted:** live-testing against real containers, Scott
+noticed every MEDIUM-tier container showed either nothing or `(1)`, never
+more — the count only ever became informative (2+) on HIGH containers.
+Investigated why: MEDIUM is a tight score budget — there's rarely room for
+TWO independently-substantial (MEDIUM+) pages without the sum tipping into
+HIGH. So N and tier are correlated by construction, not independent
+signals; showing N on MEDIUM was pure noise (always ≤1), which made the
+suffix intuitively "not worth having" at that tier — and if it's not doing
+anything on MEDIUM, is it actually a distinct signal or a relabeling of
+tier?
+
+**The reframing question:** does N=1 mean "this HIGH page was individually
+that important," i.e. is the count secretly measuring the SAME thing as
+"individually-HIGH" (a concept already load-bearing elsewhere in spec §6
+Atomicity — a session that scores HIGH on its own, independent of any
+thread it might join)? Scott's hypothesis: an important container with
+only ONE distinct title is *more* important than one with several, because
+it became HIGH *without* needing to sum multiple things — "importance by
+scoring" vs. "importance by summing," possibly a sharper distinction than
+raw tier.
+
+**Data check #2 — is N=1 a proxy for "individually-HIGH"? No.** Re-ran the
+TSV analysis: of all 35 runs whose SUMMED score reached HIGH that week,
+only 4 contained a fragment that individually scored ≥1000 on its own.
+Cross-tabbing N against "has an individually-HIGH fragment":
+
+```
+  N | has HIGH frag | no HIGH frag
+  1 |             2 |           11
+  2 |             1 |           12
+  3 |             1 |            3
+  4 |             0 |            3
+  5 |             0 |            1
+  7 |             0 |            1
+```
+
+11 of 13 N=1 runs were HIGH purely from summing repeat visits to the SAME
+page (a `mail.google.com` run hit 1107 from 4 fragments whose max single
+score was 840; several Gemini runs showed the same shape) — no single
+visit was individually HIGH. N and "individually-HIGH" are NOT proxies:
+the count measures breadth of distinct substantial pages; individually-HIGH
+measures whether any ONE moment carried the tier on its own. They diverge
+in both directions (N=2 phanpy.social and N=3 youtube.com runs DID contain
+an individually-HIGH fragment alongside other MEDIUM+ pages). This
+confirmed the count wasn't measuring what Scott actually wanted, and
+explained the "always ≤1 on MEDIUM, uninformative" observation as a real
+structural fact rather than a tuning problem.
+
+**Third design — earned vs. accumulated HIGH border (shipped, exploratory):**
+dropped the count display entirely. New primitive: `hasEarnedHigh(e)` —
+true if any raw member fragment individually scored ≥`HIGH_SCORE`,
+independent of the thread's own summed band. Applied ONLY to a HIGH-band
+container/block itself (never contained children — the border marks a fact
+about how the THREAD reached its tier, not about any one interior moment,
+which already has its own display treatment per the container rules).
+Visually: 3px border (vs. the standard 1px) at a higher-contrast rim mix
+(`earnedRimOf`, 40% host color / 60% white vs. the normal rim's 65/35) —
+thicker AND higher-contrast, Scott's own starting proposal, kept
+deliberately simple ("let's see how it feels") rather than over-designed
+up front. `dashboard/timeline.js`: `hasEarnedHigh`, `earnedRimOf`, the
+`.earned-high` class toggle in the block-paint loop; `dashboard/index.html`:
+`.blk.earned-high { border-width: 3px; }`. Shipped as exploratory —
+spec §6 marks it as such and it's on the watch list, not treated as a
+closed design.
+
+**Side observation — width correlation:** earned-HIGH blocks are usually
+wider than accumulated-HIGH ones, unsurprising since a single fragment
+rarely reaches `HIGH_SCORE` without real dwell (or discrete signals
+stacking on real dwell). Untested whether this holds tightly enough to
+design against; flagged as a watch item rather than acted on.
+
+**The vocabulary that fell out — activity-induced intent vs. social
+context:** stepping back from the mechanics, Scott named the actual gap
+underneath all three attempts: everything in Score v1 measures **activity**
+(what the user DID), and no amount of polishing that model reaches **social
+context** (who or what the correspondence concerns — a message to your boss
+vs. your dentist can score identically). This isn't a tuning gap closable
+by more weights or a smarter aggregation rule; it's a structurally
+different axis activity data alone cannot encode. Recorded in spec §5 as a
+deliberate, permanent-until-revisited acknowledgment — not a task, and
+explicitly not something this session attempted to solve. The
+recipient-capture idea from earlier in the conversation (DOM-scraping
+Gmail for who an email was to/from) is one narrow, bespoke instance of this
+same general ceiling — parked in the watch list, distinct from the general
+statement in §5.
+
+**Candidate next step, not built:** IF the width correlation holds, the
+spare width on earned-HIGH blocks could carry a second label line —
+candidates discussed: the dominant fragment's own cleaned title (reuses
+`hasEarnedHigh`'s already-found member, no new capture) paired with which
+raw signal actually earned it (from `e.activity`: attended time vs.
+copy/cut/paste vs. download vs. keyboard). Both stay activity-derived —
+neither reaches social context. Paused pending the correlation check.

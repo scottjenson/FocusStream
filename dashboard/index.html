@@ -93,6 +93,12 @@
        like any other HIGH block. Border narrowed 2px -> 1px (2026-08-02) to
        cut a less heavy seam. */
     .blk.cut { border-width: 1px; }
+    /* Earned-HIGH (2026-08-06, exploratory — spec §6 watch list): a
+       container/block whose OWN thread reached HIGH via one individually-
+       HIGH fragment, not by summing lesser ones — thicker + higher-
+       contrast border (color set in JS via earnedRimOf) marks the frame,
+       distinct from an ordinary HIGH block's 1px identity rim. */
+    .blk.earned-high { border-width: 3px; }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
