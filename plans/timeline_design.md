@@ -1466,3 +1466,75 @@ more room) but isn't the audio-evidenced or purely-cosmetic fence case
 LinkedIn specimens, and incidentally merged an unrelated same-day Gemini
 cluster too — confirmed working as a general fix, not a LinkedIn special
 case.
+
+## Same-tab HIGH pass-through (2026-08-06)
+
+**Specimen:** a YouTube binge on one tab — a HIGH-scored ~16-minute video
+at 7:25am (score 1030, `spa_navigation` exit) followed with a ~0.7s gap by
+a "YouTube" search-results stub at 7:41am, then dozens more `spa_navigation`
+shorts through 8:21am, all on the same `tabId`. Scott expected the whole
+binge to read as one container; instead the 7:25 video rendered as an
+isolated HIGH block and everything after it merged into a separate,
+lower-scored visit.
+
+**Root cause, traced against a pasted Score-table TSV:** two mechanisms
+compounded. First, `mergeVisits`' continuation join excluded any
+individually-HIGH fragment (`e.band !== "high"` gated every merge branch),
+so the 7:25 video could never join the run on either side — it always
+"stood alone," even sitting on the exact same tab with a machinery
+boundary on both edges. Second, `detectContainers` correctly declined to
+wrap the two pieces in a container: the run had zero interruptions (no
+`tab_hidden` boundary, no foreign-host child anywhere in the span — it's
+one unbroken same-tab `spa_navigation` chain), and the guard at the "no
+interruptions at all" check (`!children.length && !departures`) rejects a
+chain with nothing to frame. Correctly so — a container exists to frame an
+interruption, and there wasn't one. The real defect was one level down: two
+pieces of what should have been a single **merged visit** were being kept
+apart by the HIGH exclusion, and no amount of container logic could paper
+over a split that never should have happened.
+
+**Why the HIGH exclusion existed:** atomicity guard 1 (2026-07-15, relaxed
+2026-07-19) says an individually-HIGH session "owns its story against
+foreign frames" — written for a HIGH sitting between or beside genuinely
+different content (a different host, a different tab, a departure). It was
+never reasoned through against a HIGH mid-binge on its OWN tab, bounded by
+`spa_navigation` on both sides — attention never left the tab, so there is
+no foreign frame to own the story against.
+
+**Fix — extend the machinery join to HIGH fragments, edge-gated:** a HIGH
+fragment may now merge via the continuation join when it has a machinery
+(`spa_navigation`/`navigated`) edge to a same-tab same-host neighbor.
+Scott's call on scoping: EITHER edge qualifies, not just a "sandwiched"
+mid-run HIGH with both edges machinery — checked against the actual data,
+the 7:25 video was the FIRST session on its tab (opened via a different
+tab's opener edge, no same-tab predecessor to test), so a both-edges rule
+would have left this exact specimen unfixed. The looser rule: `mergeVisits`
+now does a one-event lookahead (`events[i+1]`) to test the outgoing edge
+alongside the existing incoming-edge test; a HIGH with a qualifying edge on
+either side joins/leads the run, a HIGH with no machinery edge at all still
+stands alone exactly as before. Verified against a synthetic replay of the
+specimen's 4 fragments: all merge into one visit as expected.
+
+**Scope note:** this only widens the *merge* join (`mergeVisits`), which
+requires same-tab. The *chain* join (`detectContainers`, containers) had a
+separate, older HIGH relaxation already (2026-07-19, "own host's chain in
+its own tab tree") and was untouched — this fix doesn't change when
+something becomes a container, only when same-tab HIGH fragments get to
+merge into one visit before container-eligibility is even evaluated.
+
+**Follow-up bug — `!prev` doesn't mean "no same-tab predecessor":** the
+first landed fix used `!prev` (i.e. "the working `run[]` is currently
+empty") to detect a HIGH fragment with no incoming machinery edge to lead a
+new run. Scott reloaded the extension and re-checked live — still
+unmerged. Real cause: by the time the loop reaches almost any event, `run`
+already holds SOME leftover single event from whatever was last flushed
+(often on a completely unrelated tab/host — here, a `tab_closed` low event
+on a different tab immediately precedes the 7:25 video in the globally-
+sorted event stream). `prev` was truthy essentially always, so `!prev` was
+false and `highLeadsRun` never fired on real data — only a synthetic test
+with an empty leading `run` had exercised the true branch. Fixed by gating
+on `!machineryIn` instead (the same-tab-same-host-machinery-edge test
+already computed one line above), which correctly ignores an irrelevant
+`prev` regardless of its tab/host. Lesson: `run[run.length-1]` truthiness
+is never a safe proxy for "no same-tab predecessor exists" — it only means
+"some event, possibly unrelated, was processed last."

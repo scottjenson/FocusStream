@@ -196,6 +196,15 @@ alternatives, dated history) lives in `plans/` — see the index below.
   distribution — judgment call, watch list). Verified against live data on
   the LinkedIn specimen and an unrelated same-day Gemini cluster (spec §6;
   story in `plans/timeline_design.md`).
+- **2026-08-06:** same-tab HIGH pass-through — `mergeVisits`' continuation
+  join used to exclude every individually-HIGH fragment outright, so a HIGH
+  video mid-YouTube-binge (same tab, `spa_navigation` boundary on both
+  sides) split one continuous session into an isolated HIGH block plus a
+  separate merged visit; `detectContainers` correctly declined to re-frame
+  the split since there was no interruption to contain. A HIGH fragment now
+  merges when it has a machinery edge (in OR out) to a same-tab same-host
+  neighbor — a HIGH with no machinery edge at all still stands alone (spec
+  §6 Atomicity; story in `plans/timeline_design.md`).
 - **Deferred:** zoom, date-picker day jumping (the
   week strip is the only day picker as of 2026-07-17; ‹/› header nav removed).
 - **Watch list:** consolidated in spec §6 ("Watch list") — the single home for every

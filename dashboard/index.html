@@ -42,19 +42,30 @@
     .wday { cursor: pointer; flex: none; }
     .wday-label {
       font-size: 11px;
-      color: rgba(255,255,255,0.45);
+      color: rgba(255,255,255,0.75);
       margin-bottom: 3px;
       font-variant-numeric: tabular-nums;
     }
     .wday-sky {
       position: relative;
+      box-sizing: border-box;
       background: rgba(255,255,255,0.04);
-      border: 1px solid #2e333b;
+      border: 1px solid #3a4048;
       border-radius: 3px;
+      /* Reserves room for the selected outline (below) so bars — positioned
+         against this box's padding edge — never sit under it. Constant
+         regardless of selection, so content never shifts on select. */
+      padding: 2px;
     }
-    .wday:hover .wday-sky { border-color: #4a515c; }
-    .wday.selected .wday-sky { border-color: #7d8794; }
-    .wday.selected .wday-label { color: rgba(255,255,255,0.85); }
+    .wday:hover .wday-sky { border-color: #5a636e; }
+    /* Outline, not border: outline draws outside the box without affecting
+       layout, so the selected day's content never shifts (border-width
+       swaps were nudging the box even under box-sizing: border-box). */
+    .wday.selected .wday-sky {
+      border-color: #d0d4da;
+      outline: 3px solid #d0d4da;
+      outline-offset: -1px;
+    }
     .wbar { position: absolute; bottom: 0; background: #6f7887; }
     /* Horizontal timeline ribbon (spec §6): dark holodeck panel — no grid,
        a uniform grid would imply a uniform time scale.

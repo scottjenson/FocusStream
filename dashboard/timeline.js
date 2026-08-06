@@ -116,8 +116,9 @@
   // ribbon's tier proportions (1 / 0.8 / 0.6 of the strip height).
   const STRIP_TIER_H = { high: 30, medium: 24, low: 18 };
   const STRIP_H = STRIP_TIER_H.high;
+  const STRIP_INSET = 2; // .wday-sky's padding (index.html), reserved so bars never sit under the selected-day outline
   const STRIP_BIN_MS = 15 * 60 * 1000;
-  const STRIP_BIN_PX = 3;
+  const STRIP_BIN_PX = 2;
   const STRIP_RANK = { low: 1, medium: 2, high: 3 };
   const STRIP_BAND = [null, "low", "medium", "high"];
 
@@ -545,7 +546,8 @@
       }
       run = [];
     };
-    for (const e of events) {
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
       const prev = run[run.length - 1];
       const lowMerge =
         e.band === "low" &&
@@ -553,14 +555,39 @@
         prev.band === "low" &&
         prev.host === e.host &&
         e.startTime - prev.endTime < VISIT_GAP_MS;
-      const continuation =
-        e.band !== "high" &&
+      const machineryIn =
         prev &&
         prev.host === e.host &&
         prev.tabId != null &&
         prev.tabId === e.tabId &&
         MACHINERY_BOUNDARY.has(prev.endReason) &&
         e.startTime - prev.endTime < CONTINUATION_GAP_MS;
+      // Same-tab HIGH pass-through (2026-08-06): a HIGH fragment joined to
+      // its same-tab same-host neighbor(s) by machinery (spa_navigation/
+      // navigated) never left the tab — the boundary is page turnover, not
+      // departure, so it's exactly the continuation join's territory (spec
+      // §6). Guard 1 says a HIGH "owns its story against foreign frames",
+      // not against its own tab's continuation run: the neighbor is already
+      // the same host by construction. Either edge being machinery is
+      // enough — a HIGH mid-binge (both edges) or one that OPENS a tab and
+      // then navigates on (outgoing edge only, no predecessor to test) both
+      // qualify; a HIGH with no machinery edge at all still stands alone.
+      // The 7:25/7:41 YouTube specimen: a HIGH video opened a fresh tab
+      // (no incoming edge) and spa_navigated into a shorts binge — outgoing
+      // edge alone should have let it lead the run instead of splitting it.
+      const next = events[i + 1];
+      const machineryOut =
+        next &&
+        next.host === e.host &&
+        next.tabId != null &&
+        next.tabId === e.tabId &&
+        MACHINERY_BOUNDARY.has(e.endReason) &&
+        next.startTime - e.endTime < CONTINUATION_GAP_MS;
+      // NOTE: gate on !machineryIn, not !prev — run[] almost always holds
+      // SOME leftover event (often on an unrelated tab/host) by the time we
+      // reach here, so !prev was true so rarely it never fired on real data.
+      const highLeadsRun = e.band === "high" && !machineryIn && machineryOut;
+      const continuation = machineryIn && (e.band !== "high" || machineryOut);
       const succession =
         e.band !== "high" &&
         prev &&
@@ -571,7 +598,7 @@
         e.startTime - prev.endTime < CONTINUATION_GAP_MS;
       if (lowMerge || continuation || succession) {
         run.push(e);
-      } else if (e.band !== "high") {
+      } else if (e.band !== "high" || highLeadsRun) {
         flush();
         run.push(e);
       } else {
@@ -1334,7 +1361,7 @@
   // ribbon instead of lower (the old raw-band divergence, resolved).
   // All cells share one hour-aligned window, so hours align VERTICALLY
   // across days — the cross-day comparison the two-scale ribbon can't give.
-  function renderWeekStrip(dayThreads) {
+  function renderWeekStrip(dayThreads, coloredHosts) {
     const strip = document.getElementById("week-strip");
     strip.replaceChildren();
     const all = [...dayThreads.values()].flat();
@@ -1372,10 +1399,11 @@
         d.toLocaleDateString([], { month: "short" });
       const sky = document.createElement("div");
       sky.className = "wday-sky";
-      sky.style.width = bins * STRIP_BIN_PX + "px";
-      sky.style.height = STRIP_H + "px";
+      sky.style.width = bins * STRIP_BIN_PX + STRIP_INSET * 2 + "px";
+      sky.style.height = STRIP_H + STRIP_INSET * 2 + "px";
 
       const tiers = new Array(bins).fill(0);
+      const hostAt = new Array(bins).fill(null);
       for (const t of dayThreads.get(day) || []) {
         const rank = STRIP_RANK[t.band];
         const from = Math.max(
@@ -1386,13 +1414,23 @@
           bins - 1,
           Math.floor((t.endTime - day - minOff - 1) / STRIP_BIN_MS)
         );
-        for (let i = from; i <= to; i++) tiers[i] = Math.max(tiers[i], rank);
+        for (let i = from; i <= to; i++) {
+          // Strict >, matching the prior Math.max tie-break: the first
+          // thread to claim a bin's rank keeps it (and its host/color).
+          if (rank > tiers[i]) {
+            tiers[i] = rank;
+            hostAt[i] = t.host;
+          }
+        }
       }
       // Run-length bars, edges snapped like blocks (round the right edge,
-      // not the width, so snapped neighbors stay adjacent).
+      // not the width, so snapped neighbors stay adjacent). Runs also break
+      // on host change so a color handoff always starts a new bar (spec §6,
+      // 2026-08-03): the strip borrows the ribbon's own fill rule — gray for
+      // unanchored hosts, full hue at HIGH, dimmed mix at MEDIUM/LOW.
       for (let i = 0; i < bins; ) {
         let j = i + 1;
-        while (j < bins && tiers[j] === tiers[i]) j++;
+        while (j < bins && tiers[j] === tiers[i] && hostAt[j] === hostAt[i]) j++;
         if (tiers[i]) {
           const bar = document.createElement("div");
           bar.className = "wbar";
@@ -1400,6 +1438,13 @@
           bar.style.left = x + "px";
           bar.style.width = Math.round(j * STRIP_BIN_PX) - x + "px";
           bar.style.height = STRIP_TIER_H[STRIP_BAND[tiers[i]]] + "px";
+          const host = hostAt[i];
+          bar.style.background =
+            host && coloredHosts.has(host)
+              ? tiers[i] === STRIP_RANK.high
+                ? colorOf(host)
+                : `color-mix(in srgb, ${colorOf(host)} ${MEDIUM_MIX_PCT}%, ${PAGE_BG})`
+              : "";
           sky.appendChild(bar);
         }
         i = j;
@@ -1561,12 +1606,12 @@
     // transit/container logs stay tied to the day on screen).
     const dayThreads = threadsByDay(sessions);
     const hostNames = computeHostNames(sessions);
-    renderWeekStrip(dayThreads);
     // Anchored hosts are judged over the WHOLE stored week (thread-level
     // HIGH — spec §6, 2026-07-18), then claim/release registry slots
     // before painting.
     const coloredHosts = anchoredHostsFrom(dayThreads);
     claimColors(coloredHosts);
+    renderWeekStrip(dayThreads, coloredHosts);
     const events = assembleThreads(parseSessions(sessions));
     const items = clusterEvents(events);
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
