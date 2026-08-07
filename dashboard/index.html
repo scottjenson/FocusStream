@@ -19,12 +19,61 @@
       background: #1a1d22;
       position: sticky;
       top: 0;
+      /* Own stacking context sits above #week-strip in paint order; without
+         this the search dropdown's z-index only wins within header's own
+         context and week-strip's cells (later in document order) paint over
+         it (2026-08-06). */
+      z-index: 5;
     }
     /* Title left; session count + debug buttons cluster right (the week
        strip below is the only day picker — spec §6, 2026-07-17). */
     h1 { font-size: 16px; margin: 0; flex: 1; }
     header .note { color: #888; font-size: 12px; }
     button { font-size: 12px; }
+    /* Search (2026-08-06): title/url substring search over the full stored
+       week, independent of day paging and the ribbon — a "find and go"
+       tool, not a ribbon filter (see plans/ for the rejected ribbon-highlight
+       alternatives). Dropdown is positioned relative to this wrapper. */
+    #search-wrap { position: relative; }
+    #search {
+      font-size: 12px;
+      padding: 4px 8px;
+      width: 220px;
+      background: #14161a;
+      border: 1px solid #3a4048;
+      border-radius: 3px;
+      color: #d8dce2;
+    }
+    #search:focus { outline: none; border-color: #5a636e; }
+    #search-results {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      width: 360px;
+      max-height: 320px;
+      overflow-y: auto;
+      background: #1e2126;
+      border: 1px solid #454b55;
+      border-radius: 4px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+      z-index: 20;
+    }
+    .sr-row {
+      display: block;
+      padding: 6px 10px;
+      cursor: pointer;
+      color: #d8dce2;
+      text-decoration: none;
+    }
+    .sr-row:hover, .sr-row.active { background: rgba(255,255,255,0.08); }
+    .sr-title {
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sr-meta { font-size: 11px; color: #9aa1ab; margin-top: 1px; }
+    .sr-empty { padding: 8px 10px; font-size: 12px; color: #878d97; }
     /* Week strip (spec §6, 2026-07-17): one skyline cell per stored day —
        the ribbon's importance contour on linear time. Height is the only
        encoding: single neutral color, no per-host hue at this size. Click
@@ -200,6 +249,10 @@
 <body>
   <header>
     <h1>FocusStream</h1>
+    <div id="search-wrap">
+      <input id="search" type="text" placeholder="Search title or URL…" autocomplete="off">
+      <div id="search-results" hidden></div>
+    </div>
     <span class="note" id="count">loading…</span>
     <button id="scores">Score table</button>
     <button id="refresh">Refresh</button>

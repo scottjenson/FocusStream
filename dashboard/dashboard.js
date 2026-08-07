@@ -23,6 +23,108 @@ async function render() {
 
 document.getElementById("refresh").addEventListener("click", render);
 
+// Search (2026-08-06): plain case-insensitive substring match over title +
+// url/host, across every stored session regardless of day — a "find and go"
+// tool, independent of the ribbon's single-day view and thread-assembly
+// (results are raw sessions, not display atoms; see plans/ for the
+// ribbon-highlight alternatives this rejected). Multi-word queries require
+// every word present (AND), each word matched against title OR url.
+{
+  const input = document.getElementById("search");
+  const resultsEl = document.getElementById("search-results");
+
+  function matches(session, words) {
+    const hay = `${session.title || ""} ${session.url || ""}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  }
+
+  // Groups by exact URL. Within a group, sessions sharing one title collapse
+  // to their most recent visit (same page, revisited — the count doesn't
+  // matter for "find that doc"); sessions with distinct titles at the same
+  // URL (e.g. different Gmail threads under one base URL) each surface as
+  // their own row, since the title is the only disambiguator we have today.
+  // Everything sorted newest-first.
+  function groupResults(sessionList) {
+    const byUrl = new Map();
+    for (const s of sessionList) {
+      if (!byUrl.has(s.url)) byUrl.set(s.url, new Map());
+      const byTitle = byUrl.get(s.url);
+      const t = s.title || s.url;
+      const prev = byTitle.get(t);
+      if (!prev || s.endTime > prev.endTime) byTitle.set(t, s);
+    }
+    const rows = [];
+    for (const byTitle of byUrl.values()) rows.push(...byTitle.values());
+    rows.sort((a, b) => b.endTime - a.endTime);
+    return rows;
+  }
+
+  function relTime(ms) {
+    const mins = Math.round((Date.now() - ms) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.round(hrs / 24);
+    return `${days}d ago`;
+  }
+
+  function renderResults(rows) {
+    resultsEl.innerHTML = "";
+    if (rows.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "sr-empty";
+      empty.textContent = "No matches";
+      resultsEl.appendChild(empty);
+    } else {
+      const S = window.FS_SCORING;
+      for (const s of rows.slice(0, 20)) {
+        const a = document.createElement("a");
+        a.className = "sr-row";
+        a.href = s.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        const title = document.createElement("div");
+        title.className = "sr-title";
+        title.textContent = s.title || s.url;
+        const meta = document.createElement("div");
+        meta.className = "sr-meta";
+        meta.textContent = `${S.hostOf(s)} — ${relTime(s.endTime)}`;
+        a.appendChild(title);
+        a.appendChild(meta);
+        resultsEl.appendChild(a);
+      }
+    }
+    resultsEl.hidden = false;
+  }
+
+  async function runSearch() {
+    const q = input.value.trim().toLowerCase();
+    if (!q) {
+      resultsEl.hidden = true;
+      return;
+    }
+    const words = q.split(/\s+/);
+    const { sessions = [] } = await chrome.storage.local.get("sessions");
+    const matched = sessions.filter((s) => matches(s, words));
+    renderResults(groupResults(matched));
+  }
+
+  input.addEventListener("input", runSearch);
+  input.addEventListener("focus", () => {
+    if (input.value.trim()) runSearch();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      resultsEl.hidden = true;
+      input.blur();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#search-wrap")) resultsEl.hidden = true;
+  });
+}
+
 // Score table: every stored session scored with the live §6 formula
 // (window.FS_SCORING — same functions the timeline renders with), sorted by
 // score. Logged as console.table AND copied to the clipboard as TSV, so it
