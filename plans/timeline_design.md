@@ -3,7 +3,8 @@
 The spec (`SPEC.md` §5–§6) holds the **current rules**; this file
 holds the dated decisions, the evidence that forced them, and the alternatives
 that lost — moved out of CLAUDE.md 2026-07-15 to keep it lean. The live
-watch-list is consolidated in spec §6 ("Watch list").
+watch-list was consolidated in spec §6 ("Watch list") from 2026-07-15 until
+2026-08-07, when it was extracted to `WATCHLIST.md` (spec §6 is rules only).
 
 ## Score & tiers
 - Score v1 (spec §6): `attendedSeconds = max(heartbeats×10, audibleSeconds)` +

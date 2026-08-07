@@ -315,7 +315,12 @@ Things this review specifically checked for conflicts and found none:
    Group by evidence-kind, name which are coincidentally-equal vs.
    load-bearing-equal, consider splitting `VISIT_GAP_MS`'s two display jobs.
 4. **Split the watch list into Open vs. Resolved/Known-limitations
-   (Finding 5).** Pure filing, no content risk.
+   (Finding 5).** Pure filing, no content risk. **Superseded 2026-08-07:**
+   the watch list was extracted wholesale to `WATCHLIST.md` instead (spec §6
+   had grown to ~2,250 words, hurting the spec's job of describing current
+   rules for a coding agent) — a bigger move than this finding proposed, and
+   one that still leaves the open/resolved/known-limitation distinction
+   unaddressed inside the new file.
 5. **Reframe the google.com label split as an instance of a general
    identity-vs-label pattern (Finding 4).** Docs-only, no behavior change.
 6. **Name the two-pass container chaining as a watch item for a

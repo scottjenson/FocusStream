@@ -6,15 +6,19 @@ chronological, activity-weighted "Lifestreams" timeline.
 **The full specification lives in `SPEC.md` — read it before implementing
 anything.** This file is orientation only; the spec is the source of truth for rules,
 data structures, and edge cases. The *reasoning* behind each rule (evidence, rejected
-alternatives, dated history) lives in `plans/` — see the index below.
+alternatives, dated history) lives in `plans/` — see the index below. Open concerns
+about those rules (trade-offs, provisional thresholds, unresolved edge cases) live in
+`WATCHLIST.md`, not the spec.
 
 ## Workflow
 - **Spec changes are proposed and approved BEFORE code changes.** Never backfill.
 - Never `git commit`/`git push` without explicit approval.
 - **Docs discipline (2026-07-17; extended to Status + CLAUDE.md/SPEC.md line
-  2026-08-07):** the spec holds RULES ONLY — a new decision lands there as
-  2–4 sentences + a date tag; the full story (evidence, rejected alternatives,
-  history) goes in the matching `plans/` log. Never write the story in both
+  2026-08-07; extended to the SPEC.md/WATCHLIST.md split same day):** the
+  spec holds RULES ONLY — a new decision lands there as 2–4 sentences + a
+  date tag; the full story (evidence, rejected alternatives, history) goes in
+  the matching `plans/` log; open doubts about a rule (not the rule itself)
+  go in `WATCHLIST.md`. Never write the same content in two of these three
   places. **The same bar applies to this file's own Status section**: one
   line per dated entry — headline + spec section + plans/ file — never
   mechanism, specimens, or rejected alternatives (Status drifted into
@@ -102,8 +106,8 @@ per dated entry: what shipped, when, where to read the rule and the reasoning.
   back-to-back Meet calls no longer fuse into one container) — spec §6;
   `plans/timeline_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
-- **Watch list:** spec §6 ("Watch list") — the single home for every
-  "watch with data" item.
+- **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
+  single home for every "watch with data" item; SPEC.md holds rules only.
 - Old-schema data (pre-`heartbeats`) scores attended-time 0 — clear stored data when
   validating.
 

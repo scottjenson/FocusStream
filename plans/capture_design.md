@@ -566,5 +566,5 @@ then the finalize deletion becomes the *only* thing standing between
 Explicitly not solved now: fixing it would mean designing a way to tell
 "declined to engage" apart from "read and moved on" from signal-free
 sessions, which is a harder problem than this stage-1 prototype is
-trying to answer. Recorded on the SPEC §6 watch list so it survives
-past this conversation.
+trying to answer. Recorded on the watch list (`WATCHLIST.md`, was SPEC §6
+until the 2026-08-07 extraction) so it survives past this conversation.
