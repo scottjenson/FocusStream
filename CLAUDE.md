@@ -98,6 +98,9 @@ per dated entry: what shipped, when, where to read the rule and the reasoning.
   Atomicity; `plans/timeline_design.md`.
 - **2026-08-07:** page-text search capture, stage 1 (vendored Readability.js,
   intent-gated, plain text, not yet privacy-hardened) — `plans/capture_design.md`.
+- **2026-08-07:** earned-HIGH atomicity in adjacent-container chaining (two
+  back-to-back Meet calls no longer fuse into one container) — spec §6;
+  `plans/timeline_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** spec §6 ("Watch list") — the single home for every
   "watch with data" item.

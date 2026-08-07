@@ -1675,3 +1675,83 @@ candidates discussed: the dominant fragment's own cleaned title (reuses
 raw signal actually earned it (from `e.activity`: attended time vs.
 copy/cut/paste vs. download vs. keyboard). Both stay activity-derived —
 neither reaches social context. Paused pending the correlation check.
+
+## Earned-HIGH atomicity in adjacent-container chaining (2026-08-07)
+
+**The specimen:** Scott's real Aug 7 morning had two separate Google Meet
+calls — 9:01am "Shannon / Scott" (room `ivf-kofx-bpo`) and ~10:00am "Idea
+Exchange" (room `vkf-efqg-tpx`) — that the timeline fused into one container.
+Diagnosed from the Score table clipboard export: two different Meet room
+URLs, two different tabIds, same opener tab (a calendar tab, presumably),
+gap between them ≈ 25 min. Both containers were independently earned-HIGH —
+each one's anchor fragment individually scored ≥ `HIGH_SCORE` (3040 and 1370
+raw), not accumulated via revisits. `CONTAINER_CHAIN_GAP_MS` (10 min,
+adjacent-container chaining) bridged the ~25-min gap between them because
+the pass-two chain key is still just `(treeId, host)` — same tree (shared
+opener), same host (`meet.google.com`), and the pass's only qualification
+gate (summed score ≥ MEDIUM, ≥1 interruption, dominance below HIGH) has no
+concept of what kind of thing it's bridging. This is exactly the
+"gap-tolerant merging destroys meaningful interruptions" failure the design
+philosophy rejects everywhere else in the project — a personal, load-bearing
+specimen (Scott caught it live), not a synthetic one.
+
+**Alternatives explored and rejected:**
+- *URL-keyed chain identity, universally* — would fragment Gmail/LinkedIn/
+  Gemini sessions, which legitimately vary URL within one ongoing activity
+  (a different email, a different feed position) while still being one
+  session by any reasonable read. Confirmed against the clipboard data:
+  these hosts have many distinct URLs chaining together correctly today.
+- *URL-keyed chain identity, via a named per-host allowlist* (the same
+  shape as `LABEL_SPLIT_HOSTS`/`labelKeyOf`, the google.com Search-vs-Maps
+  label split) — narrower, host-scoped, wouldn't touch Gmail/LinkedIn. Got
+  as far as a full plan draft before Scott pushed back: it's a maintained
+  list (`meet.google.com`, then `app.zoom.us`/`us06web.zoom.us` on
+  expectation, then whatever the next video-call tool turns out to be) —
+  every new host is a fresh patch, not a fix, and it never explains *why*
+  video-call URLs are different, just which ones happen to be on the list.
+- *A live URL-churn-ratio threshold* — Scott's own initial framing: Meet/
+  Zoom sessions have far fewer distinct URLs than Gmail/LinkedIn/Gemini
+  within a chaining window, so churn itself could gate the bridge. Checked
+  against a week of clipboard data (`sessions` vs. `distinct URL count` per
+  host): the intuition is directionally real (Meet: 20 sessions/5 distinct
+  URLs; `app.zoom.us`: 12/2) but not usable as a live signal — several
+  unrelated hosts (`keep.google.com`, `nytimes.com`) hit the same low
+  distinct-URL count purely by small-sample accident, and it would add
+  another tunable to a spec that already tracks "threshold sprawl" as a
+  known problem (see the threshold-consolidation entry, 2026-08-07).
+
+**The reframe that stuck:** rather than asking "does this URL/host look
+like a room," ask what's actually different about the *containers* being
+bridged. Both Meet containers were independently earned-HIGH — the
+already-shipped "earned vs. accumulated HIGH" distinction (above,
+2026-08-06) turned out to be exactly the missing signal, host-agnostic by
+construction. An earned-HIGH container is a resolved, standalone event;
+pass two exists to credit *unfinished* business resuming (the LinkedIn
+out-and-back pattern), and bridging two resolved events doesn't complete a
+story, it erases the boundary between two stories. This mirrors the
+raw-fragment Atomicity guard's own principle ("containment is a demotion
+and must be earned by evidence, never inferred from time-overlap") — pass
+two simply never had an equivalent guard over its own bridging.
+
+**Why "either side," not "both sides":** the first cut of the guard only
+blocked a bridge when BOTH neighbors were independently earned-HIGH — the
+safest, most conservative reading, and the literal shape of the specimen.
+Scott pushed on this directly: if the reasoning is "an earned-HIGH
+container is a resolved standalone event that pass two shouldn't dissolve,"
+that reasoning doesn't depend on what's on the *other* side of the gap — a
+HIGH-earned container quietly absorbed into a following, lesser check-in
+has the same problem, just asymmetric. The guard tests `hasEarnedHigh` on
+EITHER neighbor; either one being earned-HIGH blocks the bridge.
+
+**Implementation:** `detectContainers`'s `bridged` test
+(`dashboard/timeline.js`) gains an `earnedHighAtomic` check, gated on
+`chainGapMs === CONTAINER_CHAIN_GAP_MS` (pass two only — pass one's raw
+fragments haven't been individually qualified as containers yet, so
+`hasEarnedHigh` isn't the right test there) — reuses the existing
+`hasEarnedHigh` helper with no new state or storage. Zero host list, zero
+new threshold. Only one supporting specimen exists in the week of data
+reviewed (no other same-host/same-tree pair of independently-HIGH events
+appears at all), but Scott expects more once back-to-back meetings resume
+next week (the review window was a lighter vacation week) — treated as a
+general pattern that happened to be under-observed here, not a one-off
+patch scoped to Meet.

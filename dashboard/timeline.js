@@ -706,11 +706,28 @@
         // Replaces the audible-dominated bookend proxy, which the fused
         // YouTube binge defeated (plans). Old sessions lack the stamp and
         // never long-bridge — fails closed.
+        // Earned-HIGH atomicity in pass two (spec §6, 2026-08-07): an
+        // already-assembled container that earned HIGH from one
+        // individually-HIGH member (a real, concentrated moment — not
+        // summed via revisits) is a resolved, standalone event. Pass two
+        // exists to credit returning to UNFINISHED business (the LinkedIn
+        // out-and-back pattern); bridging two resolved events doesn't
+        // complete a story, it erases the boundary between two stories
+        // (two same-tree back-to-back Meet calls specimen). Applies to
+        // EITHER side, not just when both are earned-HIGH — the same
+        // dilution happens if a lesser neighbor absorbs an earned-HIGH one.
+        // Pass-two only: raw fragments in pass one haven't been
+        // individually qualified as containers yet, so hasEarnedHigh isn't
+        // the right test there (existing raw-fragment Atomicity covers it).
+        const earnedHighAtomic =
+          chainGapMs === CONTAINER_CHAIN_GAP_MS &&
+          (hasEarnedHigh(last) || hasEarnedHigh(e));
         const bridged =
-          gap < chainGapMs ||
-          (gap < AUDIO_BOOKEND_GAP_MS &&
-            e.audibleSinceTs != null &&
-            e.audibleSinceTs <= last.endTime);
+          !earnedHighAtomic &&
+          (gap < chainGapMs ||
+            (gap < AUDIO_BOOKEND_GAP_MS &&
+              e.audibleSinceTs != null &&
+              e.audibleSinceTs <= last.endTime));
         if (bridged) {
           frags.push(e);
           continue;
