@@ -28,13 +28,15 @@ document.getElementById("refresh").addEventListener("click", render);
 // tool, independent of the ribbon's single-day view and thread-assembly
 // (results are raw sessions, not display atoms; see plans/ for the
 // ribbon-highlight alternatives this rejected). Multi-word queries require
-// every word present (AND), each word matched against title OR url.
+// every word present (AND), each word matched against title OR url OR
+// pageText (stage-1 Readability extraction, 2026-08-07 — plain text, search
+// only, never shown in the results row; see plans/).
 {
   const input = document.getElementById("search");
   const resultsEl = document.getElementById("search-results");
 
   function matches(session, words) {
-    const hay = `${session.title || ""} ${session.url || ""}`.toLowerCase();
+    const hay = `${session.title || ""} ${session.url || ""} ${session.pageText || ""}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   }
 

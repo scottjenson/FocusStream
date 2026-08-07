@@ -196,6 +196,13 @@ async function finalizeCurrent(endReason) {
     log("transit session, snapshot deleted", session.url);
   }
   delete session.snapped; // live-session bookkeeping; snap:<id> existence is the record
+  // Page text (stage 1, 2026-08-07): stored inline on the session (unlike
+  // snapshots, no separate key/tooltip-avoidance reason to segregate it), so
+  // a transit-rejected session just drops the field before it's ever stored.
+  if (session.pageText && FS_TRANSIT.isTransit(session)) {
+    delete session.pageText;
+    log("transit session, page text discarded", session.url);
+  }
   // Blip filter (spec §3): transition machinery — nothing measured, too
   // short to be user activity. Log it, never store it.
   if (
@@ -326,7 +333,7 @@ async function injectIntoExistingTabs() {
       // subframes self-gate on origin, so blanket injection is safe.
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
-        files: ["content.js"],
+        files: ["vendor/Readability.js", "content.js"],
       });
       injected++;
     } catch (e) {
@@ -609,6 +616,10 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // Terminal-keystroke evidence (spec §3): only flush-on-hidden carries it,
     // and the flush is the session's last word — stamp, don't judge.
     if (typeof msg.lastKeyGapMs === "number") current.lastKeyGapMs = msg.lastKeyGapMs;
+    // Page text (stage 1, 2026-08-07): content.js extracts at most once per
+    // page life, so first-write-wins is enough — no separate one-shot flag
+    // needed here (contrast `snapped`, which gates an action, not a value).
+    if (typeof msg.pageText === "string" && !current.pageText) current.pageText = msg.pageText;
     // Titles/favicons arrive late on many pages (see spec Edge Case 5) —
     // refresh them on every heartbeat, keeping the last non-empty value.
     if (sender.tab.title) current.title = sender.tab.title;
@@ -629,7 +640,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type !== "snapshot-cue") return;
   enqueue("snapshot-cue", async () => {
     const current = await getCurrent();
-    if (!current || sender.tab?.id !== current.tabId || current.snapped) return;
+    if (!current || sender.tab?.id !== current.tabId) return;
+    if (typeof msg.pageText === "string" && !current.pageText) current.pageText = msg.pageText;
+    if (current.snapped) {
+      await setCurrent(current);
+      return;
+    }
     current.snapped = true;
     await setCurrent(current);
     await captureSnapshot(current.id, sender.tab.windowId);

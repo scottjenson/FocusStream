@@ -489,3 +489,82 @@ neither is present.
 with no in-tab click (a direct link straight to a file, no landing page
 — the content script may not have attached listeners yet) still won't
 be caught. Narrower than Scott's email example; out of scope for now.
+
+## Page-text search capture (stage 1, 2026-08-07)
+
+Prototype to judge whether title/url search is too weak to be useful —
+extract page text with Mozilla's Readability.js (vendored unmodified,
+`vendor/Readability.js`) and search over it too, before investing in any
+privacy hardening. Deliberately naive: full plain text, capped at 5000
+chars, stored inline on the session as `pageText`, no domain allowlist/
+blocklist, no redaction. Search-only — never displayed in the dashboard's
+results row.
+
+**Where it runs:** content.js, against `document.cloneNode(true)` — the
+library's own docs say `parse()` mutates whatever DOM it's given, so a
+clone is required or the live page would visibly change under the user
+mid-visit (elements disappearing, layout shifting). Confirmed by reading
+the library source before implementing, not assumed.
+
+**When it runs:** riding the exact same one-shot trigger as snapshots
+(first qualifying interval heartbeat or keyboard/cut/copy/paste cue),
+rather than a new message or timer — the outgoing heartbeat/cue message
+just gains an optional `pageText` field. Excluded on `flush-on-hidden`,
+matching the snapshot's exclusion (the tab isn't "on glass" by then).
+Lifecycle mirrors snapshots at finalize too: a transit-rejected session
+has `pageText` deleted, same as `snap:<id>`; ages out with the normal
+7-day retention automatically since it's inline (no separate key, no
+orphan-sweep needed — unlike snapshots).
+
+**Bug found and fixed the same day — SPA navigation:** the one-shot
+guard (`textExtracted`) was a closure boolean scoped to the content
+script's *injection* lifetime. On an SPA like Gmail, one injection spans
+many FocusStream sessions (each email-open is its own session via
+`SPA_DEBOUNCE_MS`), but the flag never reset — so only the very first
+Gmail page landed on (the inbox) ever got extracted; every email opened
+after that in the same tab was silently skipped. A week of testing
+initially looked like Readability just didn't work on Gmail; the
+Score-table-style storage query (`chrome.storage.local.get("sessions")`
+filtered to the host, `pageText` length per row) showed the real
+pattern — one row with real text, every subsequent row zero-length, even
+rows whose titles named specific opened emails. Root cause confirmed by
+running `new Readability(document.cloneNode(true)).parse()` directly in
+the content-script's own DevTools console context (not the page's `top`
+context, where the content-script's globals aren't visible at all) — it
+returned real text on demand, proving the library worked and the bug was
+purely in *when* extraction ran. Fixed by tracking `location.href` and
+resetting the one-shot flag on change, checked lazily inside
+`extractPageText()` — SPA navigation is exactly the case
+`SPA_DEBOUNCE_MS` already treats as "a new page," so the same signal
+re-arms extraction. Screenshots never had this bug: `snapped` lives on
+the *session object* in `chrome.storage.session`, which `startSession`
+resets fresh per session — not on a content-script-lifetime closure.
+
+**Container implication (2026-08-07):** confirmed by design, not by new
+code — a container's tooltip already flattens to its member sessions
+(`dedupedPagesOf`, dashboard/timeline.js), each a fully independent
+stored session with its own `pageText`. Containers are a display-time
+aggregation over already-captured, already-finalized sessions; text
+capture happens per-session before any container logic runs. So once
+the SPA-navigation fix landed, every member email opened inside a Gmail
+container view gets its own independent extraction attempt — no
+container-aware capture logic needed.
+
+**Open tension, deliberately held (2026-08-07):** the input-cue/heartbeat
+trigger measures *intent/engagement*, not *reading*. A short but
+important email — read for a few seconds, no keyboard/copy, dies before
+the first 10s interval heartbeat — generates no signals and is never
+extracted, same blind spot screenshots already have. This is currently
+*safe by construction*: the extraction trigger is a subset of the
+transit filter's own admission bar, so nothing captured can be a session
+transit later rejects, which makes the finalize-time `pageText` deletion
+a redundant backstop today, not load-bearing. The risk is specifically
+what happens if a future iteration widens the trigger to catch short
+reads (a dwell-only or reading-cue signal, weaker than today's bar) —
+then the finalize deletion becomes the *only* thing standing between
+"searchable" and "the dashboard shows this session never happened."
+Explicitly not solved now: fixing it would mean designing a way to tell
+"declined to engage" apart from "read and moved on" from signal-free
+sessions, which is a harder problem than this stage-1 prototype is
+trying to answer. Recorded on the SPEC §6 watch list so it survives
+past this conversation.

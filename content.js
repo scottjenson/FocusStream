@@ -141,12 +141,55 @@
   // per heartbeat window (re-armed on each send, so a fresh session on
   // this same page — SPA nav, idle split — can cue again); the background
   // dedupes with the session's `snapped` flag.
+  // Page text (stage 1, 2026-08-07 — search prototype, plain text, no
+  // privacy hardening yet; see plans/). Extracted at most once per session,
+  // on the same trigger as the snapshot (first qualifying heartbeat/cue) so
+  // it rides along on a message we're already sending — no extra round
+  // trip. Runs Readability against a CLONE of the document (the library
+  // mutates whatever it's given — see vendor/Readability.js) so the live
+  // page is never touched. Top frame only: no cross-frame stitching yet.
+  // Gmail-shaped bug fixed 2026-08-07: this content-script instance persists
+  // across SPA navigations (Gmail inbox -> email is one page, one injected
+  // copy), but each nav is its own FocusStream session (background.js's
+  // SPA-debounce split). A closure flag alone stayed true forever after the
+  // first extraction, silently skipping every email opened after the first.
+  // Tracking last-seen location.href and resetting on change re-arms
+  // extraction per navigation, checked at the same 10s cadence as
+  // checkMedia() — no new listener needed.
+  const PAGE_TEXT_CAP = 5000;
+  let textExtracted = false;
+  let lastTextUrl = location.href;
+  function extractPageText() {
+    if (location.href !== lastTextUrl) {
+      lastTextUrl = location.href;
+      textExtracted = false;
+    }
+    if (textExtracted) return undefined;
+    textExtracted = true;
+    try {
+      const clone = document.cloneNode(true);
+      const article = new Readability(clone).parse();
+      const text = article?.textContent?.trim();
+      if (!text) {
+        log("readability found no article content on", location.href);
+        return undefined;
+      }
+      return text.slice(0, PAGE_TEXT_CAP);
+    } catch (e) {
+      log("readability extraction failed:", e.message);
+      return undefined;
+    }
+  }
+
   let snapshotCued = false;
   function cueSnapshot() {
     if (snapshotCued || document.visibilityState !== "visible") return;
     snapshotCued = true;
     try {
-      chrome.runtime.sendMessage({ type: "snapshot-cue" }).then(
+      const pageText = extractPageText();
+      const message = { type: "snapshot-cue" };
+      if (pageText) message.pageText = pageText;
+      chrome.runtime.sendMessage(message).then(
         () => log("snapshot cue sent"),
         (e) => log("snapshot cue failed:", e.message)
       );
@@ -265,6 +308,13 @@
     };
     if (why === "flush-on-hidden" && lastKeyTs) {
       message.lastKeyGapMs = Date.now() - lastKeyTs;
+    }
+    // Same exclusion as the snapshot (spec §6): flush-on-hidden fires after
+    // the tab is already backgrounded, so it's not "on glass" — extract only
+    // on the interval beat, mirroring background.js's snapshot condition.
+    if (why === "interval") {
+      const pageText = extractPageText();
+      if (pageText) message.pageText = pageText;
     }
     try {
       chrome.runtime.sendMessage(message).then(
