@@ -192,29 +192,15 @@
       height: 16px;
       pointer-events: none;
     }
-    .plate { position: absolute; cursor: pointer; }
+    /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
+       expands, so this is purely a mouseenter target now — no click, no
+       :active state to imply. */
+    .plate { position: absolute; cursor: default; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
        a whisper of background so the hover feels acknowledged. */
     .gap { position: absolute; }
     .gap:hover { background: rgba(255,255,255,0.04); }
-    /* Collapse target: a 16px invisible hit zone; the 4px visual bar is
-       drawn by ::after, sitting BAR_GAP below the band. */
-    .xbar {
-      position: absolute;
-      height: 16px;
-      cursor: pointer;
-    }
-    .xbar::after {
-      content: "";
-      position: absolute;
-      left: 0; right: 0;
-      top: 4px;
-      height: 4px;
-      background: rgba(255,255,255,0.45);
-      border-radius: 2px;
-    }
-    .xbar:hover::after { background: rgba(255,255,255,0.75); }
     .tick { position: absolute; width: 1px; background: #fff; }
     .hlabel {
       position: absolute;

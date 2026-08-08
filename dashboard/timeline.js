@@ -105,12 +105,12 @@
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
-  // Bottom-flush; top edge = importance contour. LOW now matches MEDIUM and
-  // HIGH (spec §6, 2026-08-07 second pass) — HIGH is the only visually
-  // distinct tier; MEDIUM and LOW are indistinguishable (same height, same
-  // fill/border) while the underlying score/band keeps being computed
-  // (transitional — scoring work is unfinished).
-  const TIER_H = { high: 144, medium: 144, low: 144 };
+  // Bottom-flush; top edge = importance contour. MEDIUM/LOW dropped to 75%
+  // of HIGH's height (2026-08-08) — the uniform-height pass (2026-08-07
+  // second pass) made adjacent events run together with only fill/border to
+  // separate them; a height step gives HIGH a second, stronger signal.
+  // MEDIUM and LOW still share one height (fill/border is what splits them).
+  const TIER_H = { high: 144, medium: 108, low: 108 };
   // Contained children render at one uniform height regardless of band
   // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
   // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
@@ -140,7 +140,22 @@
   // watch list.
   // Currently equals AUDIO_BOOKEND_GAP_MS above by coincidence, not by
   // reference (rules audit, 2026-08-06) — see that constant's comment.
-  const FENCE_BRIDGE_GAP_MS = 30 * 60 * 1000;
+  const FENCE_BRIDGE_GAP_MS = 30 * 60 * 1000; // away-plate hover threshold only (below) — untouched by lock evidence
+  // Two independent mechanisms decide whether a LOW run bridges a gap (spec
+  // §6, 2026-08-08) — not one threshold with a lock-aware exception:
+  // (1) a recorded OS-lock interval (background.js, chrome.idle) inside the
+  // gap is a CONFIRMED break — unconditional split, no duration floor; even
+  // a lock lasting under a minute ends the run. Checked first, short-
+  // circuits the duration question entirely.
+  // (2) absent any lock evidence, the gap is an IMPLIED break — ambiguous
+  // in cause (lunch vs. heads-down in another app; both invisible to this
+  // extension) but foldable regardless of which, since neither is real
+  // intent on THIS browser. FENCE_IMPLIED_BREAK_MS is deliberately looser
+  // than the pre-lock FENCE_BRIDGE_GAP_MS (30min) precisely because it no
+  // longer has to double as a proxy for "did they really leave" — that
+  // question now has a real answer via (1) when one exists. Provisional (no
+  // data yet to tune against — WATCHLIST.md).
+  const FENCE_IMPLIED_BREAK_MS = 60 * 60 * 1000;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   const TITLE_AREA = 170; // space above the band for rotated run titles
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
@@ -938,11 +953,17 @@
     return out;
   }
 
+  // True if [from, to) fully contains at least one recorded OS-lock interval
+  // (spec §3/§6, 2026-08-08) — confirmed departure, not a wall-clock guess.
+  function gapIsLockBounded(from, to, lockIntervals) {
+    return lockIntervals.some((iv) => iv.start >= from && iv.end <= to);
+  }
+
   // Runs of MIN_RUN+ consecutive LOW events fence; everything else lays out
   // as a plain block. MIN_RUN=1: even a singleton LOW collapses to a stick
   // (spec §6, 2026-07-16 — opinionated demoting; hover + expand keep it
   // findable). The run machinery is kept as-is so the revert is one constant.
-  function clusterEvents(events) {
+  function clusterEvents(events, lockIntervals = []) {
     const items = [];
     let run = [];
     const flush = () => {
@@ -956,8 +977,15 @@
         // scattered grazing stretch is one expand target. Bridged gaps that
         // are still wide enough to hover keep their away plate on top of the
         // fence plate, so nothing is stolen — only leaving ends the run.
+        // Two independent split checks (2026-08-08), lock checked first: a
+        // recorded lock interval is an unconditional, duration-free split —
+        // even a short lock ends the run. Only absent lock evidence does the
+        // gap fall back to the ordinary IMPLIED_BREAK duration bar.
         const prev = run[run.length - 1];
-        if (prev && event.startTime - prev.endTime >= FENCE_BRIDGE_GAP_MS) flush();
+        if (prev) {
+          const locked = gapIsLockBounded(prev.endTime, event.startTime, lockIntervals);
+          if (locked || event.startTime - prev.endTime >= FENCE_IMPLIED_BREAK_MS) flush();
+        }
         run.push(event);
       } else {
         flush();
@@ -974,7 +1002,7 @@
     return d.getMinutes() * 60000 + d.getSeconds() * 1000 + d.getMilliseconds();
   }
 
-  function layout(items, expanded) {
+  function layout(items, expandedKey) {
     // Leading pad from the floor hour at GAP scale — absence is absence,
     // including the absence before the first block (spec §6: hour labels
     // stay clean whole hours; the pad does the honesty).
@@ -1003,7 +1031,7 @@
     };
     const widthOf = (e) => Math.max(MIN_W, (e.durMs / 1000) * PX_PER_SEC);
     for (const item of items) {
-      if (item.kind === "cluster" && !expanded.has(item.key)) {
+      if (item.kind === "cluster" && item.key !== expandedKey) {
         let left = null;
         for (const e of item.members) {
           allocGap(e.startTime);
@@ -1341,17 +1369,116 @@
   // else (plates, bars, ticks) is rebuilt.
   const blockEls = new Map();
   const titleEls = new Map();
-  let expanded = new Set();
+  // Hover fences (spec §6, 2026-08-08): at most one fence expanded at a
+  // time — hovering a new plate always replaces whichever run was open,
+  // never adds to it. A single nullable key (not a Set) makes that the only
+  // possible state instead of a rule callers have to remember to enforce.
+  let expandedKey = null;
+  // The expanded fence's own hit box in ribbon-local coordinates (spec §6
+  // gap-scale/px-scale split doesn't matter here — layout() already resolved
+  // it), refreshed each paint from bars[0]. mousemove tests the cursor
+  // against this instead of relying on any DOM ancestor/descendant
+  // relationship, since fence member blocks stay flat siblings under
+  // #ribbon (no reparenting — see plans/timeline_design.md hover-fence
+  // entry for why: reparenting would fight the zoom path, which repaints on
+  // every wheel tick via paint() directly, and the .transient sweep that
+  // rebuilds plates/bars each paint would delete persisted block nodes
+  // living inside a wrapper it also owns).
+  let expandedBox = null; // {left, top, right, bottom} in #ribbon's own box, i.e. offsetLeft/offsetTop space
+  let closeTimer = null;
+  let openTimer = null;
+  const FENCE_CLOSE_DELAY_MS = 400;
+  const FENCE_OPEN_DELAY_MS = 400; // debounces a fly-by pass over a plate from expanding it
   let lastSessions = [];
+  // Lock intervals (spec §3, 2026-08-08): fetched once by dashboard.js
+  // alongside sessions and handed to render() as a second argument; cached
+  // here the same way lastSessions is so the internal re-render call sites
+  // (expand/collapse, day paging, Escape) don't need to re-fetch or
+  // re-thread it.
+  let lastLockIntervals = [];
 
-  function toggle(key) {
-    expanded.has(key) ? expanded.delete(key) : expanded.add(key);
-    render(lastSessions);
+  // Fences open on hover-in, close on hover-out. Open and close are
+  // separate triggers now, not one toggle: hovering the collapsed plate
+  // expands (after a short grace delay, so a fly-by mouse pass doesn't
+  // spring it open — see scheduleOpen), immediately replacing any other
+  // open fence; the cursor straying outside the expanded box (after its own
+  // short grace delay, tracked by mousemove below) collapses.
+  function expandFence(key) {
+    if (expandedKey === key) return;
+    if (closeTimer !== null) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    expandedKey = key;
+    render(lastSessions, lastLockIntervals);
   }
 
+  function collapseFence() {
+    closeTimer = null;
+    if (expandedKey === null) return;
+    expandedKey = null;
+    expandedBox = null;
+    render(lastSessions, lastLockIntervals);
+  }
+
+  // Debounced open: called on a plate's mouseenter. Mirrors scheduleCollapse
+  // — only actually expands after the pointer has sat on the plate for the
+  // full delay; mouseleave before then (cancelOpen) drops it silently.
+  function scheduleOpen(key) {
+    if (openTimer !== null) clearTimeout(openTimer);
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      expandFence(key);
+    }, FENCE_OPEN_DELAY_MS);
+  }
+
+  function cancelOpen() {
+    if (openTimer !== null) {
+      clearTimeout(openTimer);
+      openTimer = null;
+    }
+  }
+
+  // Full reset (Escape, day paging): drop the open fence and any pending
+  // open/close timer, so a stale timeout can't fire against a day that's no
+  // longer on screen.
+  function collapseAllFences() {
+    cancelOpen();
+    if (closeTimer !== null) {
+      clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    expandedKey = null;
+    expandedBox = null;
+  }
+
+  // Single mousemove listener drives the hover-close: while a fence is
+  // expanded, moving outside its box (re)starts a debounce timer; moving
+  // back inside before it fires cancels it. No per-block listeners, no
+  // ownership bookkeeping — expandedBox IS the fence's footprint, computed
+  // once per paint from the same geometry the (now-removed) underline bar
+  // used to draw.
+  document.getElementById("ribbon").addEventListener("mousemove", (e) => {
+    if (expandedKey === null || !expandedBox) return;
+    const ribbon = document.getElementById("ribbon");
+    const r = ribbon.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const inside =
+      x >= expandedBox.left && x <= expandedBox.right && y >= expandedBox.top && y <= expandedBox.bottom;
+    if (inside) {
+      if (closeTimer !== null) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+    } else if (closeTimer === null) {
+      closeTimer = setTimeout(collapseFence, FENCE_CLOSE_DELAY_MS);
+    }
+  });
+
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && expanded.size) {
-      expanded.clear();
+    if (e.key === "Escape" && expandedKey !== null) {
+      collapseAllFences();
       render(lastSessions);
     }
     // Day paging by arrow key, mirroring the week strip's own click handler
@@ -1369,7 +1496,7 @@
           : Math.min(today, nextDayStart(viewDayStart));
       if (day !== viewDayStart) {
         viewDayStart = day;
-        expanded.clear();
+        collapseAllFences();
         log(`arrow key → ${new Date(day).toDateString()}`);
         render(lastSessions);
       }
@@ -1484,7 +1611,7 @@
       cell.addEventListener("click", () => {
         if (day === viewDayStart) return;
         viewDayStart = day;
-        expanded.clear(); // paging resets fences, same as ‹/›
+        collapseAllFences(); // paging resets fences, same as ‹/›
         log(`week strip → ${new Date(day).toDateString()}`);
         render(lastSessions);
       });
@@ -1691,8 +1818,13 @@
   // an actual reason (new data, day paging, fence expand/collapse).
   let lastAssembly = null; // { sessions, dayThreads, hostNames, events }
 
-  function render(sessions) {
+  function render(sessions, lockIntervals) {
     lastSessions = sessions;
+    // lockIntervals is optional per call (internal re-renders omit it and
+    // rely on the cache); only overwrite the cache when the caller actually
+    // passed something, so expandFence()/collapseFence()/day-paging/Escape
+    // don't need to know about it at all.
+    if (lockIntervals !== undefined) lastLockIntervals = lockIntervals;
     // One quiet assembly of every stored day feeds the strip; the viewed
     // day re-assembles loud below (identical functions, identical inputs —
     // kept separate so the worker-console transit/container logs stay tied
@@ -1720,12 +1852,19 @@
   // already-assembled event list — no thread/container/label work. Shared
   // by render() (fresh assembly) and relayout() (zoom, same assembly).
   function paint(events, hostNames) {
-    // Fences are retired (spec §6, 2026-08-07 second pass): LOW now lays
-    // out as a normal event, same as MEDIUM/HIGH. clusterEvents itself is
-    // untouched and kept callable — flip this back to clusterEvents(events)
-    // to re-enable picket-fencing.
-    const items = events.map((event) => ({ kind: "event", event }));
-    const { segs, plates, bars, gaps, total } = layout(items, expanded);
+    // Every paint rebuilds plates from scratch (.transient sweep below), so
+    // a pending open-delay timer's plate element may be gone by the time it
+    // would fire (periodic refresh, zoom, day paging) without ever getting
+    // its mouseleave — cancel rather than let it fire against a dead plate.
+    cancelOpen();
+    // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
+    // again, with two independent split rules (clusterEvents: a recorded
+    // lock interval unconditionally splits; otherwise FENCE_IMPLIED_BREAK_MS
+    // gates bridging) — see plans/timeline_design.md for why. lastLockIntervals
+    // is read directly (closure) rather than threaded as a paint() param,
+    // since relayout() (zoom) calls paint() without re-fetching data.
+    const items = clusterEvents(events, lastLockIntervals);
+    const { segs, plates, bars, gaps, total } = layout(items, expandedKey);
 
     const ribbon = document.getElementById("ribbon");
     const bandBottom = TITLE_AREA + BAND_H;
@@ -1849,15 +1988,19 @@
     // appended BEFORE fence plates so a hole inside a collapsed fence still
     // expands on click (the fence plate wins the overlap).
     //
-    // ONLY departures get a plate (spec §6, 2026-07-28): the same
-    // FENCE_BRIDGE_GAP_MS that splits fences gates the tooltip, so one
-    // constant carries one meaning on both surfaces — under it a break the
-    // timeline doesn't annotate, over it a departure that both ends a fence
-    // and earns "away 12:04 – 1:38". Sub-threshold gaps were tedious hover
-    // targets whose duration the width already implies; a week of data had
-    // 14 of them inside fences alone. This also subsumes the collapsed-fence
-    // suppression it replaces: a gap inside a fence is < the threshold by
-    // construction, so it can never reach this point.
+    // ONLY departures get a plate (spec §6, 2026-07-28): FENCE_BRIDGE_GAP_MS
+    // gates the tooltip — under it a break the timeline doesn't annotate,
+    // over it a departure that earns "away 12:04 – 1:38". Sub-threshold gaps
+    // were tedious hover targets whose duration the width already implies;
+    // a week of data had 14 of them inside fences alone. **No longer a pure
+    // subset relationship (2026-08-08):** a recorded lock interval always
+    // splits a fence (clusterEvents), so a lock-bounded gap can never end up
+    // inside a bridged fence — but FENCE_IMPLIED_BREAK_MS (60min, unlocked
+    // gaps only) is now looser than FENCE_BRIDGE_GAP_MS (30min), so an
+    // ordinary unlocked gap CAN be both bridged into a fence AND long enough
+    // to clear this loop's threshold — a 45-minute unlocked gap fences (it's
+    // under the 60min implied-break bar) yet still earns an away-plate (it's
+    // over the 30min plate bar). The two thresholds no longer move together.
     for (const g of gaps) {
       if (g.to - g.from < FENCE_BRIDGE_GAP_MS) continue;
       const el = document.createElement("div");
@@ -1870,7 +2013,9 @@
       ribbon.appendChild(el);
     }
 
-    // Invisible hit plate spanning each collapsed fence: hover + click target.
+    // Invisible hit plate spanning each collapsed fence: hover-open target
+    // (spec §6 hover fences, 2026-08-08 — click retired). Hovering always
+    // replaces whichever fence was previously expanded; see expandFence.
     for (const p of plates) {
       const el = document.createElement("div");
       el.className = "plate transient";
@@ -1887,25 +2032,22 @@
       // A singleton stick isn't a run of "brief visits" — name the page.
       el.dataset.tip =
         p.members.length === 1
-          ? `${p.members[0].host} · ${fmtDuration(active)} — click to expand`
-          : `${p.members.length} brief visits · ${fmtDuration(active)}${spanNote} — click to expand`;
-      el.addEventListener("click", () => toggle(p.key));
+          ? `${p.members[0].host} · ${fmtDuration(active)}`
+          : `${p.members.length} brief visits · ${fmtDuration(active)}${spanNote}`;
+      el.addEventListener("mouseenter", () => scheduleOpen(p.key));
+      el.addEventListener("mouseleave", cancelOpen);
       ribbon.appendChild(el);
     }
 
-    // Underline bar grouping each expanded run; click re-collapses.
-    for (const b of bars) {
-      const el = document.createElement("div");
-      el.className = "xbar transient";
-      el.style.left = b.x + "px";
-      el.style.width = b.w + "px";
-      // Hit zone starts at the band edge and fills the lane down to the
-      // ticks; the 4px visual bar is the ::after in .xbar (index.html).
-      el.style.top = bandBottom + "px";
-      el.dataset.tip = "click to collapse";
-      el.addEventListener("click", () => toggle(b.key));
-      ribbon.appendChild(el);
-    }
+    // Expanded run's hit box (spec §6 hover fences, 2026-08-08): at most one
+    // fence is ever expanded, so at most one bars entry exists. No visual
+    // element draws it (the underline bar is retired — the sprung-open
+    // blocks read as "this group opened" on their own); it exists purely so
+    // the document-level mousemove listener knows the footprint the cursor
+    // has to leave before the close-debounce starts.
+    expandedBox = bars.length
+      ? { left: bars[0].x, right: bars[0].x + bars[0].w, top: TITLE_AREA, bottom: bandBottom }
+      : null;
 
     const marks = hourMarks(segs, gaps);
     let lastLabelRight = -Infinity;
