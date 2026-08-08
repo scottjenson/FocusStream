@@ -41,6 +41,15 @@ const IDLE_SPLIT_MS = 5 * 60_000;
 // isolated content-script world with no access to shared/transit.js.)
 const HB_WINDOW_MS = FS_TRANSIT.TRANSIT_MS;
 
+// Lock intervals (spec §3, 2026-08-08): the one signal outside browser
+// activity this extension captures — deliberately narrow to chrome.idle's
+// "locked" state alone (an OS screen lock is machine-state ground truth,
+// unlike "idle"/"active", which are just the same ambiguous no-activity
+// inference this extension already makes from a different angle). Consumed
+// only by display-time gap classification (fence merge gap, SPEC §6) — never
+// rendered, never a presence log. Event-driven (onStateChanged), no polling.
+const lockState = { since: null }; // in-worker only; a mid-lock worker restart just loses that one interval's start, fails closed
+
 // Snapshot previews (spec §6, unified with the transit filter 2026-07-24):
 // one screenshot per session, taken the moment it first QUALIFIES to display
 // — first interval heartbeat or first transit-qualifying signal cue,
@@ -227,6 +236,14 @@ async function finalizeCurrent(endReason) {
     );
     log(`pruned ${dropped.length} sessions older than 7 days (+ their snapshots)`);
   }
+  // Lock intervals (spec §3, 2026-08-08): pruned in the same pass, same
+  // cutoff — no reason for lock evidence to outlive the sessions it informs.
+  const { lockIntervals = [] } = await chrome.storage.local.get("lockIntervals");
+  const keptLocks = lockIntervals.filter((iv) => iv.end >= cutoff);
+  if (keptLocks.length < lockIntervals.length) {
+    await chrome.storage.local.set({ lockIntervals: keptLocks });
+    log(`pruned ${lockIntervals.length - keptLocks.length} lock intervals older than 7 days`);
+  }
   kept.push(session);
   await chrome.storage.local.set({ sessions: kept });
   const secs = ((session.endTime - session.startTime) / 1000).toFixed(1);
@@ -391,6 +408,30 @@ chrome.tabs.onCreated.addListener((tab) => {
     const { openerEdges = {} } = await chrome.storage.session.get("openerEdges");
     openerEdges[tab.id] = tab.openerTabId;
     await chrome.storage.session.set({ openerEdges });
+  });
+});
+
+// Lock intervals (spec §3, 2026-08-08): only "locked" transitions are
+// captured. On lock, stamp the start; on the matching unlock, close the
+// interval and append it to storage.local (survives restarts, unlike
+// openerEdges/audibleContinuity — this is historical fact for display-time
+// reads days later, not in-flight session bookkeeping). A worker restart
+// mid-lock just loses that one interval's start (lockState is module-level,
+// not persisted) — fails closed, no phantom interval spanning the restart.
+chrome.idle.onStateChanged.addListener((state) => {
+  log("event: idle.onStateChanged", state);
+  enqueue("idle.onStateChanged", async () => {
+    if (state === "locked") {
+      lockState.since = Date.now();
+      return;
+    }
+    if (lockState.since == null) return; // unlock with no matching lock (e.g. worker restarted mid-lock)
+    const interval = { start: lockState.since, end: Date.now() };
+    lockState.since = null;
+    const { lockIntervals = [] } = await chrome.storage.local.get("lockIntervals");
+    lockIntervals.push(interval);
+    await chrome.storage.local.set({ lockIntervals });
+    log(`lock interval recorded: ${Math.round((interval.end - interval.start) / 60000)}min`);
   });
 });
 

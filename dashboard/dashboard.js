@@ -16,8 +16,11 @@ async function renderCount() {
 
 // Full repaint: the ribbon pipeline (with the week strip) plus the count.
 async function render() {
-  const { sessions = [] } = await chrome.storage.local.get("sessions");
-  window.renderTimeline?.(sessions);
+  const { sessions = [], lockIntervals = [] } = await chrome.storage.local.get([
+    "sessions",
+    "lockIntervals",
+  ]);
+  window.renderTimeline?.(sessions, lockIntervals);
   await renderCount();
 }
 

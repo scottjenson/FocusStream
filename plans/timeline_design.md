@@ -1756,3 +1756,116 @@ appears at all), but Scott expects more once back-to-back meetings resume
 next week (the review window was a lighter vacation week) — treated as a
 general pattern that happened to be under-observed here, not a one-off
 patch scoped to Meet.
+
+## Fence reinstated + lock-aware merge gap (2026-08-08)
+
+**Why the fence came back.** The 2026-08-07 second pass made every tier
+render at the same height, with luminance/border as the only signal
+splitting HIGH/MEDIUM/LOW (Importance, SPEC §6). That calmed the ribbon
+(much less color, per Scott) but overcorrected: with fencing off since the
+same pass, *every* LOW event — real noise included — now painted as a
+full-size, only-slightly-dimmer block indistinguishable in kind from a
+MEDIUM/HIGH event at a glance. The intended payoff of the uniform-height
+pass (let luminance carry tier) needs LOW noise to actually recede, and a
+same-height LOW block doesn't recede, it just looks like a dim important
+thing. Bringing fencing back — LOW runs collapse to sticks, MEDIUM/HIGH
+never can — restores the intended contrast: a page of dim, unremarkable
+LOW noise reads as noise (a thin picket run) again, so the events that DO
+stand tall (MEDIUM/HIGH, unaffected by fencing) are what draws the eye.
+
+**Why this isn't a straight revert.** The original 2026-07-16 fence used
+one gap threshold (`FENCE_BRIDGE_GAP_MS`, 30 min) for every run, tuned
+purely off a gap-duration histogram — and Scott's recollection matches the
+histogram's dead zone (grazing < 8min, step-aways 19–21min): fences kept
+fragmenting into singleton/pair sticks because 30 min was, necessarily, a
+guess about what "leaving" looks like from browser-tab silence alone. That
+silence is ambiguous — no browser activity for 45 minutes could mean lunch,
+or could mean 45 minutes heads-down in Figma/Terminal/Slack, still very
+much at the machine. Duration alone cannot tell those apart.
+
+**The deeper reframe (discussed with Scott before touching code):** the
+question isn't really "are we representing visits or gaps" in the abstract
+— it's "what is the gap threshold actually evidence OF." A wall-clock
+duration is a proxy for a break; an OS **screen lock** is not a proxy, it's
+the fact itself — the machine was provably not usable. `chrome.idle`
+exposes `locked` as a real event (`onStateChanged`), the one signal outside
+browser-tab activity this extension captures, deliberately narrow: only
+`locked` transitions are recorded, never `idle`/`active` polling — `idle`
+is just the same ambiguous "no activity" signal FocusStream already has
+from a different angle, and adding it would reintroduce exactly the
+ambiguity this change exists to remove.
+
+**Asymmetric use, on purpose:** a lock-bounded gap is confirmed departure
+and fences under a looser `FENCE_MERGE_GAP_MS` (90 min, provisional — no
+data yet to tune against, revisit once lock intervals accumulate). A gap
+with NO lock evidence is exactly as ambiguous as before and keeps the
+original conservative `FENCE_BRIDGE_GAP_MS` (30 min) — absence of a lock
+event is not evidence of continuity, since plenty of real departures (a
+walk with the laptop still unlocked, presenting on a second machine) won't
+lock the screen either. This is additive only: lock evidence can widen a
+bridge, never narrow one below the wall-clock fallback.
+
+**Scope discussion (worth recording):** the first framing of this idea
+("capture sleep/wake for a stronger signal") raised a real privacy-scope
+concern — `chrome.idle` is the one API able to observe something about the
+*person*, not the page, which is a different category of data than
+anything else this extension records. What resolved it: the lock interval
+is never displayed, never a standing "presence log" — it's consumed once,
+at fence-decision time, exactly like `heartbeats`/`audibleMs` already are,
+and discarded. It's evidence *for* the existing intent-scoring machinery,
+not a new axis of data about the user's life. That distinction is why this
+shipped as an extension of §5's existing philosophy rather than a
+scope-expanding feature.
+
+**Implementation sketch:** `manifest.json` gains the `idle` permission.
+`background.js` registers `chrome.idle.onStateChanged`; a `locked → active`
+transition appends `{start, end}` to a `lockIntervals` array in
+`chrome.storage.local`, pruned at the same finalize-time retention pass as
+`sessions`. `dashboard/timeline.js`'s `clusterEvents` (dormant since
+2026-08-07, machinery untouched) gets re-wired into `paint()`. No changes to
+`MIN_RUN`, stick rendering, plate/expand machinery, or away-plate gating —
+all of that was already intact and callable.
+
+### Correction, same day: lock is a split, not a looser threshold (2026-08-08)
+
+The first cut above shipped `clusterEvents`'s gap test as "pick a threshold:
+`FENCE_MERGE_GAP_MS` (90min) if the gap is lock-bounded, else fall back to
+the original `FENCE_BRIDGE_GAP_MS` (30min)." Scott caught the problem by
+walking through his actual mental model out loud: he'd assumed lock
+intervals would **redefine what counts as away** entirely, and was
+confused why the fallback path kept the old conservative 30-minute number
+at all rather than the whole scheme getting more permissive.
+
+The discussion surfaced that "away" is actually two different kinds of
+evidence, not one signal with a confidence level:
+
+- **Timed-away (implied):** no lock event, just wall-clock silence.
+  Ambiguous in *cause* (lunch vs. an hour heads-down in another app) — but
+  Scott's point was that the cause doesn't matter for fencing purposes:
+  either way it isn't measured intent on THIS browser, so it's fine to be
+  generous about folding it, independent of any lock evidence existing at
+  all. This should have been the number that went UP from the old 30min,
+  not stayed pinned to it as a "no evidence, stay conservative" fallback.
+- **Locked-away (confirmed):** ground truth, and categorically different
+  from the above, not a longer version of it. A lock is real regardless of
+  duration — a 3-minute lock is still a real break and should end a run
+  even where a 3-minute plain gap wouldn't. Treating it as "the same kind
+  of threshold, just bigger" (90min) was backwards on both axes: it should
+  have no duration floor at all, and it should sit ahead of the timed-away
+  check, not behind it as an occasional override.
+
+**Fix:** `FENCE_MERGE_GAP_MS` (90min, lock-gated) is retired in favor of
+two independent mechanisms in `clusterEvents`, checked in order: (1) any
+recorded lock interval inside the gap splits unconditionally, no duration
+comparison — `gapIsLockBounded()` alone decides; (2) only when that's false
+does the gap fall back to a duration bar, renamed `FENCE_IMPLIED_BREAK_MS`
+and raised from the old 30min to 60min — the number that should have moved
+in the first pass. `FENCE_BRIDGE_GAP_MS` (30min) is now scoped down to
+exactly one job, the away-plate hover threshold, and is no longer read by
+`clusterEvents` at all — the two concepts it used to conflate (fence
+bridging and plate-worthiness) are fully decoupled as of this fix. One
+consequence worth flagging: because the plate threshold (30min) is now
+tighter than the implied-break fold threshold (60min), an ordinary unlocked
+45-minute gap fences (folds into the run) yet still earns an away-plate on
+hover — the two thresholds no longer move together, whereas before the fix
+they were the same number by definition.

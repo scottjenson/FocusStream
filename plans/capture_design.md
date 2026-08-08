@@ -568,3 +568,65 @@ Explicitly not solved now: fixing it would mean designing a way to tell
 sessions, which is a harder problem than this stage-1 prototype is
 trying to answer. Recorded on the watch list (`WATCHLIST.md`, was SPEC §6
 until the 2026-08-07 extraction) so it survives past this conversation.
+
+## Lock intervals via `chrome.idle` (2026-08-08)
+
+**The problem this solves.** Display-side gap classification (fencing,
+departure framing) has only ever had one kind of evidence: how long a gap
+lasted. That's a proxy for "the user left," and it's a weak one — no
+browser-tab activity for 45 minutes is equally consistent with lunch and
+with 45 minutes of heads-down work in another app, invisible to a
+Chrome-extension-only sensor by construction. Full design discussion (the
+reframe from "capture sleep/wake" to "capture OS lock state," and the
+scope/privacy question that came with it) lives in
+`plans/timeline_design.md` under "Fence reinstated + lock-aware merge gap"
+— this entry covers the capture-side mechanism only.
+
+**Why `locked`, not `idle`/`active`.** `chrome.idle` exposes three states.
+`active`/`idle` are threshold-based polling over input activity — the same
+category of ambiguous, inference-from-silence signal this extension
+already has (heartbeats, tab visibility), just OS-wide instead of
+per-tab. Capturing it would not add new information, only a coarser copy
+of what's already tracked. `locked` is categorically different: it fires
+on an actual OS screen-lock event, which is machine-state ground truth,
+not an inference. Only `locked` transitions are captured — `idle`/`active`
+are never read, and `chrome.idle.queryState()` (the polling half of the
+API) is never called. This keeps the addition narrowly scoped to the one
+signal that's actually new information, per the philosophy note in the
+sibling plans/ entry: the extension observes the machine, not the person,
+and only for exactly as long as it takes to settle a display-time
+judgment already being made from weaker evidence.
+
+**Mechanism.** `manifest.json` gains the `"idle"` permission —
+`background.js` registers `chrome.idle.onStateChanged`, event-driven, no
+alarms/polling (consistent with the project's existing no-alarms stance,
+`IDLE_SPLIT_MS`'s own comment). On a `locked → active` transition, the
+completed interval `{start, end}` (epoch ms; `start` stamped when the
+`locked` event fired, `end` = now) appends to a `lockIntervals` array in
+`chrome.storage.local`, pruned in the same finalize-time retention pass
+that trims `sessions` (§2 retention, `RETENTION_MS`) — no new lifecycle,
+reuses the existing prune call site.
+
+**Why storage.local, not stamped onto SessionBlock.** A lock interval is a
+fact about the machine's timeline, not about any one tab or URL — the gap
+it spans can cross multiple sessions, multiple tabs, even multiple tab
+trees. Attaching it to whichever SessionBlock happens to border the gap
+would conflate a machine-level fact with a per-tab record, and would need
+picking a side (preceding or following session) for no principled reason.
+A standalone array, keyed only by time, matches what it actually is —
+closer kin to `lockIntervals` being its own small append-only log than to
+anything inside a SessionBlock.
+
+**Why not on `chrome.storage.session`.** Unlike `openerEdges`/
+`audibleContinuity` (which are correctly `storage.session` — tabIds and
+mid-flight audio state are meaningless across a browser restart),
+completed lock intervals are historical fact that should survive a
+restart exactly like finalized sessions do — they're consumed by display
+code reading `storage.local` days later, not by in-flight session
+bookkeeping.
+
+**Nothing else changes capture-side.** No SessionBlock field, no
+heartbeat/finalize change, no interaction with the idle-split machinery
+(`IDLE_SPLIT_MS`) — that machinery already handles ending an unfinalized
+session on inactivity; lock intervals are purely additional testimony
+about a *gap that already exists*, read only by the display layer.
