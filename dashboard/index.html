@@ -240,10 +240,16 @@
     }
     /* Snapshot preview (spec §6): revealed only after decode, so the tooltip
        is measured at its final size. max-width bounds the 640px capture to
-       the tooltip's own cap. */
+       the tooltip's own cap. max-height + object-fit crop the rare portrait
+       screenshot (narrow/tall viewport) to a landscape-ish slice, so a
+       portrait source can't blow out the tooltip's height. */
     #tip-img {
       display: block;
+      width: 100%;
       max-width: 100%;
+      max-height: 240px;
+      object-fit: cover;
+      object-position: top;
       border-radius: 3px;
       margin-bottom: 6px;
     }
