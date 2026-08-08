@@ -403,6 +403,11 @@
     d.setHours(24, 0, 0, 0);
     return d.getTime();
   }
+  function prevDayStart(t) {
+    const d = new Date(t);
+    d.setHours(-24, 0, 0, 0);
+    return d.getTime();
+  }
   let viewDayStart = dayStartOf(Date.now());
 
   // Tab trees (spec §3/§6, 2026-07-19): capture stores the raw opener edge
@@ -1427,6 +1432,26 @@
     if (e.key === "Escape" && expanded.size) {
       expanded.clear();
       render(lastSessions);
+    }
+    // Day paging by arrow key, mirroring the week strip's own click handler
+    // (same bounds, same fence-reset). Ignored while typing in the search
+    // box so arrows still move the text cursor there.
+    if (
+      (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+      e.target.tagName !== "INPUT" &&
+      e.target.tagName !== "TEXTAREA"
+    ) {
+      const today = dayStartOf(Date.now());
+      const day =
+        e.key === "ArrowLeft"
+          ? Math.max(oldestDayStart(), prevDayStart(viewDayStart))
+          : Math.min(today, nextDayStart(viewDayStart));
+      if (day !== viewDayStart) {
+        viewDayStart = day;
+        expanded.clear();
+        log(`arrow key → ${new Date(day).toDateString()}`);
+        render(lastSessions);
+      }
     }
   });
 
