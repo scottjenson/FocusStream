@@ -596,19 +596,32 @@
         prev.tabId === e.tabId &&
         MACHINERY_BOUNDARY.has(prev.endReason) &&
         e.startTime - prev.endTime < CONTINUATION_GAP_MS;
-      // Same-tab HIGH pass-through (2026-08-06): a HIGH fragment joined to
-      // its same-tab same-host neighbor(s) by machinery (spa_navigation/
-      // navigated) never left the tab — the boundary is page turnover, not
-      // departure, so it's exactly the continuation join's territory (spec
-      // §6). Guard 1 says a HIGH "owns its story against foreign frames",
-      // not against its own tab's continuation run: the neighbor is already
-      // the same host by construction. Either edge being machinery is
-      // enough — a HIGH mid-binge (both edges) or one that OPENS a tab and
-      // then navigates on (outgoing edge only, no predecessor to test) both
-      // qualify; a HIGH with no machinery edge at all still stands alone.
-      // The 7:25/7:41 YouTube specimen: a HIGH video opened a fresh tab
-      // (no incoming edge) and spa_navigated into a shorts binge — outgoing
-      // edge alone should have let it lead the run instead of splitting it.
+      // Same-tab HIGH pass-through (2026-08-06; incoming edge fixed
+      // 2026-08-07): a HIGH fragment joined to its same-tab same-host
+      // neighbor(s) by machinery (spa_navigation/navigated) never left the
+      // tab — the boundary is page turnover, not departure, so it's exactly
+      // the continuation join's territory (spec §6). Guard 1 says a HIGH
+      // "owns its story against foreign frames", not against its own tab's
+      // continuation run: the neighbor is already the same host by
+      // construction. Either edge being machinery is enough, but the two
+      // edges need different handling because `run` can already hold an
+      // unrelated leftover event (often on a different tab/host) by the
+      // time we reach here:
+      //   - INCOMING edge (prev navigated/spa_navigated into this HIGH):
+      //     prev is the run's own tail, already correctly placed — the HIGH
+      //     simply joins as the run's next member (`continuation`, no
+      //     flush). A HIGH reached by machinery but ending in tab_hidden
+      //     (read closely, then switched tabs) used to split from its
+      //     predecessor here; it no longer does.
+      //   - OUTGOING edge only (this HIGH opens a fresh tab, or its
+      //     predecessor isn't a same-tab/host match, then it spa_navigates
+      //     onward): `run` may hold garbage, so the HIGH must FLUSH first
+      //     and then lead a fresh run (`highLeadsRun`) rather than join
+      //     blind. The 7:25/7:41 YouTube specimen: a HIGH video opened a
+      //     fresh tab (no incoming edge) and spa_navigated into a shorts
+      //     binge — outgoing edge alone lets it lead the run instead of
+      //     splitting it.
+      // A HIGH with no machinery edge at all still stands alone.
       const next = events[i + 1];
       const machineryOut =
         next &&
@@ -617,22 +630,46 @@
         next.tabId === e.tabId &&
         MACHINERY_BOUNDARY.has(e.endReason) &&
         next.startTime - e.endTime < CONTINUATION_GAP_MS;
-      // NOTE: gate on !machineryIn, not !prev — run[] almost always holds
-      // SOME leftover event (often on an unrelated tab/host) by the time we
-      // reach here, so !prev was true so rarely it never fired on real data.
+      // NOTE: highLeadsRun gates on !machineryIn, not !prev — run[] almost
+      // always holds SOME leftover event (often on an unrelated tab/host)
+      // by the time we reach here, so !prev was true so rarely it never
+      // fired on real data.
       const highLeadsRun = e.band === "high" && !machineryIn && machineryOut;
-      const continuation = machineryIn && (e.band !== "high" || machineryOut);
-      const succession =
-        e.band !== "high" &&
+      // A HIGH with an incoming machinery edge joins on that edge alone —
+      // machineryIn already implies "same tab, same host, page turnover, no
+      // departure", so no further test is needed even when band === "high".
+      const continuation = machineryIn;
+      const successionIn =
         prev &&
         prev.host === e.host &&
         prev.treeId != null &&
         prev.treeId === e.treeId &&
         prev.endReason === "tab_closed" &&
         e.startTime - prev.endTime < CONTINUATION_GAP_MS;
-      if (lowMerge || continuation || succession) {
+      // Same-tree HIGH pass-through (2026-08-07; mirrors the 2026-08-06
+      // machinery-join fix): succession is cross-tab machinery, same
+      // category as the machinery join's page-turnover exception — closing
+      // a finished tab to land on the next queued same-host tab is a
+      // "binge" pattern regardless of which fragment happens to be HIGH.
+      // Same incoming/outgoing split as machineryIn/machineryOut, and for
+      // the same reason (`run` may hold an unrelated leftover fragment):
+      //   - INCOMING edge (prev was tab_closed, e lands on the queued
+      //     tab): prev is already the run's tail — e joins directly via
+      //     successionIn, HIGH or not.
+      //   - OUTGOING edge only (e itself is HIGH, e's OWN tab is about to
+      //     tab_close, and the successor hasn't arrived yet to test): e
+      //     must flush and lead a fresh run rather than join blind.
+      const successionOut =
+        next &&
+        next.host === e.host &&
+        next.treeId != null &&
+        next.treeId === e.treeId &&
+        e.endReason === "tab_closed" &&
+        next.startTime - e.endTime < CONTINUATION_GAP_MS;
+      const highLeadsSuccessionRun = e.band === "high" && !successionIn && successionOut;
+      if (lowMerge || continuation || successionIn) {
         run.push(e);
-      } else if (e.band !== "high" || highLeadsRun) {
+      } else if (e.band !== "high" || highLeadsRun || highLeadsSuccessionRun) {
         flush();
         run.push(e);
       } else {

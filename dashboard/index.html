@@ -75,9 +75,10 @@
     .sr-meta { font-size: 11px; color: #9aa1ab; margin-top: 1px; }
     .sr-empty { padding: 8px 10px; font-size: 12px; color: #878d97; }
     /* Week strip (spec §6, 2026-07-17): one skyline cell per stored day —
-       the ribbon's importance contour on linear time. Height is the only
-       encoding: single neutral color, no per-host hue at this size. Click
-       a cell to jump day paging there. */
+       the ribbon's importance contour on linear time. Bars borrow the
+       ribbon's own fill rule (spec §6, 2026-08-03): gray for unanchored
+       hosts, hue/dimmed-mix for anchored ones. Click a cell to jump day
+       paging there. */
     /* Header + strip share one slightly-lighter band; the ribbon below sits
        on the plain page ground with no separating borders. */
     #week-strip {

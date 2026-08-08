@@ -97,11 +97,20 @@ per dated entry: what shipped, when, where to read the rule and the reasoning.
   `FENCE_SPLIT_GAP_MS`/gap plates), site-naming simplified to
   every-segment/full-hostname matching — spec §6; `plans/timeline_design.md`.
 - **2026-08-02:** word-boundary containment site-naming fallback, floor-attended
-  copy/cut discount, adjacent-container chaining — spec §6; `plans/timeline_design.md`.
-- **2026-08-06:** same-tab HIGH pass-through in continuation merge — spec §6
-  Atomicity; `plans/timeline_design.md`.
+  copy/cut discount, adjacent-container chaining, narrowed cut-out seam +
+  contained-child insets — spec §6; `plans/timeline_design.md`.
+- **2026-08-03:** week-strip bars colored by the ribbon's own fill rule
+  (gray/hue-mix, not neutral) — spec §6.
+- **2026-08-06:** same-tab HIGH pass-through in continuation merge, dashboard
+  title/URL search (find-and-go, independent of day paging) — spec §6;
+  `plans/timeline_design.md`.
 - **2026-08-07:** page-text search capture, stage 1 (vendored Readability.js,
   intent-gated, plain text, not yet privacy-hardened) — `plans/capture_design.md`.
+- **2026-08-07:** same-tab HIGH pass-through bug fix — an incoming-only
+  machinery edge now joins its predecessor's run (was splitting) — spec §6
+  Atomicity.
+- **2026-08-07:** succession join's HIGH exclusion fixed to match the
+  machinery join's incoming/outgoing edge symmetry — spec §6 merging.
 - **2026-08-07:** earned-HIGH atomicity in adjacent-container chaining (two
   back-to-back Meet calls no longer fuse into one container) — spec §6;
   `plans/timeline_design.md`.
