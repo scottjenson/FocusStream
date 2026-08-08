@@ -132,7 +132,20 @@
       overflow-x: auto;
       padding: 8px 16px;
     }
-    #ribbon { position: relative; min-width: 100%; }
+    /* Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
+       first event's left edge sits at the viewport's left edge and stays
+       there under panning — the browser's own scrollLeft clamp (never
+       negative) gives this for free with no spacer needed, AS LONG AS
+       #ribbon is the wrap's only scrollable content (a permanent lead
+       spacer was tried and reverted the same day — it made scrollLeft:0
+       show blank space instead of the day's start, reading as the ribbon
+       "centering" itself and drifting under panning, exactly what this
+       rule forbids). Zoom's cursor-anchor math (timeline.js) computes a
+       target scrollLeft that can go negative when zooming very close to
+       the left edge; assigning a negative value is simply clamped to 0 by
+       the platform — the left edge always wins, by construction, no
+       special-casing required. */
+    #ribbon { position: relative; }
     #ribbon-empty { color: rgba(255,255,255,0.5); font-size: 13px; padding: 24px 4px; }
     .blk {
       position: absolute;
@@ -145,6 +158,12 @@
       overflow: hidden;
       transition: left 0.3s, width 0.3s, top 0.3s, height 0.3s;
     }
+    /* Zoom (spec §6, 2026-08-08): the day-paging/fence-expand transition
+       above is wrong for a continuous 60fps zoom gesture (blocks would
+       perpetually chase a moving target through a 300ms ease, reading as
+       laggy smear instead of a crisp real-time zoom) — #ribbon.zooming
+       (toggled in JS for the gesture's duration) suspends it. */
+    #ribbon.zooming .blk { transition: none; }
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred). */
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }

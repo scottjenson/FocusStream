@@ -90,21 +90,32 @@
   // for a NORMAL day (spec §6, halved again 2026-07-17 on real data):
   // 1 hour ≈ 135px, so a full day reads as a one-glance overview and a
   // light day reads light instead of inflating its small events.
-  const PX_PER_SEC = 0.0375;
+  const BASE_PX_PER_SEC = 0.0375;
+  // Horizontal zoom (spec §6, 2026-08-08): a scroll/trackpad gesture over
+  // the ribbon scales BOTH time scales together by one factor, preserving
+  // the presence:absence ratio at every zoom level — real relayout, not a
+  // CSS transform, so text/borders/favicons stay crisp and MIN_W/hour-label
+  // logic keep operating on true pixel values. PX_PER_SEC/GAP_HOUR_PX are
+  // the LIVE (zoomed) values every layout call reads; setZoom() recomputes
+  // them before a relayout.
+  let zoom = 1;
+  const ZOOM_MIN = 0.5;
+  const ZOOM_MAX = 8;
+  let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
-  // Bottom-flush; top edge = importance contour. MEDIUM matches HIGH's
-  // height (spec §6, 2026-08-07) — now that fill/border are the only
-  // signal splitting MEDIUM from HIGH (Importance brightness), height no
-  // longer needs to do that job too; LOW stays the one visually shorter
-  // tier.
-  const TIER_H = { high: 144, medium: 144, low: 40 };
+  // Bottom-flush; top edge = importance contour. LOW now matches MEDIUM and
+  // HIGH (spec §6, 2026-08-07 second pass) — HIGH is the only visually
+  // distinct tier; MEDIUM and LOW are indistinguishable (same height, same
+  // fill/border) while the underlying score/band keeps being computed
+  // (transitional — scoring work is unfinished).
+  const TIER_H = { high: 144, medium: 144, low: 144 };
   // Contained children render at one uniform height regardless of band
-  // (spec §6, 2026-08-07; supersedes per-tier contained-child heights) —
-  // containment frames, never confers stature. Reuses TIER_H.low: the
-  // subordinate stature every contained child already had at LOW.
-  const CONTAIN_CHILD_H = TIER_H.low;
+  // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
+  // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
+  // now that TIER_H no longer has a natural "short" tier to borrow from.
+  const CONTAIN_CHILD_H = BAND_H / 2;
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
   const CUT_SEAM = 1; // .blk.cut border-width (index.html): the page-background seam around contained children
@@ -115,7 +126,8 @@
   // with PX_PER_SEC 2026-07-17 to preserve the ratio; watch gap loudness).
   // Proportional everywhere — hour boundaries have no effect on width;
   // ticks just interpolate through gaps like they do through blocks.
-  const GAP_HOUR_PX = 22;
+  const BASE_GAP_HOUR_PX = 22;
+  let GAP_HOUR_PX = BASE_GAP_HOUR_PX; // live (zoomed) value — see PX_PER_SEC above
   // The break/departure line (spec §6, 2026-07-28) — ONE constant, two
   // surfaces: fences bridge gaps under it and split at gaps over it, and
   // only gaps over it get an away hover plate. Wall-clock on purpose: this
@@ -140,10 +152,11 @@
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
   const TITLE_MAX_CHARS = 20;
   // Week strip (spec §6, 2026-07-17): a cell is the ribbon's TOP EDGE — the
-  // importance contour — on LINEAR time. MEDIUM matches HIGH (spec §6,
-  // 2026-08-07, same rationale as the main ribbon's TIER_H) — fill is the
-  // signal splitting them now, not height.
-  const STRIP_TIER_H = { high: 30, medium: 30, low: 18 };
+  // importance contour — on LINEAR time. LOW/MEDIUM both match HIGH (spec
+  // §6, 2026-08-07 second pass, same rationale as the main ribbon's
+  // TIER_H) — fill is the only signal splitting HIGH from the rest; height
+  // carries no tier signal in the strip either.
+  const STRIP_TIER_H = { high: 30, medium: 30, low: 30 };
   const STRIP_H = STRIP_TIER_H.high;
   const STRIP_INSET = 2; // .wday-sky's padding (index.html), reserved so bars never sit under the selected-day outline
   const STRIP_BIN_MS = 15 * 60 * 1000;
@@ -191,13 +204,21 @@
   // tombstones, hue-derived rims) is retired — favicons can't clash with a
   // per-host color that no longer exists.
   const PAGE_BG = "#14161a"; // ribbon ground; also the cut-out seam color
-  const UNIMPORTANT_FILL = "#262626";
-  const UNIMPORTANT_RIM = "#3A3A3A";
-  const IMPORTANT_FILL = "#3D3D3D";
-  const IMPORTANT_RIM = "#6B6B6B";
+  // Three-step luminance ladder (spec §6, 2026-08-08) — reinstated after a
+  // brief two-step (MEDIUM=LOW) experiment ran MEDIUM and LOW together
+  // visually indistinguishable; MEDIUM now gets its own midpoint step so
+  // all three tiers read apart while HIGH still reads brightest.
+  const LOW_FILL = "#262626";
+  const LOW_RIM = "#3A3A3A";
+  const MEDIUM_FILL = "#323232";
+  const MEDIUM_RIM = "#4E4E4E";
+  const HIGH_FILL = "#3D3D3D";
+  const HIGH_RIM = "#6B6B6B";
   const EARNED_RIM = "#D4AF37"; // muted gold — earned-HIGH accent border
-  // Collapsed fence sticks: solid, borderless, darker than UNIMPORTANT_FILL —
-  // a 3px stick is nearly all rim if it keeps the 1px outline, and the fence
+  const TIER_FILL = { low: LOW_FILL, medium: MEDIUM_FILL, high: HIGH_FILL };
+  const TIER_RIM = { low: LOW_RIM, medium: MEDIUM_RIM, high: HIGH_RIM };
+  // Collapsed fence sticks: solid, borderless, darker than LOW_FILL — a 3px
+  // stick is nearly all rim if it keeps the 1px outline, and the fence
   // should whisper (visible but very subtle).
   const STICK_FILL = "#2f333b";
   // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
@@ -1018,14 +1039,11 @@
             const span = e.endTime - e.startTime;
             let prevRight = -Infinity;
             for (const k of e.children) {
-              // LOW children collapse to fence sticks (spec §6, 2026-07-24):
-              // STICK_W interior plus the seam each side — the width floor
-              // must not confer block stature on a graze. MEDIUM+ children
-              // (side-quests) keep proportional block width.
-              const kw =
-                k.band === "low"
-                  ? STICK_W + 2 * CUT_SEAM
-                  : Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
+              // Contained LOW sticks are retired (spec §6, 2026-08-07 second
+              // pass, same pass as the top-level fence retirement): every
+              // child — LOW included — gets proportional block width now,
+              // no more STICK_W floor.
+              const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
               let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
               if (kx < prevRight + GAP) kx = prevRight + GAP;
               prevRight = kx + kw;
@@ -1059,10 +1077,10 @@
               // tree-blind covered-HIGH guard (2026-07-24) — kept as a
               // defensive invariant.
               band: kid.k.band === "high" ? "medium" : kid.k.band,
-              // A LOW child is a contained stick: stick paint, but — unlike
-              // collapsed fence sticks — a live block (tooltip, snapshot,
-              // click), because hover is the recovery path.
-              stick: kid.k.band === "low",
+              // Contained LOW sticks are retired (spec §6, 2026-08-07 second
+              // pass): every child paints as a normal block now, LOW
+              // included — stick paint is gone from containers entirely.
+              stick: false,
               w: kid.kw,
               x: cursor + kid.kx,
             });
@@ -1441,10 +1459,10 @@
       }
       // Run-length bars, edges snapped like blocks (round the right edge,
       // not the width, so snapped neighbors stay adjacent). Bars paint by
-      // importance, not identity (spec §6, 2026-08-07): the strip carries
-      // no hue — only HIGH gets the brighter pair, MEDIUM/LOW share the dim
-      // one, with the earned-HIGH gold border layered on top; runs break on
-      // tier or earned-HIGH change.
+      // importance, not identity (spec §6, 2026-08-07; three-step ladder
+      // restored 2026-08-08): the strip carries no hue — each tier gets its
+      // own luminance step (TIER_FILL/TIER_RIM), with the earned-HIGH gold
+      // border layered on top; runs break on tier or earned-HIGH change.
       for (let i = 0; i < bins; ) {
         let j = i + 1;
         while (j < bins && tiers[j] === tiers[i] && earnedAt[j] === earnedAt[i]) j++;
@@ -1454,14 +1472,10 @@
           const x = Math.round(i * STRIP_BIN_PX);
           bar.style.left = x + "px";
           bar.style.width = Math.round(j * STRIP_BIN_PX) - x + "px";
-          bar.style.height = STRIP_TIER_H[STRIP_BAND[tiers[i]]] + "px";
-          const important = tiers[i] === STRIP_RANK.high;
-          bar.style.background = important ? IMPORTANT_FILL : UNIMPORTANT_FILL;
-          bar.style.borderColor = earnedAt[i]
-            ? EARNED_RIM
-            : important
-              ? IMPORTANT_RIM
-              : UNIMPORTANT_RIM;
+          const band = STRIP_BAND[tiers[i]];
+          bar.style.height = STRIP_TIER_H[band] + "px";
+          bar.style.background = TIER_FILL[band];
+          bar.style.borderColor = earnedAt[i] ? EARNED_RIM : TIER_RIM[band];
           sky.appendChild(bar);
         }
         i = j;
@@ -1606,6 +1620,77 @@
     ribbonEl.addEventListener("pointerdown", hideTip);
   }
 
+  // Horizontal zoom (spec §6, 2026-08-08): vertical wheel/trackpad motion
+  // over the ribbon zooms (deltaY), horizontal motion pans (deltaX) via the
+  // wrap's native scrollLeft — a diagonal trackpad gesture decomposes into
+  // both at once. The ribbon claims ALL wheel input while the cursor is
+  // over it (preventDefault unconditionally) rather than passing vertical
+  // scroll through to the page: the dashboard is a single-view page with
+  // nothing below the ribbon to scroll to (spec §6 Layout).
+  {
+    const wrap = document.getElementById("ribbon-wrap");
+    const ribbonEl = document.getElementById("ribbon");
+    const ZOOM_SENSITIVITY = 0.0018; // wheel-delta-to-zoom-factor curve; retune to taste
+    const ZOOM_IDLE_MS = 150; // quiet period after the last tick before .zooming lifts (re-arms .blk's transition)
+    let pendingDy = 0;
+    let rafId = null;
+    let lastPointerX = 0;
+    let idleTimer = null;
+    const applyZoom = () => {
+      rafId = null;
+      const rect = wrap.getBoundingClientRect();
+      // Anchor the pointer's x-FRACTION of the ribbon's total width across
+      // the width change, so the timestamp under the cursor stays under it
+      // (both time scales zoom by the same factor — a proportional-position
+      // anchor tracks the same instant a true timestamp anchor would).
+      // Left-justified at rest, by construction (spec §6, 2026-08-08 zoom
+      // retry — a permanent left spacer was tried and reverted, see
+      // index.html): the target scrollLeft computed below can go negative
+      // when zooming very close to the left edge; assigning it is simply
+      // clamped to 0 by the platform, so the left edge always wins with no
+      // special-casing — the anchor point drifts slightly under the cursor
+      // only in that edge case, self-correcting on the next tick.
+      const cursorX = lastPointerX - rect.left + wrap.scrollLeft;
+      const oldTotal = ribbonEl.scrollWidth || 1;
+      const frac = cursorX / oldTotal;
+      zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * Math.exp(-pendingDy * ZOOM_SENSITIVITY)));
+      pendingDy = 0;
+      PX_PER_SEC = BASE_PX_PER_SEC * zoom;
+      GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
+      relayout();
+      const newTotal = ribbonEl.scrollWidth || 1;
+      wrap.scrollLeft = frac * newTotal - (lastPointerX - rect.left);
+    };
+    wrap.addEventListener("pointermove", (ev) => {
+      lastPointerX = ev.clientX;
+    });
+    wrap.addEventListener(
+      "wheel",
+      (ev) => {
+        ev.preventDefault();
+        wrap.scrollLeft += ev.deltaX;
+        if (ev.deltaY) {
+          lastPointerX = ev.clientX;
+          pendingDy += ev.deltaY;
+          // .zooming suspends .blk's day-paging transition for a crisp
+          // real-time zoom (index.html); lifts ZOOM_IDLE_MS after the last
+          // tick so ordinary re-renders (day paging etc.) keep animating.
+          ribbonEl.classList.add("zooming");
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => ribbonEl.classList.remove("zooming"), ZOOM_IDLE_MS);
+          if (rafId == null) rafId = requestAnimationFrame(applyZoom);
+        }
+      },
+      { passive: false }
+    );
+  }
+
+  // Zoom-only relayouts (below) must skip thread (re)assembly — it's real
+  // work (merge/container/atomicity passes), not just geometry — so the
+  // last assembly is cached here, invalidated whenever render() runs for
+  // an actual reason (new data, day paging, fence expand/collapse).
+  let lastAssembly = null; // { sessions, dayThreads, hostNames, events }
+
   function render(sessions) {
     lastSessions = sessions;
     // One quiet assembly of every stored day feeds the strip; the viewed
@@ -1619,7 +1704,27 @@
     const hostNames = computeHostNames(sessions);
     renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions));
-    const items = clusterEvents(events);
+    lastAssembly = { sessions, dayThreads, hostNames, events };
+    paint(events, hostNames);
+    // A real render (new data, day paging, fence toggle — never a zoom
+    // relayout, which calls paint() directly) always resets to left-
+    // justified (spec §6, 2026-08-08): the day's first event flush against
+    // the viewport's left edge, regardless of wherever zoom/pan left the
+    // scroll position on the previous day — visual stability across day
+    // paging, not a preserved viewport.
+    const wrap = document.getElementById("ribbon-wrap");
+    if (wrap) wrap.scrollLeft = 0;
+  }
+
+  // The paint-only path (spec §6, 2026-08-08 zoom): layout + DOM diff on an
+  // already-assembled event list — no thread/container/label work. Shared
+  // by render() (fresh assembly) and relayout() (zoom, same assembly).
+  function paint(events, hostNames) {
+    // Fences are retired (spec §6, 2026-08-07 second pass): LOW now lays
+    // out as a normal event, same as MEDIUM/HIGH. clusterEvents itself is
+    // untouched and kept callable — flip this back to clusterEvents(events)
+    // to re-enable picket-fencing.
+    const items = events.map((event) => ({ kind: "event", event }));
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
 
     const ribbon = document.getElementById("ribbon");
@@ -1646,14 +1751,13 @@
       // keep the three-way tier heights.
       const h = s.contained ? CONTAIN_CHILD_H : TIER_H[s.band];
       // Importance, not identity, drives fill/border now (spec §6,
-      // 2026-08-07): only HIGH gets the brighter "important" pair — MEDIUM
-      // and LOW share the dim pair, so HIGH stands out without a third
-      // color. Hue is retired; favicons carry identity instead. Fence
-      // sticks and contained LOW children stay on the dim pair regardless
-      // of their container's own band (stick paint everywhere sticks
-      // appear).
-      const important = !s.collapsed && !s.stick && s.band === "high";
-      const fill = s.collapsed || s.stick ? STICK_FILL : important ? IMPORTANT_FILL : UNIMPORTANT_FILL;
+      // 2026-08-07; three-step ladder restored 2026-08-08): each tier gets
+      // its own luminance step (TIER_FILL/TIER_RIM) — MEDIUM and LOW no
+      // longer share one "dim" pair, they were running together visually.
+      // Hue is retired; favicons carry identity instead. Sticks (fence or
+      // contained-LOW; both currently dormant) paint their own fill
+      // regardless of band.
+      const fill = s.collapsed || s.stick ? STICK_FILL : TIER_FILL[s.band];
       // Children draw on top of their container; persistent els can be in
       // any DOM order, so z-index does it (cleared when not contained).
       el.style.zIndex = s.contained ? 2 : "";
@@ -1674,18 +1778,16 @@
       el.classList.toggle("cut", !!s.contained);
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
-      // outline IS the stick, so "borderless" means border = fill.
-      // Contained sticks: transparent seam, fill clipped to the interior
-      // (spec §6, 2026-07-24) — the container's fill shows through the
-      // CUT_SEAM border, so the visible slit is STICK_W while the hover box
-      // keeps the full .cut footprint. background-clip is required:
-      // by default the background paints under the border.
+      // outline IS the stick, so "borderless" means border = fill. Dormant
+      // path since fences and contained LOW sticks both retired (spec §6,
+      // 2026-08-07 second pass) — s.stick is never true from the current
+      // layout, kept for a fence/stick revert.
       el.style.backgroundClip = s.stick ? "padding-box" : "";
       // Earned-HIGH border (spec §6, 2026-08-07): the container/block
       // itself, never its contained children — this marks how the THREAD
       // reached HIGH, a fact about the frame, not about any one interior
       // moment (which already has its own display treatment). Gold
-      // replaces the standard important border rather than layering on it.
+      // replaces the tier's own rim rather than layering on it.
       const earned =
         s.band === "high" && !s.contained && !s.collapsed && !s.stick && hasEarnedHigh(s.e);
       el.classList.toggle("earned-high", earned);
@@ -1697,9 +1799,7 @@
             ? STICK_FILL
             : earned
               ? EARNED_RIM
-              : important
-                ? IMPORTANT_RIM
-                : UNIMPORTANT_RIM;
+              : TIER_RIM[s.band];
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).
@@ -1890,6 +1990,14 @@
     }
 
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
+  }
+
+  // Zoom relayout (spec §6, 2026-08-08): re-paints from the CACHED
+  // assembly — no thread/container work — so a scroll-wheel zoom stays
+  // cheap enough to run every frame. No-op before the first real render.
+  function relayout() {
+    if (!lastAssembly) return;
+    paint(lastAssembly.events, lastAssembly.hostNames);
   }
 
   window.renderTimeline = render;
