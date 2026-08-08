@@ -219,17 +219,22 @@
   // tombstones, hue-derived rims) is retired — favicons can't clash with a
   // per-host color that no longer exists.
   const PAGE_BG = "#14161a"; // ribbon ground; also the cut-out seam color
-  // Three-step luminance ladder (spec §6, 2026-08-08) — reinstated after a
-  // brief two-step (MEDIUM=LOW) experiment ran MEDIUM and LOW together
-  // visually indistinguishable; MEDIUM now gets its own midpoint step so
-  // all three tiers read apart while HIGH still reads brightest.
+  // Fill/rim ladder (spec §6, 2026-08-08): MEDIUM shares HIGH's fill
+  // on purpose — fill reads as background-vs-foreground (LOW recedes,
+  // MEDIUM/HIGH advance), while MEDIUM keeps its own rim and TIER_H
+  // (108 vs HIGH's 144) to disambiguate from HIGH. Distinct from the
+  // earlier MEDIUM=LOW collapse (rejected same day, indistinguishable
+  // with no other signal to fall back on) — here height + rim carry it.
   const LOW_FILL = "#262626";
   const LOW_RIM = "#3A3A3A";
-  const MEDIUM_FILL = "#323232";
-  const MEDIUM_RIM = "#4E4E4E";
-  const HIGH_FILL = "#3D3D3D";
-  const HIGH_RIM = "#6B6B6B";
-  const EARNED_RIM = "#D4AF37"; // muted gold — earned-HIGH accent border
+  const MEDIUM_FILL = "#474747";
+  const MEDIUM_RIM = "#565656";
+  const HIGH_FILL = "#474747";
+  const HIGH_RIM = "#8A8A8A";
+  const EARNED_RIM = HIGH_RIM; // was muted gold "#D4AF37" — kept as a named
+  // constant in case earned-HIGH gets its own accent again, but matched to
+  // HIGH_RIM for now: the gold read as an unexplained extra difference
+  // rather than a helpful one (2026-08-08).
   const TIER_FILL = { low: LOW_FILL, medium: MEDIUM_FILL, high: HIGH_FILL };
   const TIER_RIM = { low: LOW_RIM, medium: MEDIUM_RIM, high: HIGH_RIM };
   // Collapsed fence sticks: solid, borderless, darker than LOW_FILL — a 3px
