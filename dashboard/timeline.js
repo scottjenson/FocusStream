@@ -2,10 +2,12 @@
 //
 // Vanilla-DOM port of the Desktop4 TimelineView pipeline:
 //   score → tier (three bottom-flush heights) → picket fence → cursor layout
-//   → interpolated hour marks → collision-tested run titles.
-// Width is time (floored at MIN_W); height is salience; hue is hostname
-// identity — score never changes width or color. Only LOW blocks may fence;
-// MEDIUM+ is structurally incapable of being hidden (§5 side-quest rule).
+//   → interpolated hour marks → favicon identity.
+// Width is time (floored at MIN_W); height is salience; luminance is
+// importance (spec §6, 2026-08-07 monochrome pass — hue identity retired,
+// favicons carry identity instead) — score never changes width. Only LOW
+// blocks may fence; MEDIUM+ is structurally incapable of being hidden
+// (§5 side-quest rule).
 //
 // Wrapped in an IIFE so nothing leaks into dashboard.js's global scope;
 // dashboard.js hands us the session list via window.renderTimeline().
@@ -92,12 +94,17 @@
   const MIN_W = 8; // floor: smallest visible/hoverable block
   const GAP = 2;
   const BAND_H = 144;
-  // Bottom-flush; top edge = importance contour. One height per tier —
-  // three tiers, three heights (spec §6, 2026-07-24): LOW lowered 86 → 40
-  // to calm the container comb globally, not via a fourth contained-only
-  // stature; MEDIUM re-seated at the LOW/HIGH midpoint (115 read too close
-  // to HIGH after the drop).
-  const TIER_H = { high: 144, medium: 92, low: 40 };
+  // Bottom-flush; top edge = importance contour. MEDIUM matches HIGH's
+  // height (spec §6, 2026-08-07) — now that fill/border are the only
+  // signal splitting MEDIUM from HIGH (Importance brightness), height no
+  // longer needs to do that job too; LOW stays the one visually shorter
+  // tier.
+  const TIER_H = { high: 144, medium: 144, low: 40 };
+  // Contained children render at one uniform height regardless of band
+  // (spec §6, 2026-08-07; supersedes per-tier contained-child heights) —
+  // containment frames, never confers stature. Reuses TIER_H.low: the
+  // subordinate stature every contained child already had at LOW.
+  const CONTAIN_CHILD_H = TIER_H.low;
   const STICK_W = 3; // fence stick: deliberately narrower than any real block
   const STICK_GAP = 1;
   const CUT_SEAM = 1; // .blk.cut border-width (index.html): the page-background seam around contained children
@@ -133,9 +140,10 @@
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
   const TITLE_MAX_CHARS = 20;
   // Week strip (spec §6, 2026-07-17): a cell is the ribbon's TOP EDGE — the
-  // importance contour — on LINEAR time. Height is the only encoding, in the
-  // ribbon's tier proportions (1 / 0.8 / 0.6 of the strip height).
-  const STRIP_TIER_H = { high: 30, medium: 24, low: 18 };
+  // importance contour — on LINEAR time. MEDIUM matches HIGH (spec §6,
+  // 2026-08-07, same rationale as the main ribbon's TIER_H) — fill is the
+  // signal splitting them now, not height.
+  const STRIP_TIER_H = { high: 30, medium: 30, low: 18 };
   const STRIP_H = STRIP_TIER_H.high;
   const STRIP_INSET = 2; // .wday-sky's padding (index.html), reserved so bars never sit under the selected-day outline
   const STRIP_BIN_MS = 15 * 60 * 1000;
@@ -177,115 +185,25 @@
     }
   }
 
-  // Color = identity, rationed by HIGH anchoring (spec §6, 2026-07-18):
-  // only hosts with a HIGH *display event* (merged visit or container —
-  // chain-level, not raw session) somewhere in the stored week get an
-  // identity hue. Everything they touch that week shares it — their
-  // MEDIUMs and LOWs show the revisit structure of the threads that
-  // mattered — while every other host renders neutral gray, MEDIUMs
-  // included. Rationing by MEDIUM proved unbounded: the registry hit 20
-  // hosts in four days and wrap collisions landed on hosts in daily use
-  // (youtube/notebooklm both light blue). HIGH-anchored hosts run ~6/week
-  // — under half the palette, near-max mutual contrast.
-  //
-  // Assignment is a persisted FIRST-SEEN REGISTRY, not a hash: the first
-  // time a host anchors, it claims the earliest free palette slot, forever
-  // (chrome.storage.local "hostColorOrder"). Hashing clumped on real data
-  // (google/linkedin/bsky drew three adjacent greens — no exact collision
-  // needed for a clash); window-relative rotation would reshuffle
-  // identities as the window slides. TOMBSTONES (2026-07-18): a registered
-  // host with no stored HIGH left has aged out of the 7-day window — its
-  // entry is nulled IN PLACE (indices are identities; living hosts never
-  // reshuffle) and the slot is reused by the next new anchor. Any subset
-  // of the 16-slot Kelly prefix stays mutually max-contrast, so sparse
-  // occupancy is safe.
-  //
-  // Kelly's 22 colors of maximum contrast, in Kelly's ORDER (the sequence
-  // is the point: the first N entries are always maximally contrasting, a
-  // perfect match for slot claiming). White/black/gray removed, plus the
-  // three darkest (reddish/yellowish brown, dark olive) — low-saturation
-  // darks converge on the noise-gray and read as unimportant. 16 remain.
-  // Buff is on watch: grayish by design but light; cut to 15 if it muddies.
-  const PALETTE = [
-    "#F3C300", // vivid yellow
-    "#875692", // strong purple
-    "#F38400", // vivid orange
-    "#A1CAF1", // light blue
-    "#BE0032", // vivid red
-    "#C2B280", // buff
-    "#008856", // vivid green
-    "#E68FAC", // purplish pink
-    "#0067A5", // strong blue
-    "#F99379", // yellowish pink
-    "#604E97", // strong violet
-    "#F6A600", // orange yellow
-    "#B3446C", // purplish red
-    "#DCD300", // greenish yellow
-    "#8DB600", // yellow green
-    "#E25822", // reddish orange
-  ];
-  const GRAY_FILL = "#3e434c";
-  const GRAY_RIM = "#5b616c";
+  // Monochrome & favicons (spec §6, 2026-08-07): identity and importance
+  // are fully decoupled. Importance is luminance + height; identity is the
+  // favicon. Hue identity (Kelly palette, hostColorOrder registry/
+  // tombstones, hue-derived rims) is retired — favicons can't clash with a
+  // per-host color that no longer exists.
   const PAGE_BG = "#14161a"; // ribbon ground; also the cut-out seam color
-  // Collapsed fence sticks: solid, borderless, darker than GRAY_FILL — a
-  // 3px stick is nearly all rim if it keeps the 1px outline, and the fence
+  const UNIMPORTANT_FILL = "#262626";
+  const UNIMPORTANT_RIM = "#3A3A3A";
+  const IMPORTANT_FILL = "#3D3D3D";
+  const IMPORTANT_RIM = "#6B6B6B";
+  const EARNED_RIM = "#D4AF37"; // muted gold — earned-HIGH accent border
+  // Collapsed fence sticks: solid, borderless, darker than UNIMPORTANT_FILL —
+  // a 3px stick is nearly all rim if it keeps the 1px outline, and the fence
   // should whisper (visible but very subtle).
   const STICK_FILL = "#2f333b";
-  // Tier brightness (spec §6, 2026-07-17): HIGH paints the full host color;
-  // colored blocks below HIGH paint a solid mix toward the page background —
-  // opaque paint, never alpha, so the look is ground-independent (a contained
-  // MEDIUM matches its standalone twin). Knob: raise toward 65 if dark
-  // palette entries start impersonating each other (watch list).
-  const MEDIUM_MIX_PCT = 50;
-
-  // Claim/tombstone array of anchored hosts; index % 16 = slot, null = a
-  // released slot awaiting reuse. null (the whole array) until loaded from
-  // storage (render defers until then). The dashboard page is the only
-  // writer, so an in-memory copy + fire-and-forget set is race-free.
-  let hostOrder = null;
-
-  function claimColors(anchoredHosts) {
-    let changed = false;
-    // Tombstone sweep: release slots of hosts that no longer anchor.
-    for (let i = 0; i < hostOrder.length; i++) {
-      if (hostOrder[i] && !anchoredHosts.has(hostOrder[i])) {
-        log(`color slot ${i % PALETTE.length} released by ${hostOrder[i]}`);
-        hostOrder[i] = null;
-        changed = true;
-      }
-    }
-    for (const host of anchoredHosts) {
-      if (hostOrder.includes(host)) continue;
-      const free = hostOrder.indexOf(null);
-      const slot = free !== -1 ? free : hostOrder.length;
-      hostOrder[slot] = host;
-      log(`color slot ${slot % PALETTE.length} claimed by ${host}`);
-      changed = true;
-    }
-    if (changed) chrome.storage.local.set({ hostColorOrder: hostOrder });
-  }
-
-  // Transient (unregistered) colors retired 2026-07-18: colorOf is only
-  // reached for anchored hosts, which claimColors registers before every
-  // paint. Gray is the defensive fallback, never a lazy claim.
-  function colorOf(host) {
-    const idx = hostOrder ? hostOrder.indexOf(host) : -1;
-    return idx !== -1 ? PALETTE[idx % PALETTE.length] : GRAY_FILL;
-  }
-  const rimOf = (color) => `color-mix(in srgb, ${color} 65%, white)`;
-  // Higher-contrast rim for earned-HIGH borders (2026-08-06, exploratory):
-  // more white than the standard rim, still hue-derived — the border must
-  // still carry identity, just louder.
-  const earnedRimOf = (color) => `color-mix(in srgb, ${color} 40%, white)`;
-
-  // Keep the in-memory registry in sync with storage — covers "Clear data"
-  // (dashboard.js removes the key) without a page reload. Our own writes
-  // land here too; reassigning identical content is harmless.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && "hostColorOrder" in changes) {
-      hostOrder = changes.hostColorOrder.newValue || [];
-    }
-  });
+  // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
+  // same day): drawn in-block on every real block, always full color,
+  // clipped by the block's own edge when too narrow/short to fit — sizing
+  // lives in CSS (.blk .fav) since JS no longer gates on it.
 
   function fmtDuration(ms) {
     const secs = Math.round(ms / 1000);
@@ -547,6 +465,7 @@
         const merged = {
           id: "v" + run[0].id,
           url: top.url, // click target: the visit's top-scoring page
+          favIconUrl: top.favIconUrl, // same member as the click target (spec §6, 2026-08-07)
           // Snapshot candidates in score order (spec §6): the tooltip shows
           // the best member that HAS a picture — sub-10s stubs can win the
           // top score (flush-inflated attended) yet are never photographed.
@@ -904,6 +823,7 @@
       containers.push({
         id: "k" + c.frags[0].id,
         url: top.url, // click target: the anchor's top-scoring fragment
+        favIconUrl: top.favIconUrl, // same member as the click target (spec §6, 2026-08-07)
         // Snapshot candidates in score order (spec §6). A fragment can
         // itself be a merged visit whose synthetic "v…" id has no snapshot —
         // flatten through ITS snapIds to the underlying raw sessions.
@@ -995,23 +915,6 @@
       out.set(day, assembleThreads(events, true));
     }
     return out;
-  }
-
-  // Color anchoring (spec §6, 2026-07-18): a host is anchored if any
-  // stored day holds a HIGH thread for it (thread-level, where meetings
-  // and watch-runs actually reach HIGH). Week-scoped on purpose:
-  // day-scoped anchoring would render every morning monochrome until
-  // something accrued ~17 attended minutes, and hosts would flicker
-  // colored/gray across day pages. Iteration is chronological, so
-  // first-anchor claim order is deterministic.
-  function anchoredHostsFrom(dayThreads) {
-    const anchored = new Set();
-    for (const threads of dayThreads.values()) {
-      for (const t of threads) {
-        if (t.band === "high") anchored.add(t.host);
-      }
-    }
-    return anchored;
   }
 
   // Runs of MIN_RUN+ consecutive LOW events fence; everything else lays out
@@ -1474,7 +1377,7 @@
   // ribbon instead of lower (the old raw-band divergence, resolved).
   // All cells share one hour-aligned window, so hours align VERTICALLY
   // across days — the cross-day comparison the two-scale ribbon can't give.
-  function renderWeekStrip(dayThreads, coloredHosts) {
+  function renderWeekStrip(dayThreads) {
     const strip = document.getElementById("week-strip");
     strip.replaceChildren();
     const all = [...dayThreads.values()].flat();
@@ -1516,7 +1419,7 @@
       sky.style.height = STRIP_H + STRIP_INSET * 2 + "px";
 
       const tiers = new Array(bins).fill(0);
-      const hostAt = new Array(bins).fill(null);
+      const earnedAt = new Array(bins).fill(false);
       for (const t of dayThreads.get(day) || []) {
         const rank = STRIP_RANK[t.band];
         const from = Math.max(
@@ -1529,21 +1432,22 @@
         );
         for (let i = from; i <= to; i++) {
           // Strict >, matching the prior Math.max tie-break: the first
-          // thread to claim a bin's rank keeps it (and its host/color).
+          // thread to claim a bin's rank keeps it.
           if (rank > tiers[i]) {
             tiers[i] = rank;
-            hostAt[i] = t.host;
+            earnedAt[i] = t.band === "high" && hasEarnedHigh(t);
           }
         }
       }
       // Run-length bars, edges snapped like blocks (round the right edge,
-      // not the width, so snapped neighbors stay adjacent). Runs also break
-      // on host change so a color handoff always starts a new bar (spec §6,
-      // 2026-08-03): the strip borrows the ribbon's own fill rule — gray for
-      // unanchored hosts, full hue at HIGH, dimmed mix at MEDIUM/LOW.
+      // not the width, so snapped neighbors stay adjacent). Bars paint by
+      // importance, not identity (spec §6, 2026-08-07): the strip carries
+      // no hue — only HIGH gets the brighter pair, MEDIUM/LOW share the dim
+      // one, with the earned-HIGH gold border layered on top; runs break on
+      // tier or earned-HIGH change.
       for (let i = 0; i < bins; ) {
         let j = i + 1;
-        while (j < bins && tiers[j] === tiers[i] && hostAt[j] === hostAt[i]) j++;
+        while (j < bins && tiers[j] === tiers[i] && earnedAt[j] === earnedAt[i]) j++;
         if (tiers[i]) {
           const bar = document.createElement("div");
           bar.className = "wbar";
@@ -1551,13 +1455,13 @@
           bar.style.left = x + "px";
           bar.style.width = Math.round(j * STRIP_BIN_PX) - x + "px";
           bar.style.height = STRIP_TIER_H[STRIP_BAND[tiers[i]]] + "px";
-          const host = hostAt[i];
-          bar.style.background =
-            host && coloredHosts.has(host)
-              ? tiers[i] === STRIP_RANK.high
-                ? colorOf(host)
-                : `color-mix(in srgb, ${colorOf(host)} ${MEDIUM_MIX_PCT}%, ${PAGE_BG})`
-              : "";
+          const important = tiers[i] === STRIP_RANK.high;
+          bar.style.background = important ? IMPORTANT_FILL : UNIMPORTANT_FILL;
+          bar.style.borderColor = earnedAt[i]
+            ? EARNED_RIM
+            : important
+              ? IMPORTANT_RIM
+              : UNIMPORTANT_RIM;
           sky.appendChild(bar);
         }
         i = j;
@@ -1704,27 +1608,16 @@
 
   function render(sessions) {
     lastSessions = sessions;
-    // First render races the registry load: defer until it's in memory,
-    // then re-enter (idempotent; extra calls just repaint).
-    if (!hostOrder) {
-      chrome.storage.local.get("hostColorOrder").then(({ hostColorOrder = [] }) => {
-        hostOrder = hostColorOrder;
-        render(lastSessions);
-      });
-      return;
-    }
-    // One quiet assembly of every stored day feeds the strip and color
-    // anchoring; the viewed day re-assembles loud below (identical
-    // functions, identical inputs — kept separate so the worker-console
-    // transit/container logs stay tied to the day on screen).
+    // One quiet assembly of every stored day feeds the strip; the viewed
+    // day re-assembles loud below (identical functions, identical inputs —
+    // kept separate so the worker-console transit/container logs stay tied
+    // to the day on screen).
     const dayThreads = threadsByDay(sessions);
+    // On-block labels are retired in favor of favicons (spec §6,
+    // 2026-08-07) — computeHostNames now serves the tooltip's site name
+    // only; the label-rendering pass itself is gone.
     const hostNames = computeHostNames(sessions);
-    // Anchored hosts are judged over the WHOLE stored week (thread-level
-    // HIGH — spec §6, 2026-07-18), then claim/release registry slots
-    // before painting.
-    const coloredHosts = anchoredHostsFrom(dayThreads);
-    claimColors(coloredHosts);
-    renderWeekStrip(dayThreads, coloredHosts);
+    renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions));
     const items = clusterEvents(events);
     const { segs, plates, bars, gaps, total } = layout(items, expanded);
@@ -1747,22 +1640,20 @@
         ribbon.appendChild(el);
         blockEls.set(s.key, el);
       }
-      const h = TIER_H[s.band];
-      // Identity hue for anchored hosts ONLY — everywhere they appear
-      // (LOW visits, fence members, contained children all share the
-      // thread's color). Non-anchored hosts are gray on every surface;
-      // the old fence-open and contained-child color relaxations are
-      // retired with transient colors (2026-07-18). Collapsed sticks
-      // stay stick-gray regardless — contained LOW sticks too (spec §6,
-      // 2026-07-24): stick paint everywhere sticks appear.
-      const colored = !s.collapsed && !s.stick && coloredHosts.has(s.e.host);
-      const fill = !colored
-        ? s.collapsed || s.stick
-          ? STICK_FILL
-          : GRAY_FILL
-        : s.band === "high"
-          ? colorOf(s.e.host)
-          : `color-mix(in srgb, ${colorOf(s.e.host)} ${MEDIUM_MIX_PCT}%, ${PAGE_BG})`;
+      // Contained children render at one uniform height regardless of band
+      // (spec §6, 2026-08-07) — containment frames, never confers stature;
+      // standalone blocks, collapsed sticks, and expanded fence members
+      // keep the three-way tier heights.
+      const h = s.contained ? CONTAIN_CHILD_H : TIER_H[s.band];
+      // Importance, not identity, drives fill/border now (spec §6,
+      // 2026-08-07): only HIGH gets the brighter "important" pair — MEDIUM
+      // and LOW share the dim pair, so HIGH stands out without a third
+      // color. Hue is retired; favicons carry identity instead. Fence
+      // sticks and contained LOW children stay on the dim pair regardless
+      // of their container's own band (stick paint everywhere sticks
+      // appear).
+      const important = !s.collapsed && !s.stick && s.band === "high";
+      const fill = s.collapsed || s.stick ? STICK_FILL : important ? IMPORTANT_FILL : UNIMPORTANT_FILL;
       // Children draw on top of their container; persistent els can be in
       // any DOM order, so z-index does it (cleared when not contained).
       el.style.zIndex = s.contained ? 2 : "";
@@ -1784,20 +1675,17 @@
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
       // outline IS the stick, so "borderless" means border = fill.
-      // Colored rims come from the FULL host color, not the (possibly
-      // dimmed) fill: the border carries identity at full strength on
-      // every tier, so HIGH and MEDIUM read as one family (spec §6,
-      // 2026-07-17).
       // Contained sticks: transparent seam, fill clipped to the interior
-      // (spec §6, 2026-07-24) — the container's color shows through the
+      // (spec §6, 2026-07-24) — the container's fill shows through the
       // CUT_SEAM border, so the visible slit is STICK_W while the hover box
       // keeps the full .cut footprint. background-clip is required:
       // by default the background paints under the border.
       el.style.backgroundClip = s.stick ? "padding-box" : "";
-      // Earned-HIGH border (2026-08-06, exploratory): the container/block
+      // Earned-HIGH border (spec §6, 2026-08-07): the container/block
       // itself, never its contained children — this marks how the THREAD
       // reached HIGH, a fact about the frame, not about any one interior
-      // moment (which already has its own display treatment).
+      // moment (which already has its own display treatment). Gold
+      // replaces the standard important border rather than layering on it.
       const earned =
         s.band === "high" && !s.contained && !s.collapsed && !s.stick && hasEarnedHigh(s.e);
       el.classList.toggle("earned-high", earned);
@@ -1807,13 +1695,11 @@
           ? PAGE_BG
           : s.collapsed
             ? STICK_FILL
-            : colored
-              ? earned
-                ? earnedRimOf(colorOf(s.e.host))
-                : rimOf(colorOf(s.e.host))
-              : earned
-                ? "white"
-                : GRAY_RIM;
+            : earned
+              ? EARNED_RIM
+              : important
+                ? IMPORTANT_RIM
+                : UNIMPORTANT_RIM;
       if (s.collapsed) {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).
@@ -1965,56 +1851,42 @@
       else lastLabelRight = m.x + w / 2;
     }
 
-    // Contained children never label (spec §6: hover only) and must not
-    // fragment their container's title run.
-    // Persistent titles (2026-07-17): an existing title GLIDES to its new
-    // left in sync with the blocks; a brand-new one (fence members on
-    // expand) fades in at its final position; a departed one fades out.
-    const liveTitles = new Set();
-    for (const run of titleRuns(groupRuns(segs.filter((s) => !s.contained)))) {
-      liveTitles.add(run.key);
-      let el = titleEls.get(run.key);
-      const fresh = !el;
-      if (fresh) {
-        el = document.createElement("div");
-        el.className = "rtitle";
-        el.style.opacity = "0";
-        // The rotated text column's BOTTOM lands at top + line-height
-        // (16px, fixed in CSS). Anchor so it clears the band ceiling by
-        // 4px — HIGH blocks fill the full band, and the old -8 anchor
-        // dipped labels ~10px into them.
-        el.style.top = TITLE_AREA - 20 + "px";
-        ribbon.appendChild(el);
-        titleEls.set(run.key, el);
-      }
-      // rotate(-90deg) about the bottom-LEFT corner sweeps the glyph column
-      // into the ~17px to the LEFT of the anchor (verified 2026-07-15 after
-      // getting the direction wrong once) — so anchor half a line-height
-      // RIGHT of center to center the column on the run. Obvious on 3px
-      // fence slivers, invisible on wide runs.
-      el.style.left = run.center + 9 + "px";
-      // Rim mix, not the raw fill: dark palette entries (vivid red, strong
-      // blue/violet) are illegible as text on the dark ribbon. Labels of
-      // non-anchored runs (gray MEDIUMs still label) use the gray rim —
-      // label color must never leak an identity hue the blocks don't have.
-      el.style.color = coloredHosts.has(run.host) ? rimOf(colorOf(run.host)) : GRAY_RIM;
-      const name = hostNames.get(run.labelKey) || run.host;
-      el.textContent =
-        name.length > TITLE_MAX_CHARS ? name.slice(0, TITLE_MAX_CHARS) + "…" : name;
-      if (fresh) {
-        // Commit the opacity-0 state before flipping it, so the fade
-        // transition actually runs instead of the style batching to 1.
-        el.getBoundingClientRect();
-        el.style.opacity = "1";
-      }
-    }
+    // On-block run labels are retired (spec §6, 2026-08-07): the favicon is
+    // the identity signal now. titleRuns/groupRuns (the invariant-name-run
+    // grouping machinery) and titleEls stay defined but uncalled here, kept
+    // for a possible future surface rather than deleted.
     for (const [key, el] of titleEls) {
-      if (liveTitles.has(key)) continue;
       titleEls.delete(key);
-      el.style.opacity = "0";
-      el.addEventListener("transitionend", () => el.remove(), { once: true });
-      // Backstop removal in case the transition never fires (hidden tab).
-      setTimeout(() => el.remove(), 500);
+      el.remove();
+    }
+
+    // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
+    // 2026-08-07): every real block attempts a favicon, always full color —
+    // grayscale dimming made them unreadable and didn't help identify the
+    // visit. On a block too narrow/short to fit the full 16px icon, the
+    // icon still renders at its native top-left anchor and is CLIPPED by
+    // the block's own edge (.blk's overflow:hidden) rather than withheld —
+    // a partial icon beats none. Sticks (collapsed or fenced) stay
+    // favicon-free: a 3px sliver of a 16px icon is noise, not identity.
+    for (const s of segs) {
+      const el = blockEls.get(s.key);
+      if (!el) continue;
+      const src = !s.collapsed && !s.stick ? s.e.favIconUrl : null;
+      if (!src) {
+        if (el._favEl) {
+          el._favEl.remove();
+          el._favEl = null;
+        }
+        continue;
+      }
+      if (!el._favEl) {
+        const img = document.createElement("img");
+        img.className = "fav";
+        img.alt = "";
+        el.appendChild(img);
+        el._favEl = img;
+      }
+      if (el._favEl.src !== src) el._favEl.src = src;
     }
 
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);

@@ -198,14 +198,16 @@ document.getElementById("scores").addEventListener("click", async () => {
 
 document.getElementById("clear").addEventListener("click", async () => {
   if (!confirm("Delete all recorded sessions?")) return;
-  // hostColorOrder goes too: Clear is a full experiment reset, and stale
-  // color claims would silently skew the next palette evaluation. Snapshots
-  // likewise (spec §6): clear means clear — enumerate names with getKeys(),
-  // never get(null), which would deserialize every stored image.
+  // hostColorOrder is a leftover key from the retired hue-identity registry
+  // (spec §6, 2026-08-07) — removing it is a harmless no-op now that
+  // nothing writes it, kept so a pre-redesign install's stale key doesn't
+  // linger after a Clear. Snapshots (spec §6): clear means clear —
+  // enumerate names with getKeys(), never get(null), which would
+  // deserialize every stored image.
   const keys = await chrome.storage.local.getKeys();
   const snapKeys = keys.filter((k) => k.startsWith("snap:") || k.startsWith("snapErr:"));
   await chrome.storage.local.remove(["sessions", "hostColorOrder", ...snapKeys]);
-  log(`cleared stored sessions, color registry, and ${snapKeys.length} snapshot keys`);
+  log(`cleared stored sessions and ${snapKeys.length} snapshot keys`);
   render();
 });
 

@@ -75,10 +75,10 @@
     .sr-meta { font-size: 11px; color: #9aa1ab; margin-top: 1px; }
     .sr-empty { padding: 8px 10px; font-size: 12px; color: #878d97; }
     /* Week strip (spec §6, 2026-07-17): one skyline cell per stored day —
-       the ribbon's importance contour on linear time. Bars borrow the
-       ribbon's own fill rule (spec §6, 2026-08-03): gray for unanchored
-       hosts, hue/dimmed-mix for anchored ones. Click a cell to jump day
-       paging there. */
+       the ribbon's importance contour on linear time. Bars paint by
+       importance, not identity (spec §6, 2026-08-07): unimportant/important
+       luminance pair by band, gold border on earned-HIGH. Click a cell to
+       jump day paging there. */
     /* Header + strip share one slightly-lighter band; the ribbon below sits
        on the plain page ground with no separating borders. */
     #week-strip {
@@ -116,10 +116,17 @@
       outline: 3px solid #d0d4da;
       outline-offset: -1px;
     }
-    .wbar { position: absolute; bottom: 0; background: #6f7887; }
+    .wbar {
+      position: absolute;
+      bottom: 0;
+      box-sizing: border-box;
+      border: 1px solid;
+      border-radius: 2px;
+    }
     /* Horizontal timeline ribbon (spec §6): dark holodeck panel — no grid,
        a uniform grid would imply a uniform time scale.
-       Width = time, height = tier, hue = hostname. */
+       Width = time, height = tier, luminance = importance, favicon = identity
+       (2026-08-07 monochrome pass — hue identity retired). */
     #ribbon-wrap {
       background: #14161a;
       overflow-x: auto;
@@ -133,6 +140,9 @@
       border: 1px solid;
       border-radius: 2px;
       cursor: pointer;
+      /* Clips the favicon on blocks too narrow/short to fit it (spec §6,
+         2026-08-07 always-attempt experiment) — a partial icon beats none. */
+      overflow: hidden;
       transition: left 0.3s, width 0.3s, top 0.3s, height 0.3s;
     }
     /* Lit up, not recolored: a strong brightness filter made dark palette
@@ -143,12 +153,26 @@
        like any other HIGH block. Border narrowed 2px -> 1px (2026-08-02) to
        cut a less heavy seam. */
     .blk.cut { border-width: 1px; }
-    /* Earned-HIGH (2026-08-06, exploratory — spec §6 watch list): a
-       container/block whose OWN thread reached HIGH via one individually-
-       HIGH fragment, not by summing lesser ones — thicker + higher-
-       contrast border (color set in JS via earnedRimOf) marks the frame,
-       distinct from an ordinary HIGH block's 1px identity rim. */
-    .blk.earned-high { border-width: 3px; }
+    /* Earned-HIGH (spec §6, 2026-08-07): a container/block whose OWN thread
+       reached HIGH via one individually-HIGH fragment, not by summing
+       lesser ones — the gold accent border color (EARNED_RIM) is set
+       directly in JS; the .earned-high class is kept as a hook for the
+       hover/hit-testing code even though no rule targets it here. */
+    /* Favicon (spec §6, 2026-08-07; always-color/always-attempt experiment
+       same day): drawn on every real block, always full color — grayscale
+       dimming made them unreadable and didn't help identify the visit.
+       Anchored top-left and left un-shrunk; .blk's own overflow:hidden
+       clips it on blocks too narrow/short to fit the full 16px icon, so a
+       partial icon beats none. Experimental: may look bad on very thin
+       blocks. */
+    .blk .fav {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+    }
     .plate { position: absolute; cursor: pointer; }
     .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
