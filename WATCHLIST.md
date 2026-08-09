@@ -1,65 +1,257 @@
 # Watch List
 
 Living tracker of open concerns about current SPEC.md rules — trade-offs made
-deliberately, not bugs, held pending more data or a specimen. This file is
-**not** part of the spec: SPEC.md holds the rules as they stand today: this
-file holds doubts about them. Rule bullets in SPEC.md that a watch item
-concerns cross-reference back here (e.g. "the 50% is a named knob (watch
-list)"); this file does not restate the rule, only the concern.
+deliberately, not bugs, held pending more data or a specimen. Most items arise
+AFTER a rule is adopted and working: the rule ships, then real days surface a
+doubt about it. This file is **not** part of the spec: SPEC.md holds the rules
+as they stand today; this file holds doubts about them. Rule bullets in
+SPEC.md that a watch item concerns cross-reference back here; this file does
+not restate the rule, only the concern.
 
-Extracted from SPEC.md §6 on 2026-08-07 — the section had grown large enough
-(2,200+ words within a spec meant to describe current behavior) that keeping
-it inline was hurting the spec's core job of letting a coding agent reason
-about current rules. Splitting a concern out of a rule bullet or resolving
-one back into the rule text (per §-linked entries above) is expected to keep
-shrinking this file over time.
+**Entry shape:** `**slug (date):**` the concern — the trigger specimen to
+watch for — the planned response if it fires. The slug is the entry's stable
+ID; other entries reference it by name, never by position. Evidence behind a
+*shipped* rule lives in the matching `decisions/` log even while the doubt is
+open — an entry carrying evidence should be a pointer, not a copy. When an
+item resolves, record the lesson in the relevant `decisions/` log (or confirm
+it's already there) and delete the entry — struck-through corpses don't
+accumulate here.
 
-Each entry is a deliberate trade-off, not a bug. Resolved items are marked
-~~struck~~ with their resolution date and stay only long enough to record the
-lesson; move fully-settled ones to the relevant `decisions/` log instead of
-letting them linger here.
+Extracted from SPEC.md §6 on 2026-08-07; hygiene pass 2026-08-09 (purge,
+grouping, evidence trimmed to pointers).
 
-* **MEDIUM=150 may be too permissive** — many blocks escape the fence; thresholds held until label gating is evaluated (one knob at a time).
-* **Band is duration-biased:** 30s of intense typing scores LOW; density rescue (keystrokes/sec) is a future scoring knob.
-* **Passive reading undercounts** attended time (bsky 284s → 140), and the admission filter's display rung drops sub-10s purely-visual glances — same knife-edge, two sides; decide with more data. Partially addressed 2026-07-15 by the scroll term ("the read"), but only for document-style pages.
-* **bsky.app scrolls the document** (`scrollable = y`, unlike Phanpy/LinkedIn's inner containers), so a long Bluesky graze earns the scroll premium and could promote to MEDIUM — watch whether that reads as honest consumption or feed noise.
-* **Admission rung 2 is display-time:** audit via the Score table; promote to capture once trusted.
-* **`W_NAV` is single-day-validated (2026-07-24):** the traversal term was tuned on ONE day of post-schema-change data — retest ~2026-07-28 with a full week (Score-table TSV replay). Known latent exposures from the same replay: Shorts/autoplay runs accrue nav points invisibly above HIGH (the swipe keystroke defeats any user-act gate — inflation is display-invisible in three tiers but real in the number), and click-heavy in-page work (Google Vids editing) stays invisible to the traversal term — click weighting is the held-in-reserve knob for it.
-* **Palette:** buff is grayish by design (cut to 15 if it muddies). Wrap collisions are now only possible if >16 hosts anchor within one 7-day window (2026-07-18 — tombstones + HIGH anchoring); if that ever happens, restoring cut Kelly entries is the next conversation.
-* **Anchored-only color — side-quest hue loss (2026-07-18):** a high-intent side-quest on a never-anchored host (e.g. a Paysera payment) now renders gray; the bet is that fences, labels, and tier height carry side-quest visibility without hue. If a real side-quest gets visually lost, candidate fix: one reserved accent treatment for "notable but not a thread" (never a per-host hue).
-* ~~Containers: audio-bookend false positive~~ **Resolved 2026-07-24** by gap-audio testimony — the predicted specimen materialized (the fused YouTube binge bridged its 7-min lunch gap and swallowed a Claude session as a child) and the bookend proxy was replaced with direct evidence (§6). New watch: a meeting platform whose audible flag drops mid-gap (Chrome's hysteresis rides short silences, but a long mute would break continuity) fails the bridge closed — two blocks instead of a container; if a real meeting specimen misses its frame, the fallback is a tolerance window on continuity, not a return to bookend ratios. ~~Meet titles misfire the site-name heuristic ("Scott")~~ resolved 2026-07-18 by invariance naming ("Meet" is the invariant segment).
-* **Invariance naming — single-document hosts (2026-07-18):** a host visited for only ONE document all week ties both segments and the first-position preference picks the document name over the app name (e.g. "FocusStream Telemetry" instead of "Gemini Notebook"). Accepted: a reasonable label for a one-document host, self-correcting when a second document appears.
-* **Fences:** singleton LOWs now collapse to lone sticks (2026-07-16, resolving the "reads as clutter" watch — it did). New watch: whether lone 3px sticks feel *too* quiet, i.e. whether the user misses seeing isolated 30–60s glances at full height — sharpened 2026-07-24 by the global LOW lowering (86 → 40): sticks are now half their former stature everywhere. Revert = `MIN_RUN` back to 2 and/or `TIER_H.low` back up. **`FENCE_BRIDGE_GAP_MS` = 30 min is provisional (2026-07-28):** chosen off one morning's histogram (07-28, 6:35–8:53), which was cleanly bimodal — grazing gaps all < 8 min, genuine step-aways at 19 and 21 min, nothing between. Any value from ~22 to ~40 min gives an identical result on that day, so 30 sits mid-dead-zone rather than on an edge. Untested against a real lunch walk-away (that morning has none): a habitual 25-min absence would wrongly bridge, a 35-min one correctly splits. Watch whether any bridged fence spans something that felt like leaving; the 19-min gap inside today's fence is the specimen to hover.
-* **Gap loudness:** presence:absence held at 6:1 through the 2026-07-17 halving (both knobs moved together), so the 2026-07-16 watch carries over unchanged — does absence read too prominent? Next knob if so: `GAP_HOUR_PX` 22 → 11 (~12:1).
-* **Week strip is now load-bearing (2026-07-17):** the usefulness bet settled early — the ‹/› header nav was removed, making the strip the only day picker. The remaining watch is legibility, not existence: if skylines mislead (see container-days entry), fix the banding, don't restore the arrows.
-* ~~Week strip vs. thread bands~~ **Resolved 2026-07-18:** the strip now bins thread-level bands via the shared `threadsByDay` assembly (Scott confirmed the divergence visually the same day it was fixed).
-* **SPA debounce vs. machinery join overlap (2026-07-18):** capture's 15s `SPA_DEBOUNCE_MS` and display's machinery join both heal SPA fragmentation. With the display join proven, the capture debounce could shrink toward URL honesty (more granular URLs, reassembled at display). Not urgent; one knob at a time.
-* **Resumed-read tightening knob (2026-07-18):** if MEDIUM containers over-fire on out-and-back reads, the closed resumed-read proposal's same-URL-anchor restriction is the tightening to reach for.
-* **MEDIUM 50% mix — palette compression (2026-07-17):** dimming toward the background pushes dark Kelly entries toward each other (the hover-saga impersonation risk). If MEDIUM identity suffers, raise `MEDIUM_MIX_PCT` (50 → 65) before anything structural.
-* **Contained-child visibility (2026-07-17; seam narrowed 2026-08-02):** children paint MEDIUM-dim on a full-brightness container fill, separated only by the 1px cut-out seam. If genuinely-HIGH excursions get lost, the fallback is brightness-follows-true-band inside containers (height cap stays).
-* **Fixed-overhead dilation after the 2026-07-17 halving:** `MIN_W`/`STICK_W`/`GAP` don't scale with `PX_PER_SEC`, so floored blocks (now anything under ~3m33s) and fence sticks claim a larger share of the ribbon — busy sections shrink sublinearly. If dense stretches still read too wide, tune the overhead constants, not the scale.
-* **Container interior dilation:** a container renders its SPAN at presence scale, so interior time covered by neither fragments nor children is dilated ~6× vs gap scale. Negligible on the one real specimen (182s uncovered ≈ 14px), but it scales with the audio-bookend bridge (the 20-min whiteboard case would draw ~20 min of empty container interior). Candidate fix if a bloated specimen appears: render uncovered interior stretches at gap scale, at the cost of children no longer sitting at linearly-proportional positions.
-* **Focus-NONE blackhole (2026-07-17; downgraded to watch 2026-07-18):** one two-hour capture blackout (a Prime movie + its browse/purchase flow, zero sessions) whose cause is still unknown — green-button fullscreen did NOT reproduce it (NONE fires transiently, refocus follows, capture is fine), and the new-tab blind spot found in the same investigation was fixed (tab adoption, §3). If it recurs, the fingerprint is `ignoring nav in non-tracked tab … (no session, window unfocused)`; the shelved fullscreen-rescue design is in `decisions/capture_design.md`.
-* **Key-email visibility inside merged runs:** reopened 2026-08-06 — the focus-count label suffix that had marked this resolved was itself reverted the same day (data showed the count wasn't a valid proxy for "earned importance"; see `decisions/timeline_design.md`). The earned-HIGH border (SPEC.md §6, Importance) covers a related but narrower claim — *that* a container's tier was earned by one concentrated fragment, not *which* member that was — so it doesn't fully close this item. Still open. Original mitigations (individually-HIGH splits the run; tooltip lists members by score) still apply underneath it.
-* **Recipient/sender identity is uncaptured (2026-08-06):** the tooltip's member-title list already surfaces *which* thread dominated a container (subject line + own account). Who the email was to/from isn't in `title` or `url` at all — Gmail thread URLs are opaque hashes — and capturing it would mean DOM-scraping Gmail's markup specifically: a bespoke per-site capture surface (fragile, no UI contract) the project has otherwise avoided. Deliberately punted as its own future decision. See also the broader "missing axis" entry (SPEC.md §5) — recipient is one instance of social context, which activity signals can't reach in general.
-* **Earned-HIGH width correlation and second-line content (2026-08-06):** earned-HIGH blocks (SPEC.md §6) are, unsurprisingly, usually wider than accumulated-HIGH ones — a single fragment rarely reaches `HIGH_SCORE` without real dwell (or copy/cut/paste/download/keyboard stacking on top of one). Untested whether the correlation holds tightly enough to design against (a short, intense burst — e.g. a quick download-heavy visit — could earn HIGH without much width). If it holds, the extra width is spare room for a second label line on earned-HIGH blocks specifically; candidate content, not yet built: the dominant fragment's own (cleaned) title — generic, already computed by `hasEarnedHigh` — paired with which raw signal actually earned it (attended time vs. copy/cut/paste vs. download vs. keyboard), itself already in `e.activity`. Both are activity-derived and stop short of social context (previous entry) — they answer "what/how," not "who this mattered to." Paused pending the correlation holding up in practice.
-* **Resumed-read containers deferred:** rule + guards validated for non-firing on one day; waiting for a positive specimen (a real M-detour-M read) before implementing.
-* **Idle-split gap sliver (2026-07-24):** the manufactured gap is `resume − (lastActiveTs + 10s)` while the split fires past 5 min, so it can land in [4:50, 5:00) — up to one heartbeat window under `VISIT_GAP_MS`. In that sliver the absence-bridge join and container chaining can bridge a gap capture explicitly judged idle. No specimen yet; if one appears, the fix is treating an `idle_split` boundary as never-bridgeable — not nudging either threshold.
-* **Covered-HIGH guard is tree-blind (2026-07-24):** a covered excursion that goes individually HIGH now shatters the frame that would have contained it — including a long, genuinely-contained Figma discussion during a meeting. When a real shattered-meeting specimen appears, the candidate re-join license is direct evidence, not overlap: a covered HIGH is containable only if the anchor's audio testifies through the HIGH's own span (the gap-audio shape). Second candidate if same-host cross-tree HIGHs (an independent YouTube window inside a batch-container's span) read wrong side-by-side: a same-host re-join license. Framing licenses are earned per-case with data, never generalized from overlap.
-* **Contained LOW sticks hide width (2026-07-24):** a long LOW graze inside a container collapses to the same 3px stick as a glance (containers have no expand). If a wide graze that mattered goes missing, candidate fix: honest-width stick paint (proportional width, stick fill and stature). Separate escalation if ping-pong containers still read busy: same-host stick aggregation (one stick + "×N" tooltip count) — real machinery, deferred for data.
-* **Sub-quantum anchor-return debounce (designed, deferred 2026-07-18):** a ~10s return to the container's own host currently splits a same-host excursion into two children (observed: Gemini/Phanpy, two 8px sticks separated by a 0.4px return — the actor himself didn't remember toggling). Designed rule if specimens recur: within a container, an anchor-return of roughly one attention quantum doesn't testify as a separation — same-host children join, the return stays in container time, nothing is lost numerically. Held on one specimen: threshold untuned (this return was *exactly* 10s), and the child context line drops the confusion cost to near zero. Side-quest protection (foreign A→B→A) is untouched by design.
-* ~~All-transit-interruptions container gap~~ **Resolved 2026-07-16** by the departure-boundary rule (containers guard 1; story in plans).
-* **`CONTAINER_CHAIN_GAP_MS` = 10 min is a judgment call, not data-derived (2026-08-02):** unlike the fence-bridge histogram (bimodal, clean cliff at ~8–19min), a week's adjacent-container gap distribution (55 specimens) was smooth from 9s to 29min with no natural cutoff — 10 min was picked to bridge the two observed LinkedIn specimens (334s, 703s) while leaving 839s+ gaps split. Watch whether it over- or under-bridges as more specimens accumulate (the Gemini cluster it also merged same-day is a second confirming specimen, not yet a tuning basis).
-* **Page-text search capture is intent-gated, not read-gated (2026-08-07, stage-1 prototype):** `pageText` extraction rides the same input-cue/heartbeat trigger as snapshots — a session must clear that bar before extraction even runs, which is a *subset* of the transit filter's own admission bar, so nothing captured today can be a session the transit filter later rejects (the finalize-time `pageText` deletion is currently a redundant backstop, not load-bearing). This is a deliberate scope choice: it indexes *intent/engagement*, not *reading* — a short but important email glance (no keyboard/copy, under 10s) generates no signals and is never extracted, same gap as screenshots. If a future capture trigger is ever widened to catch short reads (a dwell-only or reading-cue signal weaker than today's), the finalize-time deletion stops being redundant and becomes the only thing preventing searchable text for sessions the dashboard displays no evidence of (transit-rejected/blip-discarded) — that consistency guarantee must be re-verified, not assumed, the moment the trigger changes. See `decisions/capture_design.md`.
-* **`mail.google.com` sometimes labels as a trailing email address (2026-08-07):** the invariance-naming trailing-segment fallback occasionally picks the user's own address (e.g. "scott@jenson.org -") as the site name on Gmail. Noticed, not fixed — deferred as its own specimen rather than folded into the google.com multi-app special case. (Story: `decisions/timeline_design.md`.)
-* **Downloads with no in-tab click miss the presence gate (2026-08-07):** a download reached by a direct link straight to a file — no landing-page click, no heartbeat — still fails the click-or-heartbeat presence bar and is dropped, not deferred. Narrower than the fixed torrent-tab case; explicitly out of scope for now. (Story: `decisions/capture_design.md`.)
-* **Merged-visit snapshot fallback when the top-scoring member's capture failed (2026-08-07):** a merged visit or container shows text-only in its tooltip if its top-scoring member's capture soft-failed, even when a sibling member has a picture. Accepted gap; candidate fix (fall back to the best-scoring member that HAS a picture) not yet built. (Story: `decisions/snapshot_implementation.md`.)
-* **Horizontal in-block labels deferred (2026-07-15):** run titles currently render rotated, above the band (SPEC.md §6 Layout). Laying labels out horizontally inside the block itself was considered and shelved with no recorded rationale or specimen — likely stale; revisit only if a concrete case for it appears.
-* **Clipped favicons on thin blocks are an explicit experiment (2026-08-07):** every real block draws its 16px favicon top-left-anchored and lets the block's own edge clip it when too narrow/short to fit — chosen over the "lollipop" pin (a line extending above the block to a floating full-size icon) specifically to try more-often-visible identity over a geometrically cleaner but rarer signal. Untested at scale: a block narrower than ~6-8px may show an unrecognizable sliver, and dense fenced-adjacent runs of thin blocks could read as visual noise rather than identity. If it reads badly, the lollipop approach (SPEC.md §6 favicon rule history) is the fallback to revisit, not a third alternative.
-* ~~Palette: buff is grayish by design~~ **Retired 2026-08-07** — hue identity (Kelly palette, hostColorOrder registry) was replaced with monochrome importance + favicon identity (SPEC.md §6 Monochrome & favicons); nothing left to tune.
-* ~~Anchored-only color — side-quest hue loss~~ **Retired 2026-08-07** — moot with hue identity gone; a side-quest's visibility now rests entirely on fence/height/favicon treatment, same as every other event.
-* ~~MEDIUM 50% mix — palette compression~~ **Retired 2026-08-07** — `MEDIUM_MIX_PCT` and the palette it protected are both gone.
-* **Contained-child visibility (2026-07-17; seam narrowed 2026-08-02; superseded 2026-08-07):** the original concern (children paint MEDIUM-dim on a full-brightness container fill) no longer applies as stated — contained children now render at one uniform height and the same importance-based fill as any other block (SPEC.md §6). Whether a genuinely-important excursion still reads as lost inside a container is worth re-watching under the new system, but the original brightness-follows-true-band fallback no longer maps onto current rules.
-* **Zoom tuning is unvalidated (2026-08-08):** `ZOOM_SENSITIVITY` (0.0018), `ZOOM_MIN`/`ZOOM_MAX` (0.5–8×), and `ZOOM_IDLE_MS` (150ms) are first-guess values, not measured against a real trackpad/mouse-wheel session — watch whether the curve feels too twitchy/sluggish, whether 8× is too extreme or not enough to make favicons legible on a dense day, and whether 150ms is long enough that the `.blk` transition doesn't visibly "pop" back on mid-gesture pauses. The cursor-anchor is proportional-position, not a true timestamp inversion (SPEC.md §6) — untested whether that reads as drifting on a very uneven day (a few huge blocks + a long gap) where proportional position and wall-clock position diverge more than on a typical day.
-* **Time-threshold sprawl (2026-08-06, from the rules-restructure-2 review):** eight independently-named gap/duration constants (`TRANSIT_MS` 10s, `TERMINAL_KEY_MS` 500ms, `SPA_DEBOUNCE_MS` 15s, the 30s machinery/succession sanity bound, `IDLE_SPLIT_MS` 5min, `VISIT_GAP_MS` 5min, `CONTAINER_CHAIN_GAP_MS` 10min, `FENCE_BRIDGE_GAP_MS` 30min) govern capture and five different display joins, spanning three orders of magnitude, with no stated relationship to each other even where a reader would expect one. Two specific gaps: `VISIT_GAP_MS` does three unrelated jobs under one name (LOW-only absence-bridging is a noise-tolerance argument; container-return chaining is an intent-credit argument; title-run splitting is a third) that happen to share a value, not an argument, and would mislead if ever tuned independently; and `CONTAINER_CHAIN_GAP_MS` (10min) > `VISIT_GAP_MS` (5min) is justified locally ("coarser claims earn longer bridges") but that stated principle isn't checked against `FENCE_BRIDGE_GAP_MS` (30min, the longest bridge gating the *least* assembled objects — a seeming counterexample). Not urgent, no specimen forcing it — a candidate cleanup pass is grouping the eight by evidence-kind (noise-tolerance vs. intent-credit vs. capture-mechanics vs. wall-clock judgment) and splitting `VISIT_GAP_MS`'s two display-side jobs into two named constants even if they keep the same value for now.
-* **Two-pass container chaining is a seam, not true recursion (2026-08-06, from the rules-restructure-2 review):** adjacent-container chaining (SPEC.md §6, 2026-08-02) re-runs the entire chain-and-qualify pipeline a second time on its own first-pass output, at a looser threshold — a reasonable, minimal way to get "coarser objects get longer bridges" without a bigger rewrite, but it means there are now two kinds of thread-like objects (fragments and already-assembled containers) rather than one recursive definition. No third-level specimen exists and none is being built for speculatively. Watch for: if a third chaining pass is ever proposed (a chain of chained containers), that's the signal to stop patching with more passes and make assembly genuinely recursive with a threshold that scales with assembly depth, not add a third hardcoded pass.
+## Capture (§3–§4)
+
+- **focus-none-blackhole (2026-07-17; downgraded to watch 2026-07-18):** one
+  two-hour capture blackout (a Prime movie + its browse/purchase flow, zero
+  sessions) whose cause is still unknown — green-button fullscreen did NOT
+  reproduce it (NONE fires transiently, refocus follows, capture is fine),
+  and the new-tab blind spot found in the same investigation was fixed (tab
+  adoption, §3). If it recurs, the fingerprint is `ignoring nav in
+  non-tracked tab … (no session, window unfocused)`; the shelved
+  fullscreen-rescue design is in `decisions/capture_design.md`.
+- **recipient-identity-uncaptured (2026-08-06):** the tooltip's member-title
+  list already surfaces *which* thread dominated a container (subject line +
+  own account). Who the email was to/from isn't in `title` or `url` at all —
+  Gmail thread URLs are opaque hashes — and capturing it would mean
+  DOM-scraping Gmail's markup specifically: a bespoke per-site capture
+  surface (fragile, no UI contract) the project has otherwise avoided.
+  Deliberately punted as its own future decision. See also the broader
+  "missing axis" note (SPEC.md §5) — recipient is one instance of social
+  context, which activity signals can't reach in general.
+- **download-direct-link-miss (2026-08-07):** a download reached by a direct
+  link straight to a file — no landing-page click, no heartbeat — still
+  fails the click-or-heartbeat presence bar and is dropped, not deferred.
+  Narrower than the fixed torrent-tab case; explicitly out of scope for now.
+  (Story: `decisions/capture_design.md`, "Download presence gate".)
+- **pagetext-intent-gate (2026-08-07, stage-1 prototype):** `pageText`
+  extraction rides the same input-cue/heartbeat trigger as snapshots, which
+  is a *subset* of the transit filter's admission bar — so the finalize-time
+  `pageText` deletion is currently a redundant backstop, not load-bearing.
+  If a future capture trigger is ever widened to catch short reads (a
+  dwell-only or reading-cue signal weaker than today's), that deletion
+  becomes the only thing preventing searchable text for sessions the
+  dashboard displays no evidence of — the consistency guarantee must be
+  re-verified, not assumed, the moment the trigger changes. Full analysis:
+  `decisions/capture_design.md`, "Page-text search capture".
+
+## Display (§5–§6)
+
+### Scoring
+(medium-threshold, duration-bias, passive-reading-undercount,
+bsky-scroll-premium, and w-nav-single-day were struck 2026-08-09 —
+settled-by-silence/superseded, no specimen in weeks of real use; see
+HISTORY.md.)
+
+### Assembly (merging, containers, fences)
+- **meeting-mute-bridge (2026-07-24):** a meeting platform whose audible
+  flag drops mid-gap (Chrome's hysteresis rides short silences, but a long
+  mute would break continuity) fails the gap-audio bridge closed — two
+  blocks instead of a container. If a real meeting specimen misses its
+  frame, the fallback is a tolerance window on continuity, not a return to
+  bookend ratios. (Bookend-proxy replacement story:
+  `decisions/capture_design.md`, "Audible continuity".)
+(resumed-read-deferred and resumed-read-tightening were struck 2026-08-09 —
+the resumed-read proposal was closed 2026-07-18 as subsumed by the
+continuation-merge/MEDIUM-container rule, so nothing was left pending
+implementation; see `decisions/timeline_design.md`, "Resumed-read
+containers" and "Continuation merge + MEDIUM containers".)
+- **key-email-visibility:** key-email visibility inside merged runs —
+  reopened 2026-08-06; the focus-count label suffix that had marked this
+  resolved was itself reverted the same day (data showed the count wasn't a
+  valid proxy for "earned importance"; see `decisions/timeline_design.md`).
+  The earned-HIGH border (SPEC.md §6, Importance) covers a related but
+  narrower claim — *that* a container's tier was earned by one concentrated
+  fragment, not *which* member that was — so it doesn't fully close this
+  item. Still open. Original mitigations (individually-HIGH splits the run;
+  tooltip lists members by score) still apply underneath it.
+- **covered-high-tree-blind (2026-07-24):** a covered excursion that goes
+  individually HIGH shatters the frame that would have contained it —
+  including a long, genuinely-contained Figma discussion during a meeting.
+  When a real shattered-meeting specimen appears, the candidate re-join
+  license is direct evidence, not overlap: a covered HIGH is containable
+  only if the anchor's audio testifies through the HIGH's own span (the
+  gap-audio shape). Second candidate if same-host cross-tree HIGHs read
+  wrong side-by-side: a same-host re-join license. Framing licenses are
+  earned per-case with data, never generalized from overlap.
+- **contained-low-width-loss (2026-07-24):** a long LOW graze inside a
+  container collapses to the same 3px stick as a glance (containers have no
+  expand). If a wide graze that mattered goes missing, candidate fix:
+  honest-width stick paint (proportional width, stick fill and stature).
+  Separate escalation if ping-pong containers still read busy: same-host
+  stick aggregation (one stick + "×N" tooltip count) — real machinery,
+  deferred for data.
+- **anchor-return-debounce (designed, deferred 2026-07-18):** a ~10s return
+  to the container's own host splits a same-host excursion into two children
+  (observed: Gemini/Phanpy, two 8px sticks separated by a 0.4px return —
+  the actor himself didn't remember toggling). Designed rule if specimens
+  recur: within a container, an anchor-return of roughly one attention
+  quantum doesn't testify as a separation — same-host children join, the
+  return stays in container time, nothing is lost numerically. Held on one
+  specimen: threshold untuned (this return was *exactly* 10s), and the
+  child context line drops the confusion cost to near zero. Side-quest
+  protection (foreign A→B→A) is untouched by design.
+- **container-chain-gap (2026-08-02):** `CONTAINER_CHAIN_GAP_MS` = 10 min is
+  a judgment call, not data-derived — a week's adjacent-container gap
+  distribution (55 specimens) was smooth from 9s to 29min with no natural
+  cutoff, unlike the fence-bridge histogram's clean cliff. Watch whether it
+  over- or under-bridges as specimens accumulate. Evidence and the chosen
+  trade: `decisions/timeline_design.md`, "Adjacent-container chaining".
+- **fence-bridge-threshold (2026-07-28):** `FENCE_BRIDGE_GAP_MS` = 30 min is
+  provisional — chosen mid-dead-zone of one cleanly bimodal morning (grazing
+  gaps < 8 min, step-aways at 19–21 min, nothing between), so any value
+  ~22–40 min was equivalent on that day. Untested against a real lunch
+  walk-away: a habitual 25-min absence would wrongly bridge, a 35-min one
+  correctly splits. Watch whether any bridged fence spans something that
+  felt like leaving. Histogram + method note:
+  `decisions/timeline_design.md`, "Fences bridge breaks, split at departures".
+- **lone-sticks-too-quiet:** singleton LOWs collapse to lone sticks
+  (2026-07-16, resolving the "reads as clutter" watch — it did). New watch:
+  whether lone 3px sticks feel *too* quiet — whether the user misses seeing
+  isolated 30–60s glances at full height — sharpened 2026-07-24 by the
+  global LOW lowering (86 → 40): sticks are now half their former stature
+  everywhere. Revert = `MIN_RUN` back to 2 and/or `TIER_H.low` back up.
+
+### Layout, labels, visuals
+(gap-loudness and week-strip-legibility were struck 2026-08-09 —
+settled-by-silence through the monochrome redesign and weeks of real use,
+no specimen; see HISTORY.md.)
+- **fixed-overhead-dilation (2026-07-17):** `MIN_W`/`STICK_W`/`GAP` don't
+  scale with `PX_PER_SEC`, so floored blocks (anything under ~3m33s) and
+  fence sticks claim a larger share of the ribbon — busy sections shrink
+  sublinearly. If dense stretches still read too wide, tune the overhead
+  constants, not the scale.
+- **container-interior-dilation:** a container renders its SPAN at presence
+  scale, so interior time covered by neither fragments nor children is
+  dilated ~6× vs gap scale. Negligible on the one real specimen (182s
+  uncovered ≈ 14px), but it scales with the audio bridge (a 20-min
+  whiteboard case would draw ~20 min of empty container interior).
+  Candidate fix if a bloated specimen appears: render uncovered interior
+  stretches at gap scale, at the cost of children no longer sitting at
+  linearly-proportional positions.
+- **contained-child-visibility (2026-07-17; superseded 2026-08-07):** the
+  original concern (children paint MEDIUM-dim on a full-brightness container
+  fill) no longer applies as stated — contained children now render at one
+  uniform height and the same importance-based fill as any other block
+  (SPEC.md §6). Whether a genuinely-important excursion still reads as lost
+  inside a container is worth re-watching under the new system, but the
+  original brightness-follows-true-band fallback no longer maps onto
+  current rules.
+- **earned-high-second-line (2026-08-06):** earned-HIGH blocks (SPEC.md §6)
+  are usually wider than accumulated-HIGH ones — a single fragment rarely
+  reaches `HIGH_SCORE` without real dwell. Untested whether the correlation
+  holds tightly enough to design against (a short download-heavy burst
+  could earn HIGH without much width). If it holds, the extra width is
+  spare room for a second label line on earned-HIGH blocks: the dominant
+  fragment's own cleaned title plus which raw signal earned it (attended
+  time vs. copy/cut/paste vs. download vs. keyboard) — both
+  activity-derived, answering "what/how," not "who this mattered to" (see
+  **recipient-identity-uncaptured**). Paused pending the correlation
+  holding up in practice.
+- **invariance-single-doc-host (2026-07-18):** a host visited for only ONE
+  document all week ties both segments and the first-position preference
+  picks the document name over the app name (e.g. "FocusStream Telemetry"
+  instead of "Gemini Notebook"). Accepted: a reasonable label for a
+  one-document host, self-correcting when a second document appears.
+- **gmail-trailing-address-label (2026-08-07):** the invariance-naming
+  trailing-segment fallback occasionally picks the user's own address
+  (e.g. "scott@jenson.org -") as the site name on Gmail. Noticed, not
+  fixed — deferred as its own specimen rather than folded into the
+  google.com multi-app special case. (Story: `decisions/timeline_design.md`.)
+- **merged-snapshot-fallback (2026-08-07):** a merged visit or container
+  shows text-only in its tooltip if its top-scoring member's capture
+  soft-failed, even when a sibling member has a picture. Accepted gap;
+  candidate fix (fall back to the best-scoring member that HAS a picture)
+  not yet built. (Story: `decisions/snapshot_implementation.md`.)
+(horizontal-inblock-labels was struck 2026-08-09 — horizontal HIGH-run
+labels shipped, per commit bcb461e "Timeline: revive horizontal HIGH-run
+labels"; the watch no longer describes current behavior.)
+- **favicon-clip-experiment (2026-08-07):** every real block draws its 16px
+  favicon top-left-anchored and lets the block's own edge clip it when too
+  narrow/short to fit — chosen over the "lollipop" pin specifically to try
+  more-often-visible identity over a geometrically cleaner but rarer
+  signal. Untested at scale: a block narrower than ~6-8px may show an
+  unrecognizable sliver, and dense fenced-adjacent runs of thin blocks
+  could read as visual noise rather than identity. If it reads badly, the
+  lollipop approach (SPEC.md §6 favicon rule history) is the fallback to
+  revisit, not a third alternative.
+- **zoom-tuning (2026-08-08):** `ZOOM_SENSITIVITY` (0.0018),
+  `ZOOM_MIN`/`ZOOM_MAX` (0.5–8×), and `ZOOM_IDLE_MS` (150ms) are
+  first-guess values, not measured against a real trackpad/mouse-wheel
+  session — watch whether the curve feels too twitchy/sluggish, whether 8×
+  is too extreme or not enough to make favicons legible on a dense day, and
+  whether 150ms is long enough that the `.blk` transition doesn't visibly
+  "pop" back on mid-gesture pauses. The cursor-anchor is
+  proportional-position, not a true timestamp inversion (SPEC.md §6) —
+  untested whether that reads as drifting on a very uneven day (a few huge
+  blocks + a long gap) where proportional and wall-clock position diverge
+  more than on a typical day.
+
+## Cross-cutting (capture/display seams)
+
+- **admission-rung2-promotion:** admission rung 2 is display-time — audit
+  via the Score table; promote to capture once trusted.
+- **spa-debounce-vs-join (2026-07-18):** capture's 15s `SPA_DEBOUNCE_MS`
+  and display's machinery join both heal SPA fragmentation. With the
+  display join proven, the capture debounce could shrink toward URL honesty
+  (more granular URLs, reassembled at display). Not urgent; one knob at a
+  time.
+- **idle-split-sliver (2026-07-24):** the manufactured gap is
+  `resume − (lastActiveTs + 10s)` while the split fires past 5 min, so it
+  can land in [4:50, 5:00) — up to one heartbeat window under
+  `VISIT_GAP_MS`. In that sliver the absence-bridge join and container
+  chaining can bridge a gap capture explicitly judged idle. No specimen
+  yet; if one appears, the fix is treating an `idle_split` boundary as
+  never-bridgeable — not nudging either threshold.
+- **threshold-sprawl (2026-08-06, from the rules-restructure-2 review):**
+  eight independently-named gap/duration constants (`TRANSIT_MS` 10s,
+  `TERMINAL_KEY_MS` 500ms, `SPA_DEBOUNCE_MS` 15s, the 30s
+  machinery/succession sanity bound, `IDLE_SPLIT_MS` 5min, `VISIT_GAP_MS`
+  5min, `CONTAINER_CHAIN_GAP_MS` 10min, `FENCE_BRIDGE_GAP_MS` 30min)
+  govern capture and five different display joins, spanning three orders of
+  magnitude, with no stated relationship to each other even where a reader
+  would expect one. Two specific gaps: `VISIT_GAP_MS` does three unrelated
+  jobs under one name (LOW-only absence-bridging is a noise-tolerance
+  argument; container-return chaining is an intent-credit argument;
+  title-run splitting is a third) that happen to share a value, not an
+  argument, and would mislead if ever tuned independently; and
+  `CONTAINER_CHAIN_GAP_MS` (10min) > `VISIT_GAP_MS` (5min) is justified
+  locally ("coarser claims earn longer bridges") but that principle isn't
+  checked against `FENCE_BRIDGE_GAP_MS` (30min, the longest bridge gating
+  the *least* assembled objects — a seeming counterexample). Not urgent, no
+  specimen forcing it — a candidate cleanup pass is grouping the eight by
+  evidence-kind (noise-tolerance vs. intent-credit vs. capture-mechanics
+  vs. wall-clock judgment) and splitting `VISIT_GAP_MS`'s two display-side
+  jobs into two named constants even if they keep the same value for now.
+- **two-pass-chaining-seam (2026-08-06, from the rules-restructure-2
+  review):** adjacent-container chaining (SPEC.md §6, 2026-08-02) re-runs
+  the entire chain-and-qualify pipeline a second time on its own first-pass
+  output, at a looser threshold — a reasonable, minimal way to get "coarser
+  objects get longer bridges" without a bigger rewrite, but it means there
+  are now two kinds of thread-like objects (fragments and
+  already-assembled containers) rather than one recursive definition. No
+  third-level specimen exists and none is being built for speculatively.
+  Watch for: if a third chaining pass is ever proposed (a chain of chained
+  containers), that's the signal to stop patching with more passes and
+  make assembly genuinely recursive with a threshold that scales with
+  assembly depth, not add a third hardcoded pass.

@@ -70,6 +70,16 @@ terse — write the entry there, then come back and add the one-line pointer.
   had grown to 301 lines, most of it §6 alone, so any change forced reading
   content irrelevant to it. Section numbers carried over unchanged; every
   existing `§N` reference elsewhere in the repo still resolves without edits.
+- **2026-08-09:** `WATCHLIST.md` hygiene pass — resolved/retired entries
+  purged (lessons verified present in `decisions/`), evidence for shipped
+  rules trimmed to pointers at the `decisions/` sections that already held
+  it, entries grouped Capture/Display/Cross-cutting under stable slugs,
+  entry shape codified in the file header. Follow-up same day: 11 more
+  entries struck as stale (settled-by-silence or superseded by a shipped
+  rule) — the resumed-read pair (subsumed 2026-07-18, no longer live),
+  horizontal-inblock-labels (shipped per commit bcb461e), and 8 early
+  scoring/visual watches unheard-from since the monochrome redesign.
+  44 → 26 entries net.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.
