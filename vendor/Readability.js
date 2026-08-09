@@ -1,7 +1,7 @@
 /*
  * Vendored from @mozilla/readability (unpkg.com/@mozilla/readability),
  * unmodified, for FocusStream's stage-1 page-text search capture
- * (2026-08-07 — see plans/ for the capture design). Firefox Reader View's
+ * (2026-08-07 — see decisions/ for the capture design). Firefox Reader View's
  * actual extraction engine — no build step needed, defines the global
  * `Readability` when loaded as a plain content-script file.
  */

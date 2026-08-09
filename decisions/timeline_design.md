@@ -13,7 +13,7 @@ watch-list was consolidated in spec §6 ("Watch list") from 2026-07-15 until
 - Score → three tiers/heights (144/92/40 since 2026-07-24 — see the container-calming
   entry; originally 144/115/86, bottom-flush) → picket fence.
   Design ported from the Desktop4 project (`~/Projects/Desktop4 (lifestreams)` —
-  see its `plans/three_tier_focus_plan.md` and
+  see its `decisions/three_tier_focus_plan.md` and
   `src/components/canvas/TimelineView.jsx`; its WebGL/React stack and
   screenshot/heatmap features did NOT port).
 - Sub-issue (2026-07-15): band is duration-biased — 30s of intense typing scores
@@ -468,7 +468,7 @@ watch-list was consolidated in spec §6 ("Watch list") from 2026-07-15 until
     chord). Audit column `keyGap` added to the Score table.
   - **Companion capture fix** (pure-modifier keydowns no longer count —
     without it a fresh Cmd+W is TWO keydowns, Meta then W, and a one-key
-    discount can't drop it): story in `plans/capture_design.md`.
+    discount can't drop it): story in `decisions/capture_design.md`.
   - **Known edge, accepted:** a held auto-repeating key ending the session
     leaves kbd > 1 with only the last gap recorded — discount lifts one,
     session may still admit. Rare; revisit with keyGap data if it shows up.
@@ -538,7 +538,7 @@ watch-list was consolidated in spec §6 ("Watch list") from 2026-07-15 until
 ## Tooltips & snapshots
 - Custom tooltip layer (uniform 300ms; native title warm-up uncontrollable)
   implemented 2026-07-15; snapshot previews implemented 2026-07-16. Full story
-  (reasoning, knobs, as-built shape): `plans/snapshot_implementation.md`.
+  (reasoning, knobs, as-built shape): `decisions/snapshot_implementation.md`.
 
 ### Two-section tooltip (2026-07-18)
 Scott: as the demo matures, the tooltip's debug soup has to go — "they want
@@ -622,7 +622,7 @@ Decisions along the way:
 - SPEC §5/§3/§6 rewritten around the boundary taxonomy + thread-as-atom
   model; blip+transit unified as the two-rung admission filter; resumed-read
   containers closed as subsumed. Full verdict, alternative rule set,
-  amendments, and loose ends: `plans/rules_restructure.md` (ADOPTED). This log's older sections describe the pre-restructure rule
+  amendments, and loose ends: `decisions/rules_restructure.md` (ADOPTED). This log's older sections describe the pre-restructure rule
   names; the rules themselves are unchanged.
 
 ## Post-restructure code review (2026-07-18)
@@ -660,7 +660,7 @@ Decisions along the way:
 - Spec §6 rewritten rules-only (44KB → ~21KB): evidence, history, and
   rejected alternatives moved here; #### subsection anchors added for
   targeted partial reads. Discipline going forward: a new decision lands as
-  2–4 rule sentences + date in the spec, full story in plans/ — never both.
+  2–4 rule sentences + date in the spec, full story in decisions/ — never both.
 
 ## Own-host HIGH chaining (2026-07-19)
 - **The specimen (Scott's morning, 2026-07-19):** composing a thoughtful
@@ -1082,7 +1082,7 @@ ratio is proxy, not fact.
 
 **The rule:** bridge a long gap (VISIT_GAP_MS < gap < AUDIO_BOOKEND_GAP_MS)
 only on gap-audio testimony — the resuming fragment's `audibleSinceTs`
-(capture-side continuity stamp, `plans/capture_design.md`) predates the
+(capture-side continuity stamp, `decisions/capture_design.md`) predates the
 previous fragment's endTime. The tab demonstrably played through the gap.
 No thresholds, no ratios; audibleDominated deleted. Merged visits carry
 their FIRST member's stamp (the fragment that resumed). Old sessions lack

@@ -27,11 +27,11 @@ async function render() {
 // Search (2026-08-06): plain case-insensitive substring match over title +
 // url/host, across every stored session regardless of day — a "find and go"
 // tool, independent of the ribbon's single-day view and thread-assembly
-// (results are raw sessions, not display atoms; see plans/ for the
+// (results are raw sessions, not display atoms; see decisions/ for the
 // ribbon-highlight alternatives this rejected). Multi-word queries require
 // every word present (AND), each word matched against title OR url OR
 // pageText (stage-1 Readability extraction, 2026-08-07 — plain text, search
-// only, never shown in the results row; see plans/).
+// only, never shown in the results row; see decisions/).
 {
   const input = document.getElementById("search");
   const resultsEl = document.getElementById("search-results");

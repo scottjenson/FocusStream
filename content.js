@@ -142,7 +142,7 @@
   // this same page — SPA nav, idle split — can cue again); the background
   // dedupes with the session's `snapped` flag.
   // Page text (stage 1, 2026-08-07 — search prototype, plain text, no
-  // privacy hardening yet; see plans/). Extracted at most once per session,
+  // privacy hardening yet; see decisions/). Extracted at most once per session,
   // on the same trigger as the snapshot (first qualifying heartbeat/cue) so
   // it rides along on a message we're already sending — no extra round
   // trip. Runs Readability against a CLONE of the document (the library

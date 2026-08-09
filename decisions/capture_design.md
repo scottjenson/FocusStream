@@ -42,7 +42,7 @@ file holds the dated decisions and the reasoning — moved out of CLAUDE.md
 - **Blip filter (2026-07-15):** finalize discards sessions <2s with zero
   heartbeats/activity/audible — redirect hops and instant bounces are
   transition machinery, not journey. (The display-time transit filter is the
-  same idea one rung up — see `plans/timeline_design.md`.)
+  same idea one rung up — see `decisions/timeline_design.md`.)
 - **`download` signal** (2026-07-15): `chrome.downloads.onCreated`,
   background-observed — "Save image as…" fires no DOM event, so it does not
   ride the heartbeat. Likely the strongest single intent signal.
@@ -82,7 +82,7 @@ A single healthy content.js instance is negligible: 8 passive one-statement
 listeners (no scroll-jank path exists), one 10s tick with one tag-name query
 and one layout read. The honest cost ranking is (1) the logging convention,
 (2) everything else — and the logging is load-bearing for debugging, kept
-deliberately. (Full analysis was in `plans/code_review_2026-07-15.md`,
+deliberately. (Full analysis was in `decisions/code_review_2026-07-15.md`,
 retired 2026-07-18 — remaining P2s deliberately not planned; git history has
 the text.)
 
@@ -365,7 +365,7 @@ Fix shape (Scott's ad-flood concern drove the design):
 
 ## Keyboard counting: modifiers + terminal-keystroke evidence (2026-07-24)
 - Trigger: the transit filter's terminal-keystroke discount (full admission
-  story in `plans/timeline_design.md`, transit section). Capture's role is
+  story in `decisions/timeline_design.md`, transit section). Capture's role is
   two changes to what/how keydowns are recorded — judgment stays display-side.
 - **Pure-modifier keydowns don't count** (`Meta`/`Control`/`Alt`/`Shift` as
   `e.key`, top frame and relay frames alike). A lone modifier press is half
@@ -422,7 +422,7 @@ tabs.query({audible:true}) with NOW (true start unknowable — fails
 closed: "now" can never predate an existing gap); entry dies with the tab
 in onRemoved. startSession stamps the value as `audibleSinceTs` on the
 session (stored, survives finalize; fallback to now when tab.audible but
-no entry). Display use: `plans/timeline_design.md` (gap-audio bridge).
+no entry). Display use: `decisions/timeline_design.md` (gap-audio bridge).
 Additive schema — old data simply never long-bridges; no history wipe
 needed.
 
@@ -579,7 +579,7 @@ with 45 minutes of heads-down work in another app, invisible to a
 Chrome-extension-only sensor by construction. Full design discussion (the
 reframe from "capture sleep/wake" to "capture OS lock state," and the
 scope/privacy question that came with it) lives in
-`plans/timeline_design.md` under "Fence reinstated + lock-aware merge gap"
+`decisions/timeline_design.md` under "Fence reinstated + lock-aware merge gap"
 — this entry covers the capture-side mechanism only.
 
 **Why `locked`, not `idle`/`active`.** `chrome.idle` exposes three states.
@@ -593,7 +593,7 @@ not an inference. Only `locked` transitions are captured — `idle`/`active`
 are never read, and `chrome.idle.queryState()` (the polling half of the
 API) is never called. This keeps the addition narrowly scoped to the one
 signal that's actually new information, per the philosophy note in the
-sibling plans/ entry: the extension observes the machine, not the person,
+sibling decisions/ entry: the extension observes the machine, not the person,
 and only for exactly as long as it takes to settle a display-time
 judgment already being made from weaker evidence.
 

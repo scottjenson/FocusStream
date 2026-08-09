@@ -10,7 +10,7 @@ const log = (...args) => console.log("[FS bg]", ...args);
 // Loaded early: shared/transit.js is the single source of truth for the
 // admission predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one
 // heartbeat window" constant reused below instead of a second local copy
-// (rules audit, 2026-08-06 — plans/rules_restructure2.md).
+// (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl").
 importScripts("shared/transit.js");
 
 // SPA URL changes arriving faster than this are view-state churn (map pans,

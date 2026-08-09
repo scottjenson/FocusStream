@@ -68,7 +68,7 @@
   // the context never ended while the user was off on a whiteboard
   // (spec §6 containers).
   // Currently equals FENCE_BRIDGE_GAP_MS below by coincidence, not by
-  // reference (rules audit, 2026-08-06 — plans/rules_restructure2.md):
+  // reference (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"):
   // this is a fact about the TAB (its audio never stopped); the fence
   // constant is a fact about the USER (how long a break reads as leaving
   // the machine). Keep them independently tunable — retune one without
@@ -83,7 +83,7 @@
   // fragments) but tighter than AUDIO_BOOKEND_GAP_MS (no audio evidence
   // requirement at this level) — no natural cliff in a week's gap
   // distribution (9s–29min, smooth), so this is a judgment call pending
-  // more data (story: plans/timeline_design.md).
+  // more data (story: decisions/timeline_design.md).
   const CONTAINER_CHAIN_GAP_MS = 10 * 60 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
@@ -1432,7 +1432,7 @@
   // it), refreshed each paint from bars[0]. mousemove tests the cursor
   // against this instead of relying on any DOM ancestor/descendant
   // relationship, since fence member blocks stay flat siblings under
-  // #ribbon (no reparenting — see plans/timeline_design.md hover-fence
+  // #ribbon (no reparenting — see decisions/timeline_design.md hover-fence
   // entry for why: reparenting would fight the zoom path, which repaints on
   // every wheel tick via paint() directly, and the .transient sweep that
   // rebuilds plates/bars each paint would delete persisted block nodes
@@ -1673,7 +1673,7 @@
     }
   }
 
-  // --- Custom tooltip (spec §6, plans/snapshot_implementation.md Part 1).
+  // --- Custom tooltip (spec §6, decisions/snapshot_implementation.md Part 1).
   // Native title tooltips have uncontrollable warm-up timing (~1s cold,
   // near-instant warm, any click resets it) — so ribbon elements carry
   // data-tip instead, shown by one delegated timer at a uniform delay.
@@ -1947,7 +1947,7 @@
     // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
     // again, with two independent split rules (clusterEvents: a recorded
     // lock interval unconditionally splits; otherwise FENCE_IMPLIED_BREAK_MS
-    // gates bridging) — see plans/timeline_design.md for why. lastLockIntervals
+    // gates bridging) — see decisions/timeline_design.md for why. lastLockIntervals
     // is read directly (closure) rather than threaded as a paint() param,
     // since relayout() (zoom) calls paint() without re-fetching data.
     const items = clusterEvents(events, lastLockIntervals);
