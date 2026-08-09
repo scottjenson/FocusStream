@@ -158,10 +158,17 @@
   const FENCE_IMPLIED_BREAK_MS = 60 * 60 * 1000;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
   // Space above the band for HIGH-run labels (spec §6, 2026-08-08 revival):
-  // horizontal, single line — one line-height (16px) plus clearance from the
-  // band ceiling. Down from the old 170px rotated-title strip; rotation
-  // (and the space it needed) is retired along with the MEDIUM+ gate.
+  // horizontal, single line — one line-height (16px). Down from the old
+  // 170px rotated-title strip; rotation (and the space it needed) is
+  // retired along with the MEDIUM+ gate.
   const TITLE_AREA = 24;
+  // Gap between the label's own bottom edge and the block top (2026-08-09):
+  // the label was originally coded bottom-flush against TITLE_AREA (zero
+  // gap by design) — two earlier attempts to add clearance by growing
+  // TITLE_AREA only pushed the whole label+block pair down together and
+  // never separated them. This constant is subtracted from the label's
+  // `top` instead, so it alone moves up while the block stays put.
+  const LABEL_GAP = 6;
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
   // expand bars snug under the band, then a clear gap, then ticks + labels.
   const TICK_TOP = 16; // band bottom → tick/label lane (expand-bar hit zone fills the gap)
@@ -1741,16 +1748,19 @@
   }
 
   // Quick label (spec §6, 2026-08-08): hovering a LOW/MEDIUM block shows its
-  // site name INSTANTLY, styled exactly like a narrow HIGH-run title
-  // (reuses .rtitle) — lets a run of small blocks be swept by eye without
+  // site name INSTANTLY, styled like a HIGH-run title (reuses the shared
+  // .rtitle look) — lets a run of small blocks be swept by eye without
   // waiting out TIP_DELAY_MS per block. HIGH blocks are skipped; they
   // already carry a persistent .rtitle (data-run-labeled marks coverage,
   // set in the run-title render pass), and showing both would duplicate.
+  // Deliberately omits .rtitle-clip: unlike the persistent run title, only
+  // one quick label is ever on screen, so it has no sibling to collide with
+  // and is allowed to overflow the ribbon/viewport edge rather than clip.
   const quickLabel = document.createElement("div");
   quickLabel.id = "quicklabel";
   quickLabel.className = "rtitle";
   quickLabel.hidden = true;
-  quickLabel.style.top = TITLE_AREA - 16 + "px";
+  quickLabel.style.top = TITLE_AREA - 16 - LABEL_GAP + "px";
   quickLabel.style.color = HIGH_RIM;
   document.getElementById("ribbon").appendChild(quickLabel);
 
@@ -1769,14 +1779,6 @@
         quickLabel.textContent = el._tipData.siteName;
         const left = parseFloat(el.style.left) || 0;
         quickLabel.style.left = left + "px";
-        // Unlike a HIGH run's persistent title, only one quick label is ever
-        // on screen at a time — it has no neighbor to collide with, so it
-        // never needs to truncate against sibling blocks. The ribbon's own
-        // right edge is the only real boundary (keeps it from spilling off
-        // the timeline for a block hovered near the end).
-        const ribbonEl2 = document.getElementById("ribbon");
-        const ribbonW = parseFloat(ribbonEl2.style.width) || ribbonEl2.offsetWidth;
-        quickLabel.style.maxWidth = Math.max(0, ribbonW - left) + "px";
         quickLabel.hidden = false;
       }
       const px = ev.clientX;
@@ -2196,12 +2198,12 @@
       const fresh = !el;
       if (fresh) {
         el = document.createElement("div");
-        el.className = "rtitle";
+        el.className = "rtitle rtitle-clip";
         el.style.opacity = "0";
-        // Bottom-flush against the band ceiling, one line-height (16px,
-        // fixed in CSS) tall, with a few px of clearance above the tallest
-        // (HIGH) block.
-        el.style.top = TITLE_AREA - 16 + "px";
+        // One line-height (16px, fixed in CSS) tall, offset up from the
+        // band ceiling by LABEL_GAP so its bottom edge doesn't touch the
+        // tallest (HIGH) block.
+        el.style.top = TITLE_AREA - 16 - LABEL_GAP + "px";
         ribbon.appendChild(el);
         titleEls.set(run.key, el);
       }

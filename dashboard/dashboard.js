@@ -24,8 +24,6 @@ async function render() {
   await renderCount();
 }
 
-document.getElementById("refresh").addEventListener("click", render);
-
 // Search (2026-08-06): plain case-insensitive substring match over title +
 // url/host, across every stored session regardless of day — a "find and go"
 // tool, independent of the ribbon's single-day view and thread-assembly
