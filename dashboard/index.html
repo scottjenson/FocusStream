@@ -163,7 +163,7 @@
        perpetually chase a moving target through a 300ms ease, reading as
        laggy smear instead of a crisp real-time zoom) — #ribbon.zooming
        (toggled in JS for the gesture's duration) suspends it. */
-    #ribbon.zooming .blk { transition: none; }
+    #ribbon.zooming .blk, #ribbon.zooming .rtitle { transition: none; }
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred). */
     .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
@@ -208,17 +208,28 @@
       font-size: 12px;
       font-variant-numeric: tabular-nums;
     }
+    /* HIGH-run label (spec §6, 2026-08-08 revival): horizontal, left-
+       anchored at the run's own block, clipped by JS-computed maxWidth
+       (timeline.js: available space before the next HIGH run's anchor or
+       the ribbon edge) rather than the block's own width — it may overflow
+       across unlabeled LOW/MEDIUM neighbors. Ellipsis, never wrap. */
     .rtitle {
       position: absolute;
       font-size: 14px;
-      line-height: 16px; /* fixed: timeline.js anchors label bottoms with it */
+      line-height: 16px;
       white-space: nowrap;
-      transform: rotate(-90deg);
-      transform-origin: 0 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
       /* Glide with the blocks (same 0.3s as .blk); opacity handles the
          fade-in of fence-member titles and the fade-out of departed ones. */
       transition: left 0.3s, opacity 0.3s;
     }
+    /* Quick label (spec §6, 2026-08-08): the single reused hover element is
+       repositioned on every pointerover, never persists across a render —
+       it must snap, not glide, or a fast sweep across blocks reads as
+       lagging behind the cursor. Same override pattern as
+       #ribbon.zooming .rtitle below (a named case, not a separate class). */
+    #quicklabel { transition: none; }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it
        can never steal the hover that opened it. */

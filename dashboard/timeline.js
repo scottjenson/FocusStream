@@ -157,15 +157,24 @@
   // data yet to tune against — WATCHLIST.md).
   const FENCE_IMPLIED_BREAK_MS = 60 * 60 * 1000;
   const MIN_RUN = 1; // even a lone low fences (2026-07-16: opinionated demoting)
-  const TITLE_AREA = 170; // space above the band for rotated run titles
+  // Space above the band for HIGH-run labels (spec §6, 2026-08-08 revival):
+  // horizontal, single line — one line-height (16px) plus clearance from the
+  // band ceiling. Down from the old 170px rotated-title strip; rotation
+  // (and the space it needed) is retired along with the MEDIUM+ gate.
+  const TITLE_AREA = 24;
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
   // expand bars snug under the band, then a clear gap, then ticks + labels.
   const TICK_TOP = 16; // band bottom → tick/label lane (expand-bar hit zone fills the gap)
   const TICK_H = 12;
   const AXIS_AREA = 46;
-  const TITLE_CLEARANCE = 20; // min horizontal px between rotated title anchors
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
-  const TITLE_MAX_CHARS = 20;
+  // Left-anchored label sizing (spec §6, 2026-08-08 revival): a HIGH run's
+  // label starts at its block's left edge and may overflow rightward across
+  // LOW/MEDIUM neighbors (unlabeled space) but stops at the next HIGH run's
+  // own anchor, or the ribbon's right edge. TITLE_MIN_W is the floor below
+  // which even an ellipsis doesn't fit, so the label is dropped rather than
+  // rendered as a meaningless sliver.
+  const TITLE_MIN_W = 24;
   // Week strip (spec §6, 2026-07-17): a cell is the ribbon's TOP EDGE — the
   // importance contour — on LINEAR time. LOW/MEDIUM both match HIGH (spec
   // §6, 2026-08-07 second pass, same rationale as the main ribbon's
@@ -1162,9 +1171,10 @@
   }
 
   // Consecutive same-host segments, for titling only. bestScore tracks the
-  // strongest label-worthy member: MEDIUM+ blocks, plus members of an OPEN
-  // fence (spec §6 fence-open relaxation — collapsed sticks stay ineligible,
-  // so a closed fence can never make its run label-worthy).
+  // strongest label-worthy member: HIGH blocks only (spec §6, 2026-08-08
+  // revival) — fewer, wider runs than the old MEDIUM+ gate, which is what
+  // makes horizontal (non-rotated) labels fit at all. Collapsed fence
+  // sticks stay ineligible regardless of the member's own band.
   // Absence splits runs (2026-07-18, same constant as fences): morning and
   // evening Gmail clusters with nothing rendered between them are ADJACENT
   // in seg order, and an unsplit run centered its label over the 8-hour
@@ -1172,7 +1182,7 @@
   function groupRuns(segs) {
     const runs = [];
     for (const seg of segs) {
-      const labelWorthy = seg.band !== "low" || (seg.clusterKey != null && !seg.collapsed);
+      const labelWorthy = seg.band === "high" && !seg.collapsed;
       const memberScore = labelWorthy ? Math.max(seg.e.score, 1) : 0;
       // Runs join on the LABEL key, not the host (spec §6, 2026-07-25):
       // on a label-split host a Search run and a Maps run must answer to
@@ -1183,6 +1193,7 @@
         last.end = seg.x + seg.w;
         last.lastEnd = seg.e.endTime;
         last.bestScore = Math.max(last.bestScore, memberScore);
+        last.members.push(seg.key);
       } else {
         runs.push({
           // Stable identity across expand/collapse (the first member's seg
@@ -1195,6 +1206,11 @@
           end: seg.x + seg.w,
           lastEnd: seg.e.endTime,
           bestScore: memberScore,
+          // Member seg keys (quick-label hover, 2026-08-08): lets the
+          // instant per-block hover label skip blocks a persistent HIGH-run
+          // title already covers, without re-deriving run membership on
+          // every hover.
+          members: [seg.key],
         });
       }
     }
@@ -1349,20 +1365,45 @@
     return names;
   }
 
-  // Labels are importance-gated (spec §6): only runs holding a MEDIUM+ block
-  // earn a title — LOW never labels; tooltips carry the rest. (Desktop4's
-  // "first occurrence always titles" is deleted: it assumed ~6 apps, not the
-  // web's 20+ hostnames per session, and firsts bypassed collision checks.)
-  // Remaining collisions resolve by score: higher wins, loser is dropped —
+  // Labels are importance-gated (spec §6, 2026-08-08 revival): only runs
+  // holding a HIGH block earn a title — MEDIUM/LOW never label; tooltips
+  // carry the rest. HIGH runs are naturally fewer and wider than the old
+  // MEDIUM+ gate, which is what makes a horizontal (unrotated) label fit.
+  //
+  // Left-anchored width, not symmetric clearance: a run's label starts at
+  // its own left edge and is allowed to run rightward OVER unlabeled
+  // LOW/MEDIUM space, stopping only at the next HIGH run's left edge (its
+  // anchor point — reserving that space regardless of whether the neighbor
+  // ultimately keeps its own label) or the ribbon's right edge. This is
+  // computed in x-order (spatial neighbor), independent of the score-order
+  // pass below that decides which labels survive at all.
+  //
+  // Runs below TITLE_MIN_W are dropped outright — a sliver too narrow for
+  // even an ellipsis is worse than no label. Remaining collisions (two
+  // adjacent HIGH runs each too narrow even after claiming their full
+  // available width) resolve by score: higher wins, loser is dropped —
   // never nudged, since a nudged label misaligns with its block.
-  function titleRuns(runs) {
-    const candidates = runs
-      .filter((r) => r.bestScore > 0)
+  function titleRuns(runs, totalWidth) {
+    const byX = runs.filter((r) => r.bestScore > 0).sort((a, b) => a.start - b.start);
+    const withWidth = byX.map((r, i) => {
+      const nextStart = i + 1 < byX.length ? byX[i + 1].start : totalWidth;
+      return { ...r, maxW: Math.max(0, nextStart - r.start) };
+    });
+    const candidates = withWidth
+      .filter((r) => r.maxW >= TITLE_MIN_W)
       .sort((a, b) => b.bestScore - a.bestScore);
     const placed = [];
     for (const run of candidates) {
-      if (placed.some((p) => Math.abs(p.center - run.center) < TITLE_CLEARANCE)) continue;
-      placed.push(run);
+      // A later-placed (lower-score) run may have its available width eaten
+      // by an already-placed neighbor's anchor — re-clamped here rather
+      // than trusting the original x-order maxW once collisions are in play.
+      const nextAnchor = placed
+        .map((p) => p.start)
+        .filter((x) => x > run.start)
+        .reduce((min, x) => Math.min(min, x), run.start + run.maxW);
+      const maxW = nextAnchor - run.start;
+      if (maxW < TITLE_MIN_W) continue;
+      placed.push({ ...run, maxW });
     }
     return placed;
   }
@@ -1699,12 +1740,45 @@
     if (TIP_DEBUG) line("tip-debug", d.debug.join("\n"));
   }
 
+  // Quick label (spec §6, 2026-08-08): hovering a LOW/MEDIUM block shows its
+  // site name INSTANTLY, styled exactly like a narrow HIGH-run title
+  // (reuses .rtitle) — lets a run of small blocks be swept by eye without
+  // waiting out TIP_DELAY_MS per block. HIGH blocks are skipped; they
+  // already carry a persistent .rtitle (data-run-labeled marks coverage,
+  // set in the run-title render pass), and showing both would duplicate.
+  const quickLabel = document.createElement("div");
+  quickLabel.id = "quicklabel";
+  quickLabel.className = "rtitle";
+  quickLabel.hidden = true;
+  quickLabel.style.top = TITLE_AREA - 16 + "px";
+  quickLabel.style.color = HIGH_RIM;
+  document.getElementById("ribbon").appendChild(quickLabel);
+
+  function hideQuickLabel() {
+    quickLabel.hidden = true;
+  }
+
   {
     const ribbonEl = document.getElementById("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
       hideTip();
+      hideQuickLabel();
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
+      if (el._tipData && el.dataset.runLabeled !== "1") {
+        quickLabel.textContent = el._tipData.siteName;
+        const left = parseFloat(el.style.left) || 0;
+        quickLabel.style.left = left + "px";
+        // Unlike a HIGH run's persistent title, only one quick label is ever
+        // on screen at a time — it has no neighbor to collide with, so it
+        // never needs to truncate against sibling blocks. The ribbon's own
+        // right edge is the only real boundary (keeps it from spilling off
+        // the timeline for a block hovered near the end).
+        const ribbonEl2 = document.getElementById("ribbon");
+        const ribbonW = parseFloat(ribbonEl2.style.width) || ribbonEl2.offsetWidth;
+        quickLabel.style.maxWidth = Math.max(0, ribbonW - left) + "px";
+        quickLabel.hidden = false;
+      }
       const px = ev.clientX;
       const py = ev.clientY;
       const seq = tipSeq;
@@ -1748,8 +1822,14 @@
         tip.style.top = top + "px";
       }, TIP_DELAY_MS);
     });
-    ribbonEl.addEventListener("pointerout", hideTip);
-    ribbonEl.addEventListener("pointerdown", hideTip);
+    ribbonEl.addEventListener("pointerout", () => {
+      hideTip();
+      hideQuickLabel();
+    });
+    ribbonEl.addEventListener("pointerdown", () => {
+      hideTip();
+      hideQuickLabel();
+    });
   }
 
   // Horizontal zoom (spec §6, 2026-08-08): vertical wheel/trackpad motion
@@ -2098,13 +2178,68 @@
       else lastLabelRight = m.x + w / 2;
     }
 
-    // On-block run labels are retired (spec §6, 2026-08-07): the favicon is
-    // the identity signal now. titleRuns/groupRuns (the invariant-name-run
-    // grouping machinery) and titleEls stay defined but uncalled here, kept
-    // for a possible future surface rather than deleted.
+    // HIGH-run labels, revived horizontal (spec §6, 2026-08-08): retired
+    // 2026-08-07 in favor of favicon-only identity, brought back gated to
+    // HIGH runs only (rare/wide enough that a horizontal line fits, unlike
+    // the old MEDIUM+ rotated strip). Persistent titles (2026-07-17): an
+    // existing title GLIDES to its new left in sync with the blocks; a
+    // brand-new one fades in; a departed one fades out.
+    const liveTitles = new Set();
+    // Blocks a persistent run title already covers (quick-label hover,
+    // 2026-08-08): the instant per-block label skips these, so a HIGH
+    // block never shows two overlapping labels.
+    const runLabeledKeys = new Set();
+    for (const run of titleRuns(groupRuns(segs.filter((s) => !s.contained)), total)) {
+      liveTitles.add(run.key);
+      for (const memberKey of run.members) runLabeledKeys.add(memberKey);
+      let el = titleEls.get(run.key);
+      const fresh = !el;
+      if (fresh) {
+        el = document.createElement("div");
+        el.className = "rtitle";
+        el.style.opacity = "0";
+        // Bottom-flush against the band ceiling, one line-height (16px,
+        // fixed in CSS) tall, with a few px of clearance above the tallest
+        // (HIGH) block.
+        el.style.top = TITLE_AREA - 16 + "px";
+        ribbon.appendChild(el);
+        titleEls.set(run.key, el);
+      }
+      el.style.left = Math.round(run.start) + "px";
+      el.style.maxWidth = Math.round(run.maxW) + "px";
+      el.style.color = HIGH_RIM;
+      const name = hostNames.get(run.labelKey) || run.host;
+      el.textContent = name;
+      if (fresh) {
+        // Zoom churns runs in/out of eligibility every rAF tick — forcing a
+        // sync layout per fresh title (to commit opacity:0 before flipping
+        // it) on top of that is exactly the kind of per-frame cost that
+        // reads as laggy. During zoom, skip the fade choreography and snap
+        // straight to visible, matching .blk's own zoom behavior (no
+        // transition at all, per #ribbon.zooming above).
+        if (ribbon.classList.contains("zooming")) {
+          el.style.opacity = "1";
+        } else {
+          // Commit the opacity-0 state before flipping it, so the fade
+          // transition actually runs instead of the style batching to 1.
+          el.getBoundingClientRect();
+          el.style.opacity = "1";
+        }
+      }
+    }
     for (const [key, el] of titleEls) {
+      if (liveTitles.has(key)) continue;
       titleEls.delete(key);
-      el.remove();
+      if (ribbon.classList.contains("zooming")) {
+        el.remove();
+      } else {
+        el.style.opacity = "0";
+        el.addEventListener("transitionend", () => el.remove(), { once: true });
+        setTimeout(() => el.remove(), 500);
+      }
+    }
+    for (const [key, el] of blockEls) {
+      el.dataset.runLabeled = runLabeledKeys.has(key) ? "1" : "";
     }
 
     // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
