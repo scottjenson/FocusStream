@@ -110,7 +110,84 @@
   // second pass) made adjacent events run together with only fill/border to
   // separate them; a height step gives HIGH a second, stronger signal.
   // MEDIUM and LOW still share one height (fill/border is what splits them).
+  // Dormant since the Stage 1 stack-ribbon rewrite (plans/stack-ribbon.md)
+  // — kept, not deleted, as the fallback block-ribbon layout's own sizing;
+  // CARD_TIER_H below is what the live card layout actually reads.
   const TIER_H = { high: 144, medium: 108, low: 108 };
+
+  // --- Stack-ribbon card layout (plans/stack-ribbon.md Stage 1,
+  // 2026-08-11): replaces width-as-duration with height-as-tier. Cards are
+  // laid out left-to-right in chronological order with no gap-as-absence
+  // scaling (explicitly dropped for Stage 1 — see the plan doc's
+  // "X-axis/gaps" discussion) and no hour axis. Three REAL heights — the
+  // point of this stage is legible screenshots, so HIGH is picked large
+  // enough to read a page at a glance; MEDIUM/LOW step down by thirds
+  // rather than repeating the old two-tier collapse.
+  const CARD_TIER_H = { high: 260, medium: Math.round((260 * 2) / 3), low: Math.round(260 / 3) };
+  // Width scales WITH height, one fixed aspect ratio (2026-08-11 fix,
+  // Scott's catch): a fixed CARD_W with per-tier height made LOW/MEDIUM/
+  // HIGH three DIFFERENTLY-SHAPED rectangles (2.53 / 1.27 / 0.85 w:h) —
+  // rotating different-shaped boxes by the identical rotateY() angle
+  // legitimately produces different-looking trapezoids (confirmed with an
+  // isolated test: the matrix and convergence RATIO were provably
+  // identical, but the shapes going in weren't, so the shapes coming out
+  // weren't either). CARD_ASPECT matches the real snapshot capture's own
+  // shape (640×342, measured off real stored data — shared/… captures at
+  // 640px width) so a card is never stretched/cropped away from what the
+  // page actually looked like, and — the actual fix — every tier is now
+  // the SAME rectangle at 3 different sizes, so identical rotation reads
+  // as identical rotation.
+  const CARD_ASPECT = 640 / 342;
+  const CARD_TIER_W = Object.fromEntries(
+    Object.entries(CARD_TIER_H).map(([band, h]) => [band, Math.round(h * CARD_ASPECT)])
+  );
+  // Swivel (Stage Manager-ish, 2026-08-11 deepened per Scott's "dominoes"
+  // framing): EACH card rotates independently around its OWN left edge —
+  // there is no shared deck anchor. rotateY(CARD_SWIVEL_DEG) (positive —
+  // 2026-08-11 correction: negative had the left edge receding and the
+  // right edge frontmost, backwards) around transform-origin: left keeps
+  // the card's own left edge frontmost and swings its RIGHT edge back in
+  // Z, which both (a) foreshortens its own projected width to well under 50%
+  // of
+  // CARD_W (cos(65°) ≈ 0.42) and (b) is what makes tight left-edge spacing
+  // read as a physical overlapping stack rather than cards floating apart
+  // — CARD_STEP (how far each card's own left edge sits from the previous
+  // one) is deliberately narrower than the foreshortened width, so a card
+  // visually overlaps/obscures the start of its neighbor (magnify-on-hover,
+  // Stage 2, is what un-hides it). Both tuned by eye, not derived.
+  const CARD_SWIVEL_DEG = 65;
+  // Perspective depth, RATIO not a fixed px value (2026-08-11, corrected
+  // AGAIN — see index.html .card comment for the fix history; this was
+  // fix #4 for rotation-consistency, not #3). A large fixed perspective
+  // (an earlier pass tried 8000px) kills convergence almost entirely —
+  // cards read as horizontally SQUASHED rather than rotated (Scott's
+  // catch: "no skewing... don't look like rotated cards at all"). A SHORT
+  // fixed perspective (900px, the previous value here) does give every
+  // card an IDENTICAL PROJECTED WIDTH regardless of tier (verified
+  // empirically) — but width was the wrong thing to verify: it does NOT
+  // give every card the same VERTICAL convergence ratio (far edge length ÷
+  // near edge length), because a taller box's far corners sit at a larger
+  // absolute Z at the same rotation angle, and Z ÷ a FIXED perspective
+  // distance is what actually drives foreshortening — bigger box, bigger
+  // Z, more foreshortening, even though the rotation angle and projected
+  // width both matched. This is what Scott's screenshot caught: HIGH
+  // converged hard (far edge ≈67% of near edge) while LOW barely converged
+  // at all (≈86%) — confirmed by hand-deriving the CSS perspective-
+  // projection formula, not by eye. The actual fix: perspective must scale
+  // WITH each card's own height, so the Z÷perspective RATIO — not either
+  // value alone — stays constant across tiers. CARD_PERSPECTIVE_RATIO is
+  // that constant (perspective_px = height × CARD_PERSPECTIVE_RATIO,
+  // computed per-card in paintCards); chosen so HIGH (height 260) lands on
+  // the same 900px this constant used to be fixed at, leaving HIGH's own
+  // look unchanged and correcting LOW/MEDIUM to match it instead.
+  const CARD_PERSPECTIVE_RATIO = 900 / 260;
+  // px between consecutive cards' own left edges — deliberately less than
+  // even the smallest tier's own width (LOW ≈163px post-CARD_ASPECT) so
+  // any tier adjacency still overlaps into a stack. Tightened to a third
+  // (2026-08-11, Scott: "should be lining up on top of each other") — was
+  // 60.
+  const CARD_STEP = 20;
+  const CARD_LABEL_H = 22; // domain-label strip painted on the card face itself (spec §6 old floating .rtitle is NOT used here)
   // Contained children render at one uniform height regardless of band
   // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
   // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
@@ -1145,6 +1222,31 @@
     return { segs, plates, bars, gaps, total: Math.max(cursor - GAP, 0) };
   }
 
+  // --- Card layout (plans/stack-ribbon.md Stage 1, 2026-08-11; rotation/
+  // overlap deepened, then width tied to CARD_ASPECT, same day): flat
+  // left-to-right deck, one card per assembled event (thread/container),
+  // chronological order — the fence/stick and gap-as-absence machinery
+  // above are NOT invoked here (fence code is kept for a possible revert,
+  // per plan doc discussion; this stage explicitly drops absence-as-width).
+  // Height is the tier signal (CARD_TIER_H); width follows it 1:1 via
+  // CARD_ASPECT so every tier is the same shape, just scaled (Scott's
+  // aspect-ratio catch — see CARD_ASPECT above for why). Spacing is
+  // CARD_STEP: each card's own left edge is CARD_STEP from the previous
+  // one, deliberately less than even the SMALLEST tier's width, so the CSS
+  // swivel's foreshortening makes consecutive cards overlap into a stack
+  // regardless of which tiers happen to be adjacent (each card's
+  // independent rotateY around its OWN left edge is what makes this read
+  // as physical overlap rather than misaligned spacing — CARD_SWIVEL_DEG).
+  function cardLayout(events) {
+    const segs = events.map((e, i) => {
+      const h = CARD_TIER_H[e.band];
+      return { e, key: e.id, band: e.band, w: CARD_TIER_W[e.band], h, x: i * CARD_STEP };
+    });
+    const last = segs[segs.length - 1];
+    const total = last ? last.x + last.w : 0;
+    return { segs, total };
+  }
+
   // Ribbon X is NOT linear time (widths are floored), so each whole hour is
   // placed at the time-interpolated X within whichever block was active
   // then. Hours that fell between blocks already own uniform gap slots from
@@ -1775,7 +1877,11 @@
       hideQuickLabel();
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
-      if (el._tipData && el.dataset.runLabeled !== "1") {
+      // Stage 1 cards (plans/stack-ribbon.md) already carry a permanent
+      // on-face domain label (.card-label) — the floating quick label is
+      // the old block-ribbon's substitute for that and would just
+      // duplicate it here, so it's suppressed for .card elements.
+      if (el._tipData && el.dataset.runLabeled !== "1" && !el.classList.contains("card")) {
         quickLabel.textContent = el._tipData.siteName;
         const left = parseFloat(el.style.left) || 0;
         quickLabel.style.left = left + "px";
@@ -1924,7 +2030,7 @@
     renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions));
     lastAssembly = { sessions, dayThreads, hostNames, events };
-    paint(events, hostNames);
+    paintCards(events, hostNames);
     // A real render (new data, day paging, fence toggle — never a zoom
     // relayout, which calls paint() directly) always resets to left-
     // justified (spec §6, 2026-08-08): the day's first event flush against
@@ -2276,12 +2382,150 @@
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
   }
 
+  // --- Card paint (plans/stack-ribbon.md Stage 1, 2026-08-11): the live
+  // paint path. paint() above (block-ribbon: width=duration, fence/stick,
+  // hour axis) is kept dormant, not deleted, per the plan's explicit
+  // "keep the code to the side" direction — this is a different display
+  // mechanism, not a tuning pass on the old one.
+  //
+  // One card per assembled event (thread/container), left-to-right,
+  // chronological, uniform width/spacing (cardLayout). Height is tier
+  // (CARD_TIER_H). Card face = snapshot only, fetched eagerly (unlike the
+  // old lazy hover-only fetch — every card needs its image up front, not
+  // just a hovered one); falls back to a plain tier-fill when no snapshot
+  // exists. Domain label paints on the swiveled card face itself, not the
+  // separate floating .rtitle layer. Containers get a plain corner count
+  // badge — no drop-down shelf (Stage 3). Click-to-open and the existing
+  // hover tooltip stay as the interim interaction model, per the plan.
+  const cardEls = new Map();
+  function paintCards(events, hostNames) {
+    const { segs, total } = cardLayout(events);
+
+    const ribbon = document.getElementById("ribbon");
+    const maxH = Math.max(CARD_TIER_H.high, 1);
+    ribbon.style.width = total + "px";
+    ribbon.style.height = maxH + "px";
+    document.getElementById("ribbon-empty").hidden = segs.length > 0;
+
+    // No hour axis, no gap plates, no fences in Stage 1 — the .transient
+    // sweep still clears any leftover nodes from the old paint() path in
+    // case both ever ran against the same #ribbon (they don't, but this
+    // keeps the DOM honest if that ever changes).
+    ribbon.querySelectorAll(".transient").forEach((el) => el.remove());
+
+    const seen = new Set();
+    const snapFetches = [];
+    for (const s of segs) {
+      seen.add(s.key);
+      let el = cardEls.get(s.key);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "card";
+        const face = document.createElement("div");
+        face.className = "card-face";
+        const img = document.createElement("img");
+        img.className = "card-img";
+        img.alt = "";
+        img.hidden = true;
+        const label = document.createElement("div");
+        label.className = "card-label";
+        const badge = document.createElement("div");
+        badge.className = "card-badge";
+        badge.hidden = true;
+        face.append(img, label, badge);
+        el.appendChild(face);
+        el._img = img;
+        el._label = label;
+        el._badge = badge;
+        ribbon.appendChild(el);
+        cardEls.set(s.key, el);
+      }
+      // Bottom-flush within the max tier height, left-to-right at uniform
+      // spacing — the swivel transform (CSS) rotates off the card's own
+      // left edge, so position here is the pre-swivel box.
+      el.style.left = Math.round(s.x) + "px";
+      el.style.top = maxH - s.h + "px";
+      el.style.width = s.w + "px";
+      el.style.height = s.h + "px";
+      // perspective lives on .card (the rotated element's PARENT), scaled
+      // to THIS card's own height (CARD_PERSPECTIVE_RATIO comment above) so
+      // the vertical convergence ratio — not just the rotation angle or
+      // projected width — reads the same regardless of tier; origin pinned
+      // to the same left edge the rotation itself is anchored to.
+      el.style.perspective = Math.round(s.h * CARD_PERSPECTIVE_RATIO) + "px";
+      el.style.perspectiveOrigin = "left center";
+      const face = el.firstChild;
+      face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+      face.style.background = TIER_FILL[s.band];
+      face.style.borderColor = s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
+      el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
+
+      const siteName = hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host;
+      el._label.textContent = siteName;
+
+      const childCount = s.e.children ? s.e.children.length : 0;
+      el._badge.hidden = !childCount;
+      if (childCount) el._badge.textContent = String(childCount);
+
+      // Snapshot: eager fetch (Stage 1 needs every visible card's image up
+      // front, not just a hovered one — spec §6's lazy tooltip fetch stays
+      // for the tooltip path below, this is a separate eager one for the
+      // card face). Best-scoring member that HAS a picture wins, same rule
+      // as the tooltip. Skip the fetch if we already resolved this card's
+      // image in a prior paint (img.dataset.snapKey matches).
+      const snapKey = (s.e.snapIds || [s.e.id]).join(",");
+      if (el._img.dataset.snapKey !== snapKey) {
+        el._img.dataset.snapKey = snapKey;
+        el._img.hidden = true;
+        el._img.removeAttribute("src");
+        const ids = (s.e.snapIds || [s.e.id]).filter(Boolean);
+        if (ids.length) snapFetches.push({ img: el._img, ids });
+      }
+
+      // Tooltip stays the interim interaction model (plan Stage 1 scope).
+      el.dataset.tip = "";
+      el._tipData = tipDataOf(s.e, siteName, null);
+      el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
+
+      el.onclick = () => chrome.tabs.create({ url: s.e.url });
+    }
+    for (const [key, el] of cardEls) {
+      if (!seen.has(key)) {
+        el.remove();
+        cardEls.delete(key);
+      }
+    }
+
+    // Batch the eager snapshot fetch in one storage.local.get (Stage 1: a
+    // busy day can be 30-50+ cards, so one call beats one per card).
+    if (snapFetches.length) {
+      const allKeys = [...new Set(snapFetches.flatMap((f) => f.ids.map((id) => "snap:" + id)))];
+      chrome.storage.local
+        .get(allKeys)
+        .then((r) => {
+          for (const { img, ids } of snapFetches) {
+            const stored = ids.map((id) => r["snap:" + id]).find(Boolean);
+            if (!stored || img.dataset.snapKey !== ids.join(",")) continue; // stale by the time this resolved
+            img.src = stored;
+            img.decode().then(() => { img.hidden = false; }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+
+    log(`rendered ${segs.length} cards, ${total}px wide`);
+  }
+
   // Zoom relayout (spec §6, 2026-08-08): re-paints from the CACHED
   // assembly — no thread/container work — so a scroll-wheel zoom stays
   // cheap enough to run every frame. No-op before the first real render.
+  // Stage 1's card layout doesn't scale with zoom (uniform width/spacing,
+  // no PX_PER_SEC dependency) — relayout still short-circuits through
+  // paintCards so a stray wheel event repaints harmlessly rather than
+  // erroring, but visually nothing changes with zoom level.
   function relayout() {
     if (!lastAssembly) return;
-    paint(lastAssembly.events, lastAssembly.hostNames);
+    paintCards(lastAssembly.events, lastAssembly.hostNames);
   }
 
   window.renderTimeline = render;

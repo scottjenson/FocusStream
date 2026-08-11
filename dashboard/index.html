@@ -192,6 +192,120 @@
       height: 16px;
       pointer-events: none;
     }
+    /* Stack-ribbon cards (plans/stack-ribbon.md Stage 1, 2026-08-11):
+       replaces the block ribbon above as the LIVE paint path (timeline.js
+       paintCards) — .blk/.plate/.gap/.tick/.hlabel/.rtitle rules above stay
+       defined but unused, kept for a possible revert per the plan's
+       explicit "keep the code, don't delete it" direction.
+       .card is the layout box (left/top/width/height, no visual paint of
+       its own); .card-face is what actually swivels and draws — splitting
+       them keeps the perspective transform from fighting the positioning
+       math (a transformed element's own left/top would be measured
+       post-transform, which is not what cardLayout computes). */
+    .card {
+      position: absolute;
+      cursor: pointer;
+      /* Per-card perspective, fix history (2026-08-11, FOUR rounds — see
+         plans/stack-ribbon.md "Stage 1 build log" for the compact version):
+         (1) shared perspective on #ribbon put the vanishing point at the
+         scrolling DAY's horizontal center, not the viewport — cards raked
+         harder toward the ribbon's true center the further left they sat.
+         (2) per-card perspective, origin pinned "left center" instead of
+         the 50%/50% default — correct, but a follow-up pass misdiagnosed
+         its OWN correct output: saw HIGH cards apparently raking harder
+         than LOW/MEDIUM and "fixed" it by pushing perspective to 8000px.
+         (3) that "fix" was itself wrong — 8000px reads as a horizontally
+         SQUASHED rectangle (Scott's "don't look like rotated cards" catch);
+         an isolated test showed the ORIGINAL 900px already gave identical
+         PROJECTED WIDTH across tiers — but width was the wrong invariant to
+         check. (4) real bug, found by hand-deriving the actual CSS
+         perspective-projection formula rather than measuring in the
+         browser again: a card's far (right) corners sit at a Z distance
+         proportional to the card's OWN SIZE at a given rotation angle, and
+         foreshortening depends on Z ÷ perspective — so one FIXED
+         perspective value (900px) inevitably gives a bigger card MORE
+         vertical convergence than a smaller one, even though both rotate
+         by the identical angle and even project the identical WIDTH. This
+         is what Scott's screenshot caught (HIGH converging hard, LOW
+         reading almost flat). Fix: perspective must scale WITH each card's
+         own height (CARD_PERSPECTIVE_RATIO, timeline.js — perspective_px =
+         height × ratio, computed per card in paintCards) so the Z÷
+         perspective RATIO, not either value alone, stays constant across
+         tiers. Still real rotateY()+perspective (not a skew/scaleX fake),
+         since Stage 2/3 is expected to animate cards toward/away from flat
+         and through Z on hover, and only true transform primitives compose
+         with that cleanly. Later (rightward/later-in-time) cards are LATER
+         DOM siblings, so they paint on top of the rotated-back right edge
+         of their predecessor by default stacking order — that's what
+         produces the physical "stack of cards" overlap read, no z-index
+         needed as long as paintCards keeps appending in chronological
+         order (it does). perspective/perspective-origin are set inline by
+         timeline.js alongside the rotation — see CARD_PERSPECTIVE_RATIO
+         there. */
+    }
+    .card-face {
+      position: relative;
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      border: 1px solid;
+      border-radius: 4px;
+      overflow: hidden;
+      /* rotateY angle is set inline by timeline.js from CARD_SWIVEL_DEG —
+         one source of truth instead of a value duplicated in CSS and JS. */
+      transform-origin: left center;
+      transition: left 0.3s, top 0.3s, width 0.3s, height 0.3s;
+      box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
+    }
+    .card:hover .card-face { filter: brightness(1.12); box-shadow: 0 0 10px 2px rgba(255,255,255,0.3); }
+    .card.earned-high .card-face { border-width: 2px; }
+    .card-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top;
+    }
+    /* Domain label lives ON the swiveled face (spec Stage 1 discussion —
+       replaces the old floating .rtitle layer for cards). Moved to the
+       TOP-left corner (2026-08-11, Scott: legible on the taller/more
+       important cards) — was a bottom strip; with CARD_STEP now tight
+       enough that cards heavily overlap, a bottom label risked sitting
+       under the next (later, higher-z) card's left edge, while the top-left
+       corner is the one area of a card that's never covered by a later
+       sibling (cards are bottom-flush, so a later/shorter card's top edge
+       sits below a taller predecessor's top-left, not over it). */
+    .card-label {
+      position: absolute;
+      left: 0;
+      top: 0;
+      max-width: 100%;
+      padding: 3px 6px;
+      font-size: 12px;
+      color: #fff;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.75), rgba(0,0,0,0));
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+    }
+    /* Container badge (plan Stage 1: plain, non-interactive count only —
+       no drop-down shelf yet, that's Stage 3). */
+    .card-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      min-width: 16px;
+      padding: 1px 4px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 10px;
+      line-height: 14px;
+      text-align: center;
+      pointer-events: none;
+    }
     /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
        expands, so this is purely a mouseenter target now — no click, no
        :active state to imply. */

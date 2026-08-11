@@ -1,17 +1,31 @@
 # Stack Ribbon — staged rewrite plan
 
-**Status:** Stage 0 (verification harness) is DONE and on disk — see below.
-Stage 1 (flat swivel strip) not started; still discussion/design. This is a
-working doc, not a SPEC.md rule — see CLAUDE.md's doc map. When a stage
-ships, its truth moves into `spec/display.md` (+ a `decisions/` story if
-real reasoning was involved) and this file's entry for that stage gets
-struck through or trimmed. When the whole rewrite lands or is abandoned,
-this file goes away.
+**Status:** Stage 0 (harness) DONE. Stage 1 (flat swivel strip) is
+IMPLEMENTED, DEBUGGED, and Scott-approved as a visual baseline ("looks
+like you've got it," 2026-08-11) — see "Stage 1 build log" below for the
+rendering issues worked through to get there. Approval so far is visual/
+structural correctness (the rotation reads right, cards render right);
+the STAGED exit criterion — a felt-browsability verdict from actually
+using it against a real busy day — has not been separately called out yet
+and should be confirmed before treating Stage 1 as fully closed. This is
+a working doc, not a SPEC.md rule — see CLAUDE.md's doc map. Deliberately
+NOT folded into `spec/display.md` yet (Scott, 2026-08-11): this is still
+an experiment: "I don't want you to write it to the existing spec.md
+files. We'll do that later once we've determined that this is correct."
+When a stage ships for real, its truth moves into `spec/display.md` (+ a
+`decisions/` story if real reasoning was involved) and this file's entry
+for that stage gets struck through or trimmed. When the whole rewrite
+lands or is abandoned, this file goes away.
 
-**If resuming cold:** read this whole file, then `testing/README.md` for
-the harness. Nothing about the new ribbon design itself is implemented yet
-— only the ability to screenshot the CURRENT (old) ribbon against real
-data is built. Stage 1 is the first actual design change.
+**If resuming cold:** read this whole file (especially "Stage 1 build log"
+below before touching the rotation/perspective code again — FOUR separate
+rounds happened there before the real cause was found, and the geometry is
+genuinely non-obvious), then `testing/README.md` for the harness. The OLD
+block-ribbon code (`layout()`, `paint()`, `clusterEvents()`/fence-stick,
+hour axis, `TIER_H`) is still in `timeline.js`, fully intact and DORMANT —
+kept per Scott's explicit "keep the code to the side, don't delete it"
+direction, not called by anything live. The LIVE path is
+`cardLayout()`/`paintCards()`, wired in via `render()`/`relayout()`.
 
 ## Why (recap of the discussion, 2026-08-11)
 
@@ -65,10 +79,12 @@ before answering this.
   stacked-edge peek) so children aren't hidden behind a discovery step?
 - High-density behavior (see above) — explicitly deferred to post-Stage-1
   feel testing.
-- Whether width goes fully uniform or stays log-compressed by duration as a
-  secondary, minor signal (not yet decided; Stage 1 should probably try
-  fully uniform first since it's simpler, and add compression back only if
-  flat-uniform feels wrong).
+- ~~Whether width goes fully uniform or stays log-compressed by duration~~
+  — RESOLVED by how Stage 1 was built: width is fully uniform per tier
+  (`CARD_STEP`, unrelated to duration) and card width itself is now driven
+  by `CARD_ASPECT`, not duration either. Duration plays no role in card
+  layout at all as of Stage 1. Revisit only if flat/heavy-overlap feels
+  wrong once Scott has browsed it for real.
 
 ## Stage 0 — Playwright verification harness (2026-08-11) — DONE
 
@@ -117,31 +133,142 @@ not a spec to implement end to end blind.
 
 ### Stage 1 — flat swivel strip (no interaction beyond today's click/hover-tooltip)
 
-Scope:
-- Replace block-width-as-duration with **card height as tier**: three
-  distinct heights for LOW / MEDIUM / HIGH (reintroducing real tier-height
-  separation that §5-6 retired 2026-08-07 — this stage is a deliberate
-  reversal of that call, for a different reason: height is now the
-  *primary* signal, not a redundant one alongside luminance).
-- X-axis: roughly uniform per-card spacing (chronological order preserved,
-  true duration no longer drives width). Confirm during this stage whether
-  fully uniform reads fine or needs light compression.
-- Each card is a screenshot, swiveled backward in Z off a **fixed left
-  edge** (Stage Manager framing) — static angle, no motion/magnify yet.
-- Domain label rendered on the same swiveled plane as the screenshot, not
-  a separate floating layer.
-- Containers render as a plain, non-interactive badge on the card (e.g. a
-  count indicator) — no drop-down shelf yet. Children are not browsable in
-  this stage; the container just doesn't lie about being a single event.
-- Existing click-to-open-top-fragment and tooltip behavior can stay as the
-  interim interaction model.
-- Explicitly OUT of scope for Stage 1: magnify-on-hover, container
-  drop-down shelf, high-density compression strategy.
+**Implemented as of 2026-08-11.** Scope, as built (all constants in
+`timeline.js`, grouped near `CARD_TIER_H`):
+- Card height = tier: `CARD_TIER_H = { high: 260, medium: ~173, low: ~87 }`
+  (medium/low are 2/3 and 1/3 of high).
+- Card width = height × `CARD_ASPECT` (640/342, the real snapshot capture's
+  own aspect ratio) — **not** a fixed width. See build log below for why a
+  fixed width was tried first and was wrong.
+- X-axis: uniform per-card spacing, `CARD_STEP = 20` px between consecutive
+  cards' own left edges (chronological order; true duration does not drive
+  width or spacing at all — no log-compression, that open question resolved
+  itself once cards went to heavy overlap). No gap-as-absence scaling, no
+  hour axis — both fully dropped for Stage 1 per Scott's explicit answer
+  ("drop the gap encoding entirely").
+- Each card swivels independently around its OWN left edge (NOT a shared
+  deck anchor — Scott was explicit: "dominoes," each card rotates on its
+  own). `CARD_SWIVEL_DEG = 65`; perspective is `CARD_PERSPECTIVE_RATIO =
+  900/260` (a ratio, NOT a fixed px value — see build log #1d for why a
+  fixed perspective was wrong) applied per-card as `height × ratio`, with
+  `perspective-origin: left center`. Left edge stays frontmost; right edge
+  recedes in Z.
+- Cards overlap heavily (`CARD_STEP` ≪ card width) — later (rightward)
+  cards are later DOM siblings so they paint over the receded right edge
+  of their predecessor for free, no z-index needed.
+- Domain label: top-left corner of the card face (moved there from an
+  initial bottom-strip placement — legible on tall/important cards, never
+  covered by an overlapping neighbor since cards are bottom-flush).
+- Card face = snapshot image ONLY, no favicon. No-snapshot fallback = plain
+  tier-colored fill (`TIER_FILL`, reused from the old block ribbon), no
+  placeholder glyph.
+- Containers: plain non-interactive corner count badge. No drop-down shelf.
+- Existing click-to-open-top-fragment and hover tooltip stay as the interim
+  interaction model, retargeted to `.card` elements. The old floating
+  quick-label is suppressed for cards (redundant with the on-card label).
+- Snapshot fetch is EAGER now, not lazy-on-hover: `paintCards()` batches
+  one `chrome.storage.local.get()` for every visible card's snapshot,
+  since every card needs its image up front, not just a hovered one.
+- Explicitly OUT of scope for Stage 1 (unchanged): magnify-on-hover,
+  container drop-down shelf, high-density compression strategy.
 
-Exit criterion: Scott has browsed a real busy day in this layout and has
-an opinion on whether height-as-tier + swivel cards is more browsable than
-the current fence/stick ribbon. That opinion decides whether Stage 2
-proceeds as planned or the direction gets revised.
+Exit criterion: Scott browses a real busy day in this layout and forms an
+opinion on whether height-as-tier + swivel cards is more browsable than
+the old fence/stick ribbon. Visual/structural correctness is now confirmed
+("looks like you've got it," 2026-08-11) — the felt-browsability verdict
+itself (does this actually work better day-to-day, not just render
+correctly) is the one piece still open, and is what decides whether Stage
+2 proceeds as planned or the direction gets revised.
+
+#### Stage 1 build log — lessons, so they aren't re-learned the hard way
+
+1. **Perspective/rotation took FOUR rounds to get right; the geometry is
+   genuinely subtler than it looks — three were wrong, and the third wrong
+   fix was itself caused by an incomplete verification, not a fresh guess.**
+   Each round confirmed wrong by *measuring* (computed transform matrix,
+   projected bounding-box width AND height, hand-derived CSS perspective
+   formula), not by eyeballing screenshots — eyeballing caused two of the
+   wrong turns, and trusting an INCOMPLETE measurement (width only) caused
+   the fourth bug to ship undetected the first time:
+   a. Shared `perspective` on `#ribbon` (the huge scrolling content box)
+      put the vanishing point at the horizontal center of the whole DAY,
+      not the viewport — cards raked harder the further they sat from that
+      center (Scott: "gets deeper and deeper" toward the right). Fix:
+      perspective must be **per-card**, so a card's angle can't depend on
+      its scroll position at all.
+   b. Per-card perspective with the CSS default `perspective-origin: 50%
+      50%` put the vanishing point at each card's own vertical center — a
+      point that moves per tier since height varies — so top edges weren't
+      parallel across tiers. Fix: pin `perspective-origin: left center`
+      (matches the rotation's own `transform-origin`).
+   c. Believed (wrongly) that a taller box rotated the same `rotateY()`
+      angle inherently foreshortens *more* under finite perspective, and
+      "fixed" it by pushing perspective to 8000px (near-orthographic) —
+      this actually made convergence vanish almost entirely, so cards read
+      as horizontally squashed rectangles, not rotated cards at all
+      (Scott's catch: "no skewing... don't look like rotated cards"). An
+      isolated synthetic test (plain colored divs, no screenshots) proved
+      the ORIGINAL 900px depth already gave identical projected WIDTH
+      across all three tier heights — the "HIGH cards rake harder" read
+      had been the 8000px squashing artifact, not that bug. Reverted to
+      900px.
+   d. A fixed `CARD_W` with per-tier height made LOW/MEDIUM/HIGH three
+      **differently-shaped** rectangles (aspect ratios 2.53 / 1.27 / 0.85).
+      Rotating different shapes by an identical angle legitimately
+      produces different-looking trapezoids. Fix: `CARD_ASPECT` — width
+      now scales with height at one fixed ratio (640/342, matching the
+      real snapshot capture shape) so every tier is the same shape at 3
+      sizes. **Declared fixed at this point on WIDTH-ratio verification
+      alone (constant across tiers) — this was the incomplete check that
+      let round (e) ship as "done."**
+   e. **The actual last bug**, caught only when Scott screenshotted a real
+      HIGH card next to a real LOW card and called it out again: HIGH
+      converged sharply (far edge ≈67% of near edge) while LOW barely
+      converged (≈86%) — the VERTICAL foreshortening ratio, never
+      measured before, was NOT constant across tiers even though the
+      width ratio was. Root cause, confirmed by hand-deriving the CSS
+      perspective-projection formula: a card's far corners sit at a Z
+      distance proportional to the card's OWN SIZE at a fixed rotation
+      angle, and foreshortening is driven by Z ÷ perspective-distance — one
+      FIXED perspective (900px) inevitably gives a bigger box more
+      vertical convergence than a smaller one, independent of the aspect-
+      ratio fix. Fix: perspective must scale WITH each card's own height,
+      not be a fixed px value — `CARD_PERSPECTIVE_RATIO = 900/260`, applied
+      per-card as `height × ratio` in `paintCards`, keeps HIGH's own look
+      unchanged (its height, 260, is what the ratio was calibrated against)
+      while correcting LOW/MEDIUM to match. Verified: both width-ratio AND
+      height-ratio spread are now ~0.000 across all rendered tiers.
+   - **Takeaway for future 3D CSS work here:** (1) when a rotation "looks
+     wrong" across elements of different sizes, check aspect ratio/shape
+     parity FIRST, before touching perspective depth or origin. (2) once
+     shape parity is fixed, perspective ITSELF still needs to scale with
+     element size, not stay a fixed px value, or vertical convergence
+     alone will drift even when everything else measures identical — and
+     (3) a structural check that measures only ONE axis (width) can pass
+     clean while the real defect sits on the other axis (height/vertical
+     convergence) — measure both before calling a rotation bug closed.
+2. **Screenshot resolution vs. HiDPI displays.** Cards now display the full
+   snapshot at up to ~487px CSS width (HIGH tier) instead of the old
+   ~480px tooltip preview. `SNAP_WIDTH` (`background.js`) was still 640,
+   sized for the old, smaller tooltip use case. On a 2x-DPI (Retina/HiDPI)
+   display that's ~970 physical px for a ~485px CSS-wide layout box — the
+   640px source was being visibly upscaled, which read as fuzzy. Confirmed
+   with actual layout-box-physical-px vs. `naturalWidth` measurement, not
+   by eye. Fixed by raising `SNAP_WIDTH` to 1280 (2x-DPI headroom; a 3x
+   display like Scott's 4K/300ppi monitor still slightly upscales HIGH
+   cards, accepted as a size/disk tradeoff). **This only affects captures
+   from now on** — existing stored snapshots stay at 640px; judging the
+   sharpness fix requires fresh browsing data to accumulate first.
+3. **Harness got extended along the way, not just used as-is** (Scott
+   explicitly authorized this, both for structural checks and to unblock
+   debugging): `testing/screenshot-real-data.js` now also reports console
+   errors, card count, distinct tier heights, overlap-pair count, and —
+   for the rotation debugging — BOTH width-ratio and height-ratio
+   foreshortening spread across cards (width alone missed build-log #1e;
+   added height after that). These are real, reusable structural
+   assertions — lean on them before eyeballing a screenshot again, and
+   remember eyeballing/incomplete-axis measurement is what let bugs ship
+   as "fixed" twice in this stage.
 
 ### Stage 2 — dock-style magnify-on-hover
 
@@ -178,6 +305,10 @@ yet.
   assembly itself (e.g. the Gemini over-containerization complaint might
   turn out to need an assembly-side fix, not just a display-side one —
   flag if that comes up, don't silently scope-creep into §6).
+  **One deliberate exception (2026-08-11):** `SNAP_WIDTH` in
+  `background.js` (640 → 1280) — see Stage 1 build log #2. Scott
+  explicitly asked for this one constant despite it being capture-side;
+  everything else in `background.js`/`content.js` is untouched.
 - Week strip (`spec/display.md` §5's skyline cells) — out of scope unless
   explicitly pulled in later.
 

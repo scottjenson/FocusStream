@@ -105,12 +105,93 @@ function copyDirSync(src, dest, { skip = [] } = {}) {
   console.log("Loaded extension ID matches fixed ID:", loadedId);
 
   const page = await context.newPage();
+  const consoleErrors = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") consoleErrors.push(msg.text());
+  });
+  page.on("pageerror", (err) => consoleErrors.push(String(err)));
   await page.goto(`chrome-extension://${loadedId}/dashboard/index.html`);
   await page.waitForTimeout(2000); // let dashboard JS render real data
 
   const shotPath = path.join(__dirname, "dashboard-real-data.png");
   await page.screenshot({ path: shotPath, fullPage: true });
   console.log("Screenshot saved:", shotPath);
+
+  // Structural self-check (Stage 1 stack-ribbon cards, plans/stack-ribbon.md):
+  // card count/heights/overlap and console errors — "did it render right,"
+  // never "does it feel more browsable" (that stays Scott's call).
+  const cardInfo = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll("#ribbon .card")];
+    return cards.map((el) => {
+      const r = el.getBoundingClientRect();
+      // .card-face is the actually-rotated element (el itself is the
+      // unrotated layout box) — its rendered bounding-box WIDTH is the
+      // projected (foreshortened) width, the proxy for "apparent angle"
+      // (plans/stack-ribbon.md Stage 1 rotation-consistency check, 2026-08-11).
+      const face = el.firstChild;
+      const fr = face.getBoundingClientRect();
+      // unrotatedWidth/Height: face's own layout box BEFORE the rotateY
+      // (its CSS width/height, in px) — needed to compute foreshortening
+      // RATIOS, since Stage 1 (2026-08-11 aspect-ratio fix) gives each
+      // tier a different pre-rotation size, so raw projected numbers are
+      // not expected to match across tiers — the ratios are. faceHeight in
+      // particular is the check that caught the perspective-doesn't-scale-
+      // with-box-size bug (2026-08-11, 4th rotation fix): projected WIDTH
+      // ratio alone stayed constant across tiers even while the vertical
+      // convergence (what actually reads as "how rotated does this look")
+      // did not — so both axes are checked now, not just width.
+      const cs = getComputedStyle(face);
+      const unrotatedWidth = parseFloat(cs.width);
+      const unrotatedHeight = parseFloat(cs.height);
+      return {
+        left: r.left,
+        top: r.top,
+        width: r.width,
+        height: r.height,
+        faceWidth: fr.width,
+        faceHeight: fr.height,
+        unrotatedWidth,
+        unrotatedHeight,
+      };
+    });
+  });
+  console.log(`Cards rendered: ${cardInfo.length}`);
+  if (cardInfo.length) {
+    const heights = [...new Set(cardInfo.map((c) => Math.round(c.height)))].sort((a, b) => a - b);
+    console.log("Distinct card heights (px):", heights);
+    let overlaps = 0;
+    const sorted = [...cardInfo].sort((a, b) => a.left - b.left);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].left < sorted[i - 1].left + sorted[i - 1].width - 1) overlaps++;
+    }
+    console.log("Overlapping neighbor pairs:", overlaps);
+    // Rotation-consistency check (Scott's catches, 2026-08-11 x3): every
+    // card uses the same rotateY() angle at the same aspect ratio
+    // (CARD_ASPECT fix) with perspective scaled to its own size
+    // (CARD_PERSPECTIVE_RATIO fix), so BOTH the horizontal projected-width
+    // ratio AND the vertical projected-height ratio should be near-
+    // identical across tiers — checking width alone missed the real bug
+    // once (identical width ratio, but HIGH converged vertically much more
+    // than LOW — that's what "looks more rotated" actually means to the
+    // eye), so height is checked too now.
+    const wRatios = cardInfo.map((c) => c.faceWidth / c.unrotatedWidth);
+    const hRatios = cardInfo.map((c) => c.faceHeight / c.unrotatedHeight);
+    const spread = (arr) => Math.max(...arr) - Math.min(...arr);
+    console.log(
+      `Foreshortening width ratio spread: ${spread(wRatios).toFixed(3)} ` +
+      `(range ${Math.min(...wRatios).toFixed(3)}-${Math.max(...wRatios).toFixed(3)})`
+    );
+    console.log(
+      `Foreshortening height ratio spread: ${spread(hRatios).toFixed(3)} ` +
+      `(range ${Math.min(...hRatios).toFixed(3)}-${Math.max(...hRatios).toFixed(3)})`
+    );
+  }
+  if (consoleErrors.length) {
+    console.log(`Console errors (${consoleErrors.length}):`);
+    for (const e of consoleErrors) console.log(" -", e);
+  } else {
+    console.log("No console errors.");
+  }
 
   await context.close();
 })().catch((err) => {
