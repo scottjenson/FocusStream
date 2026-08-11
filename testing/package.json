@@ -1,0 +1,11 @@
+{
+  "name": "focusstream-testing",
+  "private": true,
+  "description": "Playwright structural-regression harness for FocusStream's dashboard. Test tooling only — never shipped in the extension. See README.md.",
+  "scripts": {
+    "screenshot": "node screenshot-real-data.js"
+  },
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
