@@ -142,7 +142,14 @@
          guarantee against a stray scrollbar, not a real clip. */
       overflow-y: hidden;
       padding: 8px 16px;
+      /* Scrollbar hidden (2026-08-11): panning is drag/wheel-driven, not
+         scrollbar-driven, and the bar added visual noise without helping
+         navigation. Scrolling itself is untouched — only the bar's paint
+         is suppressed. Chrome-only property is fine; this ships as an
+         unpacked Chrome extension. */
+      scrollbar-width: none;
     }
+    #ribbon-wrap::-webkit-scrollbar { display: none; }
     /* Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
        first event's left edge sits at the viewport's left edge and stays
        there under panning — the browser's own scrollLeft clamp (never
@@ -268,7 +275,6 @@
       transition: left 0.3s, top 0.3s, width 0.3s, height 0.3s;
       box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
     }
-    .card:hover .card-face { filter: brightness(1.12); box-shadow: 0 0 10px 2px rgba(255,255,255,0.3); }
     .card.earned-high .card-face { border-width: 2px; }
     .card-img {
       position: absolute;
@@ -281,22 +287,44 @@
     /* Card face is image-only now (domain label dropped 2026-08-11
        follow-up — see #card-hover-text below, which replaced both the
        on-face .card-label and the floating #tip tooltip for cards). */
-    /* Container badge (plan Stage 1: plain, non-interactive count only —
-       no drop-down shelf yet, that's Stage 3). */
-    .card-badge {
+    /* Expanded-card info overlay (Stage 2 follow-up, 2026-08-11): restores
+       the metadata the pre-experiment #tip tooltip carried — site name,
+       time · duration, and the deduped page list (capped at TIP_TITLES_MAX
+       + "N more", same as #tip used — an uncapped first pass overflowed a
+       real 14-page session well past the panel's legible area) — scoped to
+       ONLY the currently-expanded card (plain deck hover keeps the trimmed
+       #card-hover-text single-line summary; this is deliberately the fuller
+       version, shown once a card is committed-to via click). Sits as a
+       bottom-anchored panel over the flattened screenshot rather than a
+       separate floating box — Scott's call over a below-image block, so it
+       reads as part of the card, not a second popover. SOLID background,
+       not a gradient scrim (2026-08-11 follow-up: a fixed 3-stop gradient
+       painted once at the panel's full height went low-opacity/transparent
+       well before a real page list's text reached that far down, reading
+       as illegible white-on-photo — Scott's catch, screenshot attached).
+       Debug lines (container/merge counts, activity breakdown, raw URL)
+       are deliberately left out — this is the same trim #card-hover-text
+       already applies, just less of one. Replaces the old plain corner
+       .card-badge child-count number, dropped per Scott's "remove the
+       counter... we need something a bit stronger" — Stage 3 designs its
+       replacement. */
+    .card-info {
       position: absolute;
-      top: 4px;
-      right: 4px;
-      min-width: 16px;
-      padding: 1px 4px;
-      border-radius: 8px;
-      background: rgba(0,0,0,0.6);
-      color: #fff;
-      font-size: 10px;
-      line-height: 14px;
-      text-align: center;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-height: 60%;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: rgba(10,11,13,0.92);
+      font-size: 12px;
+      line-height: 16px;
       pointer-events: none;
     }
+    .card-info .ci-title { font-weight: 600; color: #fff; font-size: 13px; }
+    .card-info .ci-meta { color: #c7cbd1; margin-bottom: 4px; }
+    .card-info .ci-page { color: #c7cbd1; }
+    .card-info .ci-page.dim { color: #8b9099; }
     /* Expanded-card close button (Stage 2, 2026-08-11): a card's own deck
        slot is mostly covered by overlapping neighbors (CARD_STEP << card
        width, by design — see CARD_STEP's own comment), so it's not a
@@ -308,9 +336,10 @@
        the currently-expanded card. */
     .card-close {
       position: absolute;
-      /* Top-LEFT (2026-08-11, moved off top-right to clear .card-badge's
-         corner entirely rather than share it) — also sized up 50% (22px ->
-         33px, Scott's ask) for an easier click target. */
+      /* Top-LEFT (2026-08-11, moved off top-right to clear the old
+         .card-badge corner entirely rather than share it — badge itself
+         later removed, see .card-info comment) — also sized up 50% (22px
+         -> 33px, Scott's ask) for an easier click target. */
       top: 4px;
       left: 4px;
       width: 33px;
@@ -326,6 +355,42 @@
       padding: 0;
     }
     .card-close:hover { background: rgba(0,0,0,0.85); }
+    /* Container child row (Stage 3, plans/stack-ribbon.md, 2026-08-11):
+       carousel strip below the expanded card — container thumbnail first
+       (item 0), then each child, chronological. Clicking any thumbnail
+       makes IT the big expanded item; the demoted item (container or
+       whichever child was active) just becomes a plain thumbnail in this
+       same row — no separate "back" button, per Scott's carousel-with-a-
+       sibling-placeholder idea. Own absolutely-positioned strip, NOT nested
+       in .card-face (Scott: "below the whole expanded card, own strip") —
+       positioned by JS (cardExpandGeom's height budget reserves the room),
+       same one-shared-element-per-card pattern as .card-info. */
+    .card-child-row {
+      position: absolute;
+      display: flex;
+      gap: 6px;
+    }
+    .card-child-thumb {
+      position: relative;
+      box-sizing: border-box;
+      border: 1px solid #3a4048;
+      border-radius: 3px;
+      overflow: hidden;
+      cursor: pointer;
+      background: #1e2126;
+      flex-shrink: 0;
+    }
+    .card-child-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: top;
+      display: block;
+    }
+    /* Active = currently occupying the big expanded slot — bright rim so
+       "which one am I looking at" is never ambiguous in the row. */
+    .card-child-thumb.active { border-color: #fff; border-width: 2px; }
+    .card-child-thumb:hover { filter: brightness(1.15); }
     /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
        expands, so this is purely a mouseenter target now — no click, no
        :active state to imply. */

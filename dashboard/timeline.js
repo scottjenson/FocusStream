@@ -229,6 +229,23 @@
   // captured at the newer 1280px SNAP_WIDTH never forces horizontal
   // scrolling just to see the thing you clicked to read.
   const CARD_EXPAND_VIEWPORT_MARGIN = 48;
+  // Stage 3 (container child row, 2026-08-11): height cap mirrors the width
+  // cap above, but on the vertical axis — the page is a normal scrolling
+  // document (no viewport-locked shell), so "don't force scrolling" means
+  // fitting the WHOLE expanded assembly (image + child row) inside
+  // whatever window height remains below the deck at click time, read once
+  // (same click-time-only timing as CARD_EXPAND_VIEWPORT_MARGIN — a resize
+  // while a card is open is an accepted edge case, not live-tracked).
+  // Margin below the child row before the window's own bottom edge.
+  const CARD_EXPAND_VIEWPORT_BOTTOM_MARGIN = 24;
+  // Fixed small thumbnail row for a container's children (Stage 3), shown
+  // below the expanded image — one uniform height regardless of tier,
+  // same "containment frames, never confers stature" reasoning as
+  // CONTAIN_CHILD_H, just sized for a thumbnail rather than a cut-in block.
+  const CARD_CHILD_THUMB_H = 72;
+  const CARD_CHILD_THUMB_ASPECT = CARD_ASPECT; // same 640/342 snapshot shape
+  const CARD_CHILD_ROW_GAP = 12; // gap between the expanded image/info and the child row
+  const CARD_CHILD_THUMB_GAP = 6; // gap between thumbnails within the row
   // Contained children render at one uniform height regardless of band
   // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
   // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
@@ -1890,6 +1907,39 @@
     if (TIP_DEBUG) line("tip-debug", d.debug.join("\n"));
   }
 
+  // Expanded-card info overlay (Stage 2 follow-up, 2026-08-11 — see
+  // .card-info in index.html): fuller than #card-hover-text's one-line
+  // trim, but still deliberately short of #tip's TIP_DEBUG block — site
+  // name, meta, and the deduped page list. First pass showed the FULL list
+  // uncapped ("show what it looks like" request, Scott 2026-08-11); a real
+  // 14-page session overflowed the panel's legible area, so this now caps
+  // at TIP_TITLES_MAX + "N more", same as #tip's own fillTip. LOW-band
+  // pages dropped entirely (2026-08-11 follow-up, Scott: the dim/bright
+  // two-font look was read as visual noise, not signal worth keeping here)
+  // — filtered BEFORE the cap, so both the 8-item limit and "+N more" count
+  // apply to the remaining non-LOW pages only; #tip itself is untouched,
+  // still shows LOW pages dimmed. Rebuilds el._info's content from the
+  // card's own _tipData; caller (toggleCardExpand / paintCards) owns
+  // show/hide.
+  function fillCardInfo(el) {
+    const d = el._tipData;
+    const info = el._info;
+    info.textContent = "";
+    if (!d) return;
+    const line = (cls, text) => {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.textContent = text;
+      info.appendChild(div);
+    };
+    line("ci-title", d.siteName);
+    line("ci-meta", d.meta);
+    const pages = d.pages.filter((p) => p.band !== "low");
+    for (const p of pages.slice(0, TIP_TITLES_MAX)) line("ci-page", p.title);
+    if (pages.length > TIP_TITLES_MAX)
+      line("ci-page dim", `+ ${pages.length - TIP_TITLES_MAX} more`);
+  }
+
   // Quick label (spec §6, 2026-08-08): hovering a LOW/MEDIUM block shows its
   // site name INSTANTLY, styled like a HIGH-run title (reuses the shared
   // .rtitle look) — lets a run of small blocks be swept by eye without
@@ -2497,6 +2547,37 @@
   // at a time; el._anim (per element, set in animateCardTo) is how an
   // in-flight animation is found and interrupted.
   let cardExpandedKey = null;
+  // Container child carousel (Stage 3, 2026-08-11): which item is in the
+  // big expanded slot for the CURRENTLY expanded card — 0 is always the
+  // container itself, 1..N are s.e.children in chronological order (see
+  // carouselItemsOf). Always resets to 0 on a fresh expand (Scott: reset,
+  // don't remember the last-viewed child) — toggleCardExpand's job, not
+  // this declaration's.
+  let cardCarouselIndex = 0;
+  // One shared reused strip (same pattern as cardHoverText/quickLabel) —
+  // repositioned per expanded card rather than one per card in the deck,
+  // since at most one card is ever expanded. Lives outside .card-face
+  // (Scott: "below the whole expanded card, own strip") so it isn't
+  // subject to the card's own rotateY/flatten transform.
+  const cardChildRow = document.createElement("div");
+  cardChildRow.id = "card-child-row";
+  cardChildRow.className = "card-child-row";
+  cardChildRow.hidden = true;
+  document.getElementById("ribbon").appendChild(cardChildRow);
+
+  function hideCardChildRow() {
+    cardChildRow.hidden = true;
+    cardChildRow.textContent = "";
+  }
+
+  // The carousel's item list for one container card: item 0 is the
+  // container's own event, 1..N are its children in chronological order
+  // (s.e.children is already stored chronologically — spec §6 container
+  // assembly). Non-containers (no children) get a one-item list — callers
+  // check .length > 1 to decide whether the row/carousel applies at all.
+  function carouselItemsOf(e) {
+    return [e, ...(e.children || [])];
+  }
 
   // Deck (collapsed) geometry for one card, as painted by paintCards —
   // recomputed on demand (not cached) since it's cheap and paintCards is
@@ -2513,16 +2594,35 @@
   }
 
   // Expanded geometry for one card: native snapshot aspect (CARD_ASPECT),
-  // capped to fit the viewport, horizontally centered under the card's own
-  // deck left edge, positioned below the deck's bottom edge (maxH +
-  // CARD_HOVER_TEXT_H) so it can never overlap a deck card by construction
-  // (Scott, 2026-08-11: "when it's done, it is not overlapping any cards
-  // at all").
-  function cardExpandGeom(el, maxH) {
+  // capped to fit BOTH viewport axes, horizontally centered under the
+  // card's own deck left edge, positioned below the deck's bottom edge
+  // (maxH + CARD_HOVER_TEXT_H) so it can never overlap a deck card by
+  // construction (Scott, 2026-08-11: "when it's done, it is not
+  // overlapping any cards at all").
+  //
+  // Height cap (Stage 3, 2026-08-11 — see CARD_EXPAND_VIEWPORT_BOTTOM_
+  // MARGIN's comment): the page is a normal scrolling document, not a
+  // locked viewport shell, so "avoid vertical scrolling" means fitting the
+  // WHOLE expanded assembly — image + (for a container) its child row —
+  // inside whatever window height remains below the deck, read once at
+  // click time same as the width cap. hasChildren is passed by the caller
+  // (toggleCardExpand knows the event; this function only sees the DOM
+  // element) since the child row's reserved space only applies to
+  // containers.
+  function cardExpandGeom(el, maxH, hasChildren) {
     const deck = cardDeckGeom(el);
-    const viewportW = Math.max(
-      document.getElementById("ribbon-wrap").clientWidth - CARD_EXPAND_VIEWPORT_MARGIN,
-      CARD_TIER_W.low
+    const wrapEl = document.getElementById("ribbon-wrap");
+    const viewportW = Math.max(wrapEl.clientWidth - CARD_EXPAND_VIEWPORT_MARGIN, CARD_TIER_W.low);
+    const deckBottom = maxH + CARD_HOVER_TEXT_H;
+    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H : 0;
+    const availableH = Math.max(
+      window.innerHeight -
+        wrapEl.getBoundingClientRect().top -
+        deckBottom -
+        CARD_EXPAND_GAP -
+        childRowReserve -
+        CARD_EXPAND_VIEWPORT_BOTTOM_MARGIN,
+      CARD_TIER_H.low
     );
     // "Native" size means the snapshot's own captured resolution, not the
     // deck tier height scaled up. SNAP_WIDTH lives in background.js
@@ -2533,13 +2633,12 @@
     const img = el._img;
     const nativeW = img && img.naturalWidth ? img.naturalWidth : 1280;
     const nativeH = img && img.naturalHeight ? img.naturalHeight : Math.round(nativeW / CARD_ASPECT);
-    let width = nativeW;
-    let height = nativeH;
-    if (width > viewportW) {
-      height = Math.round(height * (viewportW / width));
-      width = viewportW;
-    }
-    const deckBottom = maxH + CARD_HOVER_TEXT_H;
+    // Shrink to fit BOTH caps, preserving aspect — whichever axis is more
+    // constraining wins (same "scale by the smaller ratio" rule either
+    // width-bound or height-bound needs).
+    const scale = Math.min(1, viewportW / nativeW, availableH / nativeH);
+    const width = Math.round(nativeW * scale);
+    const height = Math.round(nativeH * scale);
     const centerX = deck.left + deck.width / 2;
     return {
       left: Math.round(centerX - width / 2),
@@ -2645,21 +2744,36 @@
       // Collapse the currently-expanded card back to its deck spot.
       cardExpandedKey = null;
       el._closeBtn.hidden = true;
+      el._info.hidden = true;
+      hideCardChildRow();
       animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
       setRibbonExpandedHeight(maxH, null);
       return;
     }
 
     cardExpandedKey = key;
-    // paintCards is the only other writer of _closeBtn.hidden, and it only
-    // runs on a data repaint — set it directly here too so the button
-    // shows/hides immediately on click, not whenever the next repaint
-    // happens to land.
-    if (prevEl) prevEl._closeBtn.hidden = true;
+    cardCarouselIndex = 0; // always reopen on the container itself, never a remembered child
+    // paintCards is the only other writer of _closeBtn.hidden/_info.hidden,
+    // and it only runs on a data repaint — set them directly here too so
+    // the button/info panel show/hide immediately on click, not whenever
+    // the next repaint happens to land. hideCardChildRow unconditionally:
+    // it's one shared element (like _info would be per-card if it weren't
+    // per-card) — belongs to whichever card is expanding NOW, so any prior
+    // card's row must clear before (maybe) repainting it below for the new
+    // card, or a childless new card would inherit the old card's row.
+    if (prevEl) {
+      prevEl._closeBtn.hidden = true;
+      prevEl._info.hidden = true;
+    }
+    hideCardChildRow();
     el._closeBtn.hidden = false;
+    fillCardInfo(el);
+    el._info.hidden = false;
     if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
-    const target = cardExpandGeom(el, maxH);
-    setRibbonExpandedHeight(maxH, target);
+    const items = carouselItemsOf(el._e);
+    const hasChildren = items.length > 1;
+    const target = cardExpandGeom(el, maxH, hasChildren);
+    setRibbonExpandedHeight(maxH, target, hasChildren);
     // Perspective is moot once flattened to rotateY(0) (no convergence to
     // preserve), but scale it the same way deck cards do (CARD_PERSPECTIVE_
     // RATIO x this card's own height) rather than an arbitrary value, so
@@ -2667,6 +2781,97 @@
     // finishes settling to 0.
     const perspective = Math.round(target.height * CARD_PERSPECTIVE_RATIO);
     animateCardTo(el, { ...target, perspective }, 0, maxH);
+    if (hasChildren) paintCardChildRow(el, items, target);
+  }
+
+  // Switches the big expanded slot to a different carousel item (container
+  // itself, index 0, or one of its children) without re-running the
+  // expand/collapse animation — the card is already flattened/grown; only
+  // the SNAPSHOT and info-panel content swap. Row stays in place; only the
+  // "active" highlight moves (see .card-child-thumb.active, index.html).
+  // `hostNames` is threaded through from paintCards's own closure argument
+  // (stashed on the card element, el._hostNames) — same lookup tipDataOf's
+  // caller uses elsewhere, just reached via the element since this can
+  // fire long after the paint that created it.
+  function selectCarouselItem(el, index) {
+    const items = carouselItemsOf(el._e);
+    const item = items[index];
+    if (!item) return;
+    cardCarouselIndex = index;
+    const siteName = el._hostNames.get(labelKeyOf(item.host, item.url)) || item.host;
+    el._tipData = tipDataOf(item, siteName, null);
+    fillCardInfo(el);
+    const ids = (item.snapIds || [item.id]).filter(Boolean);
+    el._img.hidden = true;
+    el._img.removeAttribute("src");
+    if (ids.length) {
+      const keys = ids.map((id) => "snap:" + id);
+      chrome.storage.local
+        .get(keys)
+        .then((r) => {
+          // Stale by the time this resolved: either a different card is now
+          // expanded, or this same card moved to a different carousel item.
+          if (cardEls.get(cardExpandedKey) !== el || cardCarouselIndex !== index) return;
+          const stored = ids.map((id) => r["snap:" + id]).find(Boolean);
+          if (!stored) return;
+          el._img.src = stored;
+          el._img.decode().then(() => { el._img.hidden = false; }).catch(() => {});
+        })
+        .catch(() => {});
+    }
+    el._img.onclick = (ev) => {
+      if (cardEls.get(cardExpandedKey) !== el) return; // still swiveled/small: let the toggle handler run instead
+      ev.stopPropagation();
+      chrome.tabs.create({ url: item.url });
+    };
+    for (const t of cardChildRow.children) t.classList.toggle("active", Number(t.dataset.idx) === index);
+  }
+
+  // Builds/repositions the child-carousel thumbnail strip below the
+  // expanded card (Stage 3). `target` is the expanded card's own geometry
+  // (cardExpandGeom's return) — the row sits CARD_CHILD_ROW_GAP below it,
+  // left-aligned to the same left edge, one square-ish thumbnail per
+  // carousel item (container first, then children, chronological).
+  function paintCardChildRow(el, items, target) {
+    cardChildRow.textContent = "";
+    const thumbW = Math.round(CARD_CHILD_THUMB_H * CARD_CHILD_THUMB_ASPECT);
+    const snapFetches = [];
+    items.forEach((item, i) => {
+      const thumb = document.createElement("div");
+      thumb.className = "card-child-thumb";
+      thumb.dataset.idx = String(i);
+      thumb.style.width = thumbW + "px";
+      thumb.style.height = CARD_CHILD_THUMB_H + "px";
+      const img = document.createElement("img");
+      img.alt = "";
+      img.hidden = true;
+      thumb.appendChild(img);
+      thumb.onclick = (ev) => {
+        ev.stopPropagation();
+        selectCarouselItem(el, i);
+      };
+      cardChildRow.appendChild(thumb);
+      const ids = (item.snapIds || [item.id]).filter(Boolean);
+      if (ids.length) snapFetches.push({ img, ids });
+    });
+    cardChildRow.children[cardCarouselIndex]?.classList.add("active");
+    cardChildRow.style.left = target.left + "px";
+    cardChildRow.style.top = target.top + target.height + CARD_CHILD_ROW_GAP + "px";
+    cardChildRow.hidden = false;
+    if (snapFetches.length) {
+      const allKeys = [...new Set(snapFetches.flatMap((f) => f.ids.map((id) => "snap:" + id)))];
+      chrome.storage.local
+        .get(allKeys)
+        .then((r) => {
+          for (const { img, ids } of snapFetches) {
+            const stored = ids.map((id) => r["snap:" + id]).find(Boolean);
+            if (!stored) continue;
+            img.src = stored;
+            img.decode().then(() => { img.hidden = false; }).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   // Closes whichever card is currently expanded, if any — a no-op
@@ -2708,10 +2913,18 @@
   // reserve room for the expanded card below the deck+hover-text band —
   // see CARD_EXPAND_GAP comment: this is what makes "no overlap" true by
   // construction rather than needing any neighbor-shifting logic.
-  function setRibbonExpandedHeight(maxH, target) {
+  function setRibbonExpandedHeight(maxH, target, hasChildren) {
     const ribbon = document.getElementById("ribbon");
     const base = maxH + CARD_HOVER_TEXT_H;
-    ribbon.style.height = (target ? target.top + target.height + CARD_EXPAND_GAP : base) + "px";
+    if (!target) {
+      ribbon.style.height = base + "px";
+      return;
+    }
+    // Reserve the child row's own space too (Stage 3) so #ribbon's height
+    // still guarantees no overlap by construction, same reasoning as
+    // CARD_EXPAND_GAP's own comment — just extended to cover the new row.
+    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H : 0;
+    ribbon.style.height = target.top + target.height + childRowReserve + CARD_EXPAND_GAP + "px";
   }
 
   function paintCards(events, hostNames) {
@@ -2750,9 +2963,9 @@
         img.className = "card-img";
         img.alt = "";
         img.hidden = true;
-        const badge = document.createElement("div");
-        badge.className = "card-badge";
-        badge.hidden = true;
+        const info = document.createElement("div");
+        info.className = "card-info";
+        info.hidden = true;
         const closeBtn = document.createElement("button");
         closeBtn.className = "card-close";
         closeBtn.type = "button";
@@ -2769,10 +2982,10 @@
           ev.stopPropagation();
           closeExpandedCard();
         };
-        face.append(img, badge, closeBtn);
+        face.append(img, info, closeBtn);
         el.appendChild(face);
         el._img = img;
-        el._badge = badge;
+        el._info = info;
         el._closeBtn = closeBtn;
         ribbon.appendChild(el);
         cardEls.set(s.key, el);
@@ -2813,22 +3026,33 @@
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
 
       const siteName = hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host;
+      // Stashed so selectCarouselItem (fired long after this paint, on a
+      // child-thumbnail click) can look up this card's children and
+      // resolve host names without threading extra params through.
+      el._e = s.e;
+      el._hostNames = hostNames;
 
-      const childCount = s.e.children ? s.e.children.length : 0;
-      el._badge.hidden = !childCount;
-      if (childCount) el._badge.textContent = String(childCount);
-      // Close button only on the currently-expanded card (Stage 2) — one
-      // of three close paths, see closeExpandedCard's comment.
-      el._closeBtn.hidden = s.key !== cardExpandedKey;
+      // Close button + info overlay only on the currently-expanded card
+      // (Stage 2) — one of three close paths, see closeExpandedCard's
+      // comment.
+      const isExpanded = s.key === cardExpandedKey;
+      el._closeBtn.hidden = !isExpanded;
+      el._info.hidden = !isExpanded;
 
       // Snapshot: eager fetch (Stage 1 needs every visible card's image up
       // front, not just a hovered one — spec §6's lazy tooltip fetch stays
       // for the tooltip path below, this is a separate eager one for the
       // card face). Best-scoring member that HAS a picture wins, same rule
       // as the tooltip. Skip the fetch if we already resolved this card's
-      // image in a prior paint (img.dataset.snapKey matches).
+      // image in a prior paint (img.dataset.snapKey matches). Skipped
+      // entirely while this card is expanded on a CHILD carousel item
+      // (Stage 3) — s.e is the container's own data; overwriting the image/
+      // tipData here would yank the view back to the container out from
+      // under a live data repaint, same reasoning Stage 2 already applies
+      // to left/top/width/height below.
+      const onChildItem = isExpanded && cardCarouselIndex !== 0;
       const snapKey = (s.e.snapIds || [s.e.id]).join(",");
-      if (el._img.dataset.snapKey !== snapKey) {
+      if (!onChildItem && el._img.dataset.snapKey !== snapKey) {
         el._img.dataset.snapKey = snapKey;
         el._img.hidden = true;
         el._img.removeAttribute("src");
@@ -2838,21 +3062,32 @@
 
       // Tooltip stays the interim interaction model (plan Stage 1 scope).
       el.dataset.tip = "";
-      el._tipData = tipDataOf(s.e, siteName, null);
-      el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
+      if (!onChildItem) {
+        el._tipData = tipDataOf(s.e, siteName, null);
+        el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
+      }
+      // Info panel content rebuilt here too (not just on click) so a data
+      // repaint while this card is open keeps it current, same as the
+      // image fetch above.
+      if (isExpanded && !onChildItem) fillCardInfo(el);
 
       // Stage 2 click split (Scott, 2026-08-11): clicking the card (its
       // deck hit-box) opens/closes the expand animation; clicking the
       // flattened snapshot image underneath — only reachable once expanded,
       // since it's the same element just grown/flattened in place — is what
       // actually navigates. img.onclick stops propagation so it doesn't
-      // ALSO re-toggle the card it sits inside.
+      // ALSO re-toggle the card it sits inside. Skipped while on a child
+      // carousel item — selectCarouselItem already set the correct
+      // (child-URL) onclick, and this would overwrite it back to the
+      // container's own URL.
       el.onclick = () => toggleCardExpand(s.key, maxH);
-      el._img.onclick = (ev) => {
-        if (s.key !== cardExpandedKey) return; // still swiveled/small: let the toggle handler run instead
-        ev.stopPropagation();
-        chrome.tabs.create({ url: s.e.url });
-      };
+      if (!onChildItem) {
+        el._img.onclick = (ev) => {
+          if (s.key !== cardExpandedKey) return; // still swiveled/small: let the toggle handler run instead
+          ev.stopPropagation();
+          chrome.tabs.create({ url: s.e.url });
+        };
+      }
     }
     for (const [key, el] of cardEls) {
       if (!seen.has(key)) {
