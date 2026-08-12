@@ -187,6 +187,15 @@
   // (2026-08-11, Scott: "should be lining up on top of each other") — was
   // 60.
   const CARD_STEP = 20;
+  // Stage 4 (2026-08-12, first cut): LOW cards advance by a tighter step
+  // than HIGH/MEDIUM, so a run of LOW cards compacts horizontally — same
+  // motivation as the old fence/stick mechanism (free up room for the
+  // cards that matter), but as a passive spacing difference rather than an
+  // interactive collapse hiding content behind a click. Started at a flat
+  // 50% of CARD_STEP (Scott's "let's just start simply" answer, not
+  // derived) — retune by feel, and revisit if LOW becomes hard to target
+  // individual cards in a dense run. See plans/stack-ribbon.md Stage 4.
+  const CARD_STEP_LOW = CARD_STEP * 0.5;
   // Reserved band below the card deck for cardHoverText (2026-08-11 follow-
   // up: on-face .card-label retired, site name/meta/top-page now show as
   // plain text under the hovered card instead). #ribbon-wrap sets
@@ -1306,9 +1315,15 @@
   // independent rotateY around its OWN left edge is what makes this read
   // as physical overlap rather than misaligned spacing — CARD_SWIVEL_DEG).
   function cardLayout(events) {
+    // Running cursor, not i * CARD_STEP: LOW cards advance by CARD_STEP_LOW
+    // instead of CARD_STEP (Stage 4 compaction), so consecutive cards'
+    // spacing now depends on the PRECEDING card's own band, not just index.
+    let x = 0;
     const segs = events.map((e, i) => {
       const h = CARD_TIER_H[e.band];
-      return { e, key: e.id, band: e.band, w: CARD_TIER_W[e.band], h, x: i * CARD_STEP };
+      const seg = { e, key: e.id, band: e.band, w: CARD_TIER_W[e.band], h, x };
+      x += e.band === "low" ? CARD_STEP_LOW : CARD_STEP;
+      return seg;
     });
     const last = segs[segs.length - 1];
     const total = last ? last.x + last.w : 0;
@@ -2757,6 +2772,7 @@
       cardExpandedKey = null;
       el._closeBtn.hidden = true;
       el._info.hidden = true;
+      el.classList.remove("expanded"); // restores the tier-low dim scrim (CSS), same direct-set-on-click reasoning as _closeBtn/_info above
       hideCardChildRow();
       animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
       setRibbonExpandedHeight(maxH, null);
@@ -2776,11 +2792,13 @@
     if (prevEl) {
       prevEl._closeBtn.hidden = true;
       prevEl._info.hidden = true;
+      prevEl.classList.remove("expanded");
     }
     hideCardChildRow();
     el._closeBtn.hidden = false;
     fillCardInfo(el);
     el._info.hidden = false;
+    el.classList.add("expanded"); // suppresses the tier-low dim scrim (CSS) immediately, not on next repaint
     if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
     const items = carouselItemsOf(el._e);
     const hasChildren = items.length > 1;
@@ -3036,6 +3054,7 @@
       face.style.background = TIER_FILL[s.band];
       face.style.borderColor = s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
+      el.classList.toggle("tier-low", s.band === "low");
 
       const siteName = hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host;
       // Stashed so selectCarouselItem (fired long after this paint, on a
@@ -3050,6 +3069,10 @@
       const isExpanded = s.key === cardExpandedKey;
       el._closeBtn.hidden = !isExpanded;
       el._info.hidden = !isExpanded;
+      // .expanded also drives the .tier-low dim scrim's suppression (CSS) —
+      // see that rule's comment for why demotion doesn't apply once a card
+      // is committed-to via click.
+      el.classList.toggle("expanded", isExpanded);
 
       // Snapshot: eager fetch (Stage 1 needs every visible card's image up
       // front, not just a hovered one — spec §6's lazy tooltip fetch stays

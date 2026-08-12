@@ -223,6 +223,21 @@
     .card {
       position: absolute;
       cursor: pointer;
+      /* Riffle-on-hover (2026-08-12): a small lift as the mouse scans across
+         cards, purely transform-based so it can't touch left/top/width —
+         those drive cardLayout's spacing and every neighbor's overlap/hover
+         math, and transform doesn't participate in layout at all. Lives
+         here on .card (not .card-face) specifically because .card-face's
+         own transform is set INLINE by timeline.js for the rotateY swivel
+         (CARD_SWIVEL_DEG) — a second transform in CSS on that same element
+         would be entirely overwritten by the inline one, not composed with
+         it. .card carries no inline transform from JS today, so a plain
+         CSS :hover rule is free here with no risk of collision.
+         Left off .card:hover directly (below), not a JS pointerover
+         listener — the delegated pointerover handler on #ribbon exists for
+         cardHoverText/tooltip positioning, not general hover styling; this
+         doesn't need to hook into that at all. */
+      transition: transform 0.15s ease-out;
       /* Per-card perspective, fix history (2026-08-11, FOUR rounds — see
          plans/stack-ribbon.md "Stage 1 build log" for the compact version):
          (1) shared perspective on #ribbon put the vanishing point at the
@@ -261,6 +276,11 @@
          timeline.js alongside the rotation — see CARD_PERSPECTIVE_RATIO
          there. */
     }
+    /* :not(.expanded) — the open-below-the-ribbon card shouldn't also
+       riffle; its top is WAAPI-driven (animateCardTo) for the expand/
+       collapse animation, and stacking a hover lift on top of that reads
+       as unintended jitter rather than the deck-scanning cue this is for. */
+    .card:not(.expanded):hover { transform: translateY(-6px); }
     .card-face {
       position: relative;
       box-sizing: border-box;
@@ -276,6 +296,27 @@
       box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
     }
     .card.earned-high .card-face { border-width: 2px; }
+    /* Stage 4 (2026-08-12): visual demotion for LOW-tier deck cards — a
+       vertical scrim, transparent at top fading to dark at bottom, so a
+       LOW card reads as less important at a glance without hiding it
+       behind an interactive collapse (see CARD_STEP_LOW's own comment in
+       timeline.js for the companion X-spacing half of this same goal).
+       ::after (not a real element) so it's free positioning-wise — paints
+       above .card-img in the same stacking context, no z-index needed.
+       pointer-events: none so it never blocks the card's own click/hover.
+       Deck-only: suppressed on the expanded card (.card.expanded, toggled
+       in paintCards alongside the close-button/info-overlay reveal) —
+       once you've committed to a card by clicking, demoting it further
+       doesn't serve the "browse the deck" goal this is for, same
+       reasoning cardHoverText already uses. */
+    .card.tier-low .card-face::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.55));
+      pointer-events: none;
+    }
+    .card.tier-low.expanded .card-face::after { display: none; }
     .card-img {
       position: absolute;
       inset: 0;
