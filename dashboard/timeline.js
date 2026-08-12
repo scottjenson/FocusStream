@@ -197,6 +197,38 @@
   // #ribbon-wrap sizes to, not below it. Three lines at 12px/16px line-
   // height plus a little breathing room.
   const CARD_HOVER_TEXT_H = 56;
+  // Click-to-expand (plans/stack-ribbon.md Stage 2, 2026-08-11): a clicked
+  // card animates down below the deck, flattens (rotateY -> 0), and grows
+  // to the snapshot's native size (capped to fit the viewport). Duration
+  // and easing tuned by feel (Scott: "a little bit of weight… bounces
+  // slightly at the bottom"), not derived from anything. Vertical position
+  // is the ONLY property that overshoots (Scott: rotation/size just ease
+  // in smoothly alongside) — CARD_EXPAND_BOUNCE_PX is how far past the
+  // resting `top` the card dips before settling back, expressed as a
+  // keyframe offset since WAAPI has no native spring/overshoot easing.
+  const CARD_EXPAND_MS = 840; // doubled from 420 (2026-08-11) — felt too quick, tuning by feel
+  const CARD_EXPAND_BOUNCE_PX = 14;
+  // Scaling (left/width/height/perspective) finishes at this fraction of
+  // CARD_EXPAND_MS, before the vertical drop/bounce (which runs the full
+  // duration) settles (2026-08-11, Scott: without this, size kept growing
+  // for the ENTIRE duration while position visually stopped by ~75%, i.e.
+  // backwards from what reads as "weight" — "the movement has pretty much
+  // stopped and the scaling continues to grow"). 0.75 landed in his
+  // requested 70-80% range.
+  const CARD_EXPAND_SIZE_DONE_AT = 0.75;
+  // Plain ease-out for width/height/rotation — fast start, smooth stop, no
+  // overshoot (see CARD_EXPAND_BOUNCE_PX comment: only `top` bounces).
+  const CARD_EXPAND_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+  // Gap between the deck's bottom edge (maxH + CARD_HOVER_TEXT_H) and the
+  // top of the expanded card, and between the expanded card's own bottom
+  // and #ribbon's bottom edge — pure breathing room, not load-bearing for
+  // the no-overlap guarantee (that's the deck-bottom placement itself).
+  const CARD_EXPAND_GAP = 24;
+  // Cap the expanded card's width to the visible viewport (ribbon-wrap's
+  // own clientWidth, read at click time) minus a little margin, so a card
+  // captured at the newer 1280px SNAP_WIDTH never forces horizontal
+  // scrolling just to see the thing you clicked to read.
+  const CARD_EXPAND_VIEWPORT_MARGIN = 48;
   // Contained children render at one uniform height regardless of band
   // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
   // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
@@ -1911,7 +1943,18 @@
         quickLabel.style.left = left + "px";
         quickLabel.hidden = false;
       }
-      if (isCard && el._tipData) {
+      // Stage 1 cards show their own below-card text instead of the
+      // floating quick label (which would duplicate it). Suppressed ONLY
+      // for the currently-expanded card (Stage 2, 2026-08-11): el.style.
+      // left/top/height only get baked in once animateCardTo's animation
+      // finishes, so mid-flight (or even at rest, expanded) this math would
+      // read stale deck-position values and misplace the text box below the
+      // wrong spot — that misplaced box, not the normal below-deck-card
+      // text, was the "hover card on the ribbon" bug (2026-08-11). Deck
+      // cards keep this text as before; only isCard still needs its own
+      // early return (skipping straight past it here) so a hovered card
+      // never falls through into the delayed #tip tooltip path below.
+      if (isCard && el._tipData && el !== cardEls.get(cardExpandedKey)) {
         const d = el._tipData;
         cardHoverText.textContent = "";
         const line = (cls, text) => {
@@ -1929,7 +1972,9 @@
         cardHoverText.style.left = left + "px";
         cardHoverText.style.top = top + height + LABEL_GAP + "px";
         cardHoverText.hidden = false;
-        return; // cards get this instant text only, not the delayed #tip
+      }
+      if (isCard) {
+        return; // cards never fall through to the delayed #tip below
       }
       const px = ev.clientX;
       const py = ev.clientY;
@@ -2445,6 +2490,230 @@
   // corner count badge — no drop-down shelf (Stage 3). Click-to-open stays;
   // the floating tooltip is replaced by cardHoverText for cards.
   const cardEls = new Map();
+  // Click-to-expand state (Stage 2, distinct from the dormant fence
+  // ribbon's own `expandedKey` above — named separately so the two don't
+  // get confused while the old code sits alongside this, per the plan's
+  // "keep the code, don't delete it" direction). At most one card expanded
+  // at a time; el._anim (per element, set in animateCardTo) is how an
+  // in-flight animation is found and interrupted.
+  let cardExpandedKey = null;
+
+  // Deck (collapsed) geometry for one card, as painted by paintCards —
+  // recomputed on demand (not cached) since it's cheap and paintCards is
+  // the only writer of the authoritative s.x/s.w/s.h values baked into
+  // el.dataset at paint time.
+  function cardDeckGeom(el) {
+    return {
+      left: parseFloat(el.dataset.deckLeft),
+      top: parseFloat(el.dataset.deckTop),
+      width: parseFloat(el.dataset.deckWidth),
+      height: parseFloat(el.dataset.deckHeight),
+      perspective: parseFloat(el.dataset.deckPerspective),
+    };
+  }
+
+  // Expanded geometry for one card: native snapshot aspect (CARD_ASPECT),
+  // capped to fit the viewport, horizontally centered under the card's own
+  // deck left edge, positioned below the deck's bottom edge (maxH +
+  // CARD_HOVER_TEXT_H) so it can never overlap a deck card by construction
+  // (Scott, 2026-08-11: "when it's done, it is not overlapping any cards
+  // at all").
+  function cardExpandGeom(el, maxH) {
+    const deck = cardDeckGeom(el);
+    const viewportW = Math.max(
+      document.getElementById("ribbon-wrap").clientWidth - CARD_EXPAND_VIEWPORT_MARGIN,
+      CARD_TIER_W.low
+    );
+    // "Native" size means the snapshot's own captured resolution, not the
+    // deck tier height scaled up. SNAP_WIDTH lives in background.js
+    // (capture-side); rather than import it, use the loaded <img>'s own
+    // naturalWidth/naturalHeight when available (the true native size of
+    // THIS card's snapshot), falling back to CARD_ASPECT at a generous
+    // fixed width if the image hasn't resolved yet.
+    const img = el._img;
+    const nativeW = img && img.naturalWidth ? img.naturalWidth : 1280;
+    const nativeH = img && img.naturalHeight ? img.naturalHeight : Math.round(nativeW / CARD_ASPECT);
+    let width = nativeW;
+    let height = nativeH;
+    if (width > viewportW) {
+      height = Math.round(height * (viewportW / width));
+      width = viewportW;
+    }
+    const deckBottom = maxH + CARD_HOVER_TEXT_H;
+    const centerX = deck.left + deck.width / 2;
+    return {
+      left: Math.round(centerX - width / 2),
+      top: Math.round(deckBottom + CARD_EXPAND_GAP),
+      width,
+      height,
+    };
+  }
+
+  // Runs (or interrupts + replaces) the WAAPI animation moving one card
+  // between its deck and expanded geometry. `toExpanded` picks the target;
+  // `.card` owns left/top/width/height/perspective, `.card-face` owns the
+  // rotateY — two synced animations (same duration, started in the same
+  // tick) since WAAPI keyframes apply to one element's properties at a
+  // time. Only `top` overshoots (CARD_EXPAND_BOUNCE_PX) — width/height/
+  // rotation ease in plainly alongside it, per Scott's "just the vertical
+  // drop bounces" answer. Interruption (clicking a different card mid-
+  // animation) is exactly why WAAPI over CSS @keyframes/class-toggling:
+  // el._anim is a live Animation object, so a new call here just cancels
+  // whatever's in flight and starts fresh from wherever the card actually
+  // is right now (computed via getComputedStyle), no snap.
+  function animateCardTo(el, target, rotateDeg, maxH) {
+    if (el._anim) el._anim.forEach((a) => a.cancel());
+    const cs = getComputedStyle(el);
+    const from = {
+      left: parseFloat(cs.left) || 0,
+      top: parseFloat(cs.top) || 0,
+      width: parseFloat(cs.width) || 0,
+      height: parseFloat(cs.height) || 0,
+      perspective: parseFloat(cs.perspective) || Math.round(maxH * CARD_PERSPECTIVE_RATIO),
+    };
+    const face = el.firstChild;
+    const fromRotate = /rotateY\(([-\d.]+)deg\)/.exec(face.style.transform);
+    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : CARD_SWIVEL_DEG;
+
+    // Scaling (left/width/height/perspective) finishes at CARD_EXPAND_SIZE_
+    // DONE_AT (Scott, 2026-08-11: "scaling be done in roughly 70-80%... of
+    // the duration of the vertical drop") — WITHOUT that intermediate
+    // keyframe, left/width/height/perspective only had offset-0/offset-1
+    // values and so interpolated linearly across the FULL duration, same
+    // as `top`. But `top` visually settles by 0.75 (it's already at target
+    // ± bounce there) while size kept growing all the way to 1 — reading as
+    // "movement stopped, scaling continues" (Scott's diagnosis, exactly
+    // right). Fix: give left/width/height/perspective their own keyframe at
+    // CARD_EXPAND_SIZE_DONE_AT holding the final value, then repeat that
+    // value at offset 1 (a WAAPI keyframe list needs a value at 1 for the
+    // property to stay resolved through the rest of the timeline).
+    const boxAnim = el.animate(
+      [
+        { left: from.left + "px", width: from.width + "px", height: from.height + "px", top: from.top + "px", perspective: from.perspective + "px", offset: 0 },
+        {
+          left: target.left + "px",
+          width: target.width + "px",
+          height: target.height + "px",
+          perspective: target.perspective + "px",
+          offset: CARD_EXPAND_SIZE_DONE_AT,
+          easing: CARD_EXPAND_EASE,
+        },
+        { top: target.top + (target.top > from.top ? CARD_EXPAND_BOUNCE_PX : -CARD_EXPAND_BOUNCE_PX) + "px", offset: 0.75, easing: CARD_EXPAND_EASE },
+        { left: target.left + "px", width: target.width + "px", height: target.height + "px", top: target.top + "px", perspective: target.perspective + "px", offset: 1 },
+      ],
+      { duration: CARD_EXPAND_MS, easing: CARD_EXPAND_EASE, fill: "forwards" }
+    );
+    const faceAnim = face.animate(
+      [
+        { transform: `rotateY(${startDeg}deg)`, offset: 0 },
+        { transform: `rotateY(${rotateDeg}deg)`, offset: 1 },
+      ],
+      { duration: CARD_EXPAND_MS, easing: CARD_EXPAND_EASE, fill: "forwards" }
+    );
+    el._anim = [boxAnim, faceAnim];
+    Promise.all([boxAnim.finished, faceAnim.finished])
+      .then(() => {
+        // Bake the final values into inline style and cancel the WAAPI
+        // animation (which only holds its result via `fill: forwards` on
+        // top of the underlying style) so paintCards's own inline-style
+        // writes on the next paint aren't fighting a lingering animation.
+        el.style.left = target.left + "px";
+        el.style.top = target.top + "px";
+        el.style.width = target.width + "px";
+        el.style.height = target.height + "px";
+        el.style.perspective = target.perspective + "px";
+        face.style.transform = `rotateY(${rotateDeg}deg)`;
+        boxAnim.cancel();
+        faceAnim.cancel();
+        if (el._anim && el._anim[0] === boxAnim) el._anim = null;
+      })
+      .catch(() => {}); // interrupted mid-flight by a newer animateCardTo call — that call owns el._anim now
+  }
+
+  // Toggles expand/collapse for one card. Handles both directions of the
+  // simultaneous pair (Scott: "these two forward and backward animations
+  // need to happen simultaneously") — each card animates along its own
+  // path (old expanded card -> its own deck spot, new card -> its own
+  // expanded spot), not a shared slot, since re-centering is per-card.
+  function toggleCardExpand(key, maxH) {
+    const prevKey = cardExpandedKey;
+    const prevEl = prevKey ? cardEls.get(prevKey) : null;
+    const el = cardEls.get(key);
+    if (!el) return;
+
+    if (prevKey === key) {
+      // Collapse the currently-expanded card back to its deck spot.
+      cardExpandedKey = null;
+      el._closeBtn.hidden = true;
+      animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
+      setRibbonExpandedHeight(maxH, null);
+      return;
+    }
+
+    cardExpandedKey = key;
+    // paintCards is the only other writer of _closeBtn.hidden, and it only
+    // runs on a data repaint — set it directly here too so the button
+    // shows/hides immediately on click, not whenever the next repaint
+    // happens to land.
+    if (prevEl) prevEl._closeBtn.hidden = true;
+    el._closeBtn.hidden = false;
+    if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
+    const target = cardExpandGeom(el, maxH);
+    setRibbonExpandedHeight(maxH, target);
+    // Perspective is moot once flattened to rotateY(0) (no convergence to
+    // preserve), but scale it the same way deck cards do (CARD_PERSPECTIVE_
+    // RATIO x this card's own height) rather than an arbitrary value, so
+    // there's no visible discontinuity in the split second before rotation
+    // finishes settling to 0.
+    const perspective = Math.round(target.height * CARD_PERSPECTIVE_RATIO);
+    animateCardTo(el, { ...target, perspective }, 0, maxH);
+  }
+
+  // Closes whichever card is currently expanded, if any — a no-op
+  // otherwise. Three ways in (Scott, 2026-08-11: "many ways... whichever
+  // one they find should work") funnel through this one function: the
+  // close (×) button, a click outside the expanded card, and Escape. Added
+  // because a card's own deck slot — the ONLY thing toggleCardExpand's
+  // el.onclick listens on — is mostly covered by overlapping neighbors
+  // once it's sitting collapsed-but-empty behind them (CARD_STEP << card
+  // width), so re-clicking the same card to close it isn't reliably
+  // reachable in practice. maxH is always CARD_TIER_H.high (not data-
+  // dependent — see maxH's own definition in paintCards) so it's safe to
+  // recompute here rather than thread it through every caller.
+  function closeExpandedCard() {
+    if (!cardExpandedKey) return;
+    toggleCardExpand(cardExpandedKey, Math.max(CARD_TIER_H.high, 1));
+  }
+
+  // Click-outside-to-close (one of the three close paths above). Listens
+  // on `document`, not #ribbon, so it also catches clicks on the rest of
+  // the page (header, week strip) while a card is expanded. The expanded
+  // card's own click already toggles it closed via el.onclick, and the
+  // close button stops its own click from reaching here (ev.stopPropagation
+  // in both) — this only needs to fire for clicks that landed OUTSIDE the
+  // currently-expanded card entirely.
+  document.addEventListener("click", (ev) => {
+    if (!cardExpandedKey) return;
+    const el = cardEls.get(cardExpandedKey);
+    if (el && !el.contains(ev.target)) closeExpandedCard();
+  });
+
+  // Escape (the third close path). No target check needed — Escape has no
+  // other meaning on this page.
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeExpandedCard();
+  });
+
+  // Grows #ribbon (and so #ribbon-wrap, which sizes to its only child) to
+  // reserve room for the expanded card below the deck+hover-text band —
+  // see CARD_EXPAND_GAP comment: this is what makes "no overlap" true by
+  // construction rather than needing any neighbor-shifting logic.
+  function setRibbonExpandedHeight(maxH, target) {
+    const ribbon = document.getElementById("ribbon");
+    const base = maxH + CARD_HOVER_TEXT_H;
+    ribbon.style.height = (target ? target.top + target.height + CARD_EXPAND_GAP : base) + "px";
+  }
+
   function paintCards(events, hostNames) {
     const { segs, total } = cardLayout(events);
 
@@ -2454,8 +2723,11 @@
     // + CARD_HOVER_TEXT_H reserves room for cardHoverText below the deck —
     // see that constant's comment: #ribbon-wrap clips anything positioned
     // below #ribbon's own height, so the hover-text band must be counted
-    // into it, not left to float past the bottom edge.
-    ribbon.style.height = maxH + CARD_HOVER_TEXT_H + "px";
+    // into it, not left to float past the bottom edge. Skipped while a
+    // card is expanded (Stage 2) — setRibbonExpandedHeight already grew
+    // this to fit the expanded card, and a repaint (e.g. live data
+    // refresh) shouldn't yank that back out from under an open card.
+    if (!cardExpandedKey) ribbon.style.height = maxH + CARD_HOVER_TEXT_H + "px";
     document.getElementById("ribbon-empty").hidden = segs.length > 0;
 
     // No hour axis, no gap plates, no fences in Stage 1 — the .transient
@@ -2481,29 +2753,61 @@
         const badge = document.createElement("div");
         badge.className = "card-badge";
         badge.hidden = true;
-        face.append(img, badge);
+        const closeBtn = document.createElement("button");
+        closeBtn.className = "card-close";
+        closeBtn.type = "button";
+        closeBtn.textContent = "×";
+        closeBtn.hidden = true;
+        closeBtn.setAttribute("aria-label", "Collapse card");
+        // stopPropagation so this doesn't also hit el.onclick (which would
+        // immediately re-toggle it back open). maxH isn't captured from
+        // this paint's closure — it's always CARD_TIER_H.high regardless of
+        // data (see maxH's own definition below), so closeExpandedCard just
+        // recomputes it fresh rather than risk a stale value from whichever
+        // paint happened to create this button.
+        closeBtn.onclick = (ev) => {
+          ev.stopPropagation();
+          closeExpandedCard();
+        };
+        face.append(img, badge, closeBtn);
         el.appendChild(face);
         el._img = img;
         el._badge = badge;
+        el._closeBtn = closeBtn;
         ribbon.appendChild(el);
         cardEls.set(s.key, el);
       }
       // Bottom-flush within the max tier height, left-to-right at uniform
       // spacing — the swivel transform (CSS) rotates off the card's own
-      // left edge, so position here is the pre-swivel box.
-      el.style.left = Math.round(s.x) + "px";
-      el.style.top = maxH - s.h + "px";
-      el.style.width = s.w + "px";
-      el.style.height = s.h + "px";
-      // perspective lives on .card (the rotated element's PARENT), scaled
-      // to THIS card's own height (CARD_PERSPECTIVE_RATIO comment above) so
-      // the vertical convergence ratio — not just the rotation angle or
-      // projected width — reads the same regardless of tier; origin pinned
-      // to the same left edge the rotation itself is anchored to.
-      el.style.perspective = Math.round(s.h * CARD_PERSPECTIVE_RATIO) + "px";
-      el.style.perspectiveOrigin = "left center";
+      // left edge, so position here is the pre-swivel box. Recorded into
+      // dataset regardless of expand state (cardDeckGeom's source of
+      // truth for animating back to the deck) even though the inline
+      // style writes below are skipped for the currently-expanded card.
+      const deckPerspective = Math.round(s.h * CARD_PERSPECTIVE_RATIO);
+      el.dataset.deckLeft = Math.round(s.x);
+      el.dataset.deckTop = maxH - s.h;
+      el.dataset.deckWidth = s.w;
+      el.dataset.deckHeight = s.h;
+      el.dataset.deckPerspective = deckPerspective;
       const face = el.firstChild;
-      face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+      // Stage 2: the currently-expanded card owns its own left/top/width/
+      // height/perspective/rotation via animateCardTo — a live repaint
+      // (e.g. data refresh while a card is open) must not overwrite those
+      // mid-animation or snap it back to the deck.
+      if (s.key !== cardExpandedKey) {
+        el.style.left = Math.round(s.x) + "px";
+        el.style.top = maxH - s.h + "px";
+        el.style.width = s.w + "px";
+        el.style.height = s.h + "px";
+        // perspective lives on .card (the rotated element's PARENT), scaled
+        // to THIS card's own height (CARD_PERSPECTIVE_RATIO comment above) so
+        // the vertical convergence ratio — not just the rotation angle or
+        // projected width — reads the same regardless of tier; origin pinned
+        // to the same left edge the rotation itself is anchored to.
+        el.style.perspective = deckPerspective + "px";
+        face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+      }
+      el.style.perspectiveOrigin = "left center";
       face.style.background = TIER_FILL[s.band];
       face.style.borderColor = s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
@@ -2513,6 +2817,9 @@
       const childCount = s.e.children ? s.e.children.length : 0;
       el._badge.hidden = !childCount;
       if (childCount) el._badge.textContent = String(childCount);
+      // Close button only on the currently-expanded card (Stage 2) — one
+      // of three close paths, see closeExpandedCard's comment.
+      el._closeBtn.hidden = s.key !== cardExpandedKey;
 
       // Snapshot: eager fetch (Stage 1 needs every visible card's image up
       // front, not just a hovered one — spec §6's lazy tooltip fetch stays
@@ -2534,7 +2841,18 @@
       el._tipData = tipDataOf(s.e, siteName, null);
       el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
 
-      el.onclick = () => chrome.tabs.create({ url: s.e.url });
+      // Stage 2 click split (Scott, 2026-08-11): clicking the card (its
+      // deck hit-box) opens/closes the expand animation; clicking the
+      // flattened snapshot image underneath — only reachable once expanded,
+      // since it's the same element just grown/flattened in place — is what
+      // actually navigates. img.onclick stops propagation so it doesn't
+      // ALSO re-toggle the card it sits inside.
+      el.onclick = () => toggleCardExpand(s.key, maxH);
+      el._img.onclick = (ev) => {
+        if (s.key !== cardExpandedKey) return; // still swiveled/small: let the toggle handler run instead
+        ev.stopPropagation();
+        chrome.tabs.create({ url: s.e.url });
+      };
     }
     for (const [key, el] of cardEls) {
       if (!seen.has(key)) {

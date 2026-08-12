@@ -1,14 +1,16 @@
 # Stack Ribbon — staged rewrite plan
 
-**Status:** Stage 0 (harness) DONE. Stage 1 (flat swivel strip) is
-IMPLEMENTED, DEBUGGED, and Scott-approved as a visual baseline ("looks
-like you've got it," 2026-08-11) — see "Stage 1 build log" below for the
-rendering issues worked through to get there. Approval so far is visual/
-structural correctness (the rotation reads right, cards render right);
-the STAGED exit criterion — a felt-browsability verdict from actually
-using it against a real busy day — has not been separately called out yet
-and should be confirmed before treating Stage 1 as fully closed. This is
-a working doc, not a SPEC.md rule — see CLAUDE.md's doc map. Deliberately
+**Status:** Stage 0 (harness) DONE. Stage 1 (flat swivel strip) DONE
+(Scott, 2026-08-11). Stage 2 — retargeted from its original scope (dock-
+style magnify-on-hover, never built) to click-to-expand, which is what was
+actually discussed and shipped — is DONE (Scott, 2026-08-11: "stage two is
+wrapped"). Both closures are staging milestones, distinct from — and NOT
+the same as — a verdict that cards beat the old block ribbon outright:
+that larger question ("does this replace the original ribbon") is what
+the full Stage 1→N arc is FOR, and stays open until enough stages exist to
+judge it against real browsing. Don't conflate "Stage N is done, proceed"
+with "the whole rewrite has won" in future status updates. This is a
+working doc, not a SPEC.md rule — see CLAUDE.md's doc map. Deliberately
 NOT folded into `spec/display.md` yet (Scott, 2026-08-11): this is still
 an experiment: "I don't want you to write it to the existing spec.md
 files. We'll do that later once we've determined that this is correct."
@@ -27,15 +29,11 @@ kept per Scott's explicit "keep the code to the side, don't delete it"
 direction, not called by anything live. The LIVE path is
 `cardLayout()`/`paintCards()`, wired in via `render()`/`relayout()`.
 
-**What to do next, concretely:** do NOT start scoping or building Stage 2
-(magnify-on-hover) speculatively — Scott has been explicit multiple times
-in this stage's history that stages are not to be batched or run ahead of.
-The one open item is the Stage 1 exit criterion itself (felt-browsability,
-above) — that verdict is Scott's to give from actually using the card view
-day-to-day, not something to solicit with a leading question or infer from
-"looks like you've got it" (that was visual/structural approval, a
-different thing — see Status above). If Scott raises stack-ribbon again,
-ask where he landed on browsability before proposing any Stage 2 work.
+**What to do next, concretely:** Stages 1 and 2 are both closed (see
+Status above); Stage 3 (container drop-down shelf) is next — see its
+section below for the two open questions it needs to resolve before/while
+building (always-visible child-count affordance vs. hover-only discovery;
+confirm one-level nesting is really the ceiling).
 
 ## Why (recap of the discussion, 2026-08-11)
 
@@ -183,11 +181,12 @@ not a spec to implement end to end blind.
 
 Exit criterion: Scott browses a real busy day in this layout and forms an
 opinion on whether height-as-tier + swivel cards is more browsable than
-the old fence/stick ribbon. Visual/structural correctness is now confirmed
-("looks like you've got it," 2026-08-11) — the felt-browsability verdict
-itself (does this actually work better day-to-day, not just render
-correctly) is the one piece still open, and is what decides whether Stage
-2 proceeds as planned or the direction gets revised.
+the old fence/stick ribbon. Visual/structural correctness is confirmed
+("looks like you've got it," 2026-08-11), and Scott has separately
+confirmed Stage 1 itself is DONE as a staging milestone (2026-08-11) —
+**this is not yet the same as a verdict that cards beat the old ribbon**;
+that larger call stays open across the whole staged arc (see Status at
+top of file) and doesn't gate starting Stage 2.
 
 #### Stage 1 build log — lessons, so they aren't re-learned the hard way
 
@@ -296,18 +295,85 @@ correctly) is the one piece still open, and is what decides whether Stage
    current height needs that height accounted for explicitly — the wrap's
    implicit auto/auto overflow doesn't give it for free.
 
-### Stage 2 — dock-style magnify-on-hover
+### Stage 2 — click-to-expand — DONE (2026-08-11)
 
-Scope (pending Stage 1 outcome):
-- Approach-based magnification of nearby cards, tuned by feel against the
-  concern raised above (screenshots need reading time, not icon
-  recognition — likely a gentler/wider curve than macOS's dock).
-- No specific curve/constants decided yet — this is explicitly a "tune by
-  feel" stage, not a formula to derive up front.
+**Retargeted from the original scope.** The plan's original Stage 2 idea
+— dock-style magnify-on-hover (approach with the mouse, nearby cards grow
+toward legibility) — was never built; it's superseded by click-to-expand,
+a different mechanic that was actually discussed and shipped under the
+Stage 2 slot. Not pursued further; if hover-magnify is wanted later it
+would need to be scoped fresh as its own stage, not resumed from this
+paragraph.
 
-### Stage 3 — container drop-down shelf
+Scope, as built (constants in `timeline.js`, grouped near
+`CARD_EXPAND_MS`; button styling in `index.html` near `.card-close`):
+- Click a card → it animates out of the deck: drops down below the deck
+  (translateY), flattens (`rotateY` → 0), and grows to the snapshot's own
+  native captured resolution (`img.naturalWidth/Height`), capped to fit
+  the visible viewport width (`CARD_EXPAND_VIEWPORT_MARGIN`). Horizontally
+  centered under the card's own deck-left edge, not the viewport.
+- At most one card expanded at a time. Clicking a different card while one
+  is open animates BOTH simultaneously — the open one back to its deck
+  spot, the new one out to its own expanded spot — each along its own
+  path, not a shared slot (`toggleCardExpand`).
+- `#ribbon` (and so `#ribbon-wrap`, which sizes to it) grows to reserve
+  room below the deck for the expanded card — this, not any neighbor-
+  shifting logic, is what guarantees the expanded card never overlaps a
+  deck card: it always sits entirely below the deck's bottom edge by
+  construction (`setRibbonExpandedHeight`).
+- Compound animation via the Web Animations API (`el.animate()`), not CSS
+  `@keyframes`/class-toggling — chosen specifically so a card's animation
+  can be interrupted and re-targeted mid-flight (`el._anim`, cancelled and
+  replaced) when a different card is clicked before the first one
+  finishes settling, which class-toggling handles awkwardly. Two synced
+  `.animate()` calls per card: one on `.card` (left/top/width/height/
+  perspective), one on `.card-face` (rotateY) — same duration, started in
+  the same tick.
+- Timing, tuned by feel (Scott, 2026-08-11): `CARD_EXPAND_MS = 840`
+  (doubled from an initial 420 — "felt very quick"). Only the vertical
+  drop (`top`) overshoots-and-settles for a sense of weight
+  (`CARD_EXPAND_BOUNCE_PX = 14`, a keyframe offset — WAAPI has no native
+  spring easing); rotation/size ease in plainly alongside it, no
+  overshoot. Size (left/width/height/perspective) is keyframed to finish
+  at `CARD_EXPAND_SIZE_DONE_AT = 0.75` of the total duration rather than
+  linearly across the full timeline — without that intermediate keyframe,
+  size kept growing for the entire animation while position visually
+  settled well before it (Scott's diagnosis: "the movement has pretty
+  much stopped and the scaling continues to grow" — backwards from what
+  should read as weight). 0.75 landed inside Scott's requested 70-80%
+  range; still a knob to retune by feel, not derived.
+- Click semantics split across two targets on the same card: clicking the
+  card's own deck-position hit-box toggles expand/collapse; clicking the
+  expanded snapshot image itself (only reachable once expanded — same
+  element, just grown/flattened in place) navigates to the URL
+  (`chrome.tabs.create`), same as every card's click did pre-Stage-2.
+- **Three redundant close paths** (Scott: "many ways... whichever one they
+  find should work"), because a card's own deck slot is mostly covered by
+  overlapping neighbors once it's sitting open-but-empty behind them
+  (`CARD_STEP` ≪ card width, by design) — clicking the same spot to close
+  isn't reliably reachable in practice:
+  1. A visible close (×) button, upper-left corner of the expanded card,
+     33px (sized up 50% from an initial 22px), `.card-close` in
+     `index.html`.
+  2. Click anywhere outside the expanded card's own element (document-level
+     click listener, checks `!el.contains(ev.target)`).
+  3. Escape key (document-level keydown listener, no target check needed).
+  All three funnel through one `closeExpandedCard()` function.
+- Hover text (`cardHoverText`, Stage 1's below-deck plain-text block) is
+  suppressed specifically for the currently-expanded card — its position
+  math reads `el.style.left/top/height`, which only get baked in when
+  `animateCardTo`'s WAAPI animation finishes, so mid-flight (or even at
+  rest, expanded) that math would read stale deck-position values and
+  misplace the text box. Regular deck cards are unaffected and keep their
+  hover text exactly as Stage 1 built it — this was walked back once
+  after an overcorrection accidentally disabled hover text for ALL cards,
+  not just the expanded one; watch for that distinction if touched again.
+- Explicitly OUT of scope for Stage 2 (unchanged): container drop-down
+  shelf (Stage 3), high-density compression strategy (Stage 4).
 
-Scope (pending Stage 1 + 2 outcome, and the open questions above):
+### Stage 3 — container drop-down shelf — up next (Stages 1 + 2 both DONE)
+
+Scope (see the open questions above, still unresolved):
 - Hovering a container badge drops a shelf of child screenshots (smaller)
   below/above the top-level strip.
 - Resolve: always-visible child-count affordance vs. hover-only discovery.

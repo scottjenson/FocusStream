@@ -297,6 +297,35 @@
       text-align: center;
       pointer-events: none;
     }
+    /* Expanded-card close button (Stage 2, 2026-08-11): a card's own deck
+       slot is mostly covered by overlapping neighbors (CARD_STEP << card
+       width, by design — see CARD_STEP's own comment), so it's not a
+       reliable click target to collapse an expanded card once it's open.
+       This is one of three ways to close (Scott: "many ways... whichever
+       one they find should work") alongside click-outside and Escape —
+       see closeExpandedCard in timeline.js. pointer-events left enabled
+       (unlike .card-badge) since this one IS interactive; hidden except on
+       the currently-expanded card. */
+    .card-close {
+      position: absolute;
+      /* Top-LEFT (2026-08-11, moved off top-right to clear .card-badge's
+         corner entirely rather than share it) — also sized up 50% (22px ->
+         33px, Scott's ask) for an easier click target. */
+      top: 4px;
+      left: 4px;
+      width: 33px;
+      height: 33px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border: none;
+      font-size: 21px;
+      line-height: 33px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .card-close:hover { background: rgba(0,0,0,0.85); }
     /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
        expands, so this is purely a mouseenter target now — no click, no
        :active state to imply. */
