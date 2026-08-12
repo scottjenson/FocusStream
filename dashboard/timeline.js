@@ -2010,6 +2010,7 @@
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
       const isCard = el.classList.contains("card");
+      const isChildThumb = el.classList.contains("card-child-thumb");
       // Stage 1 cards show their own below-card text instead of the
       // floating quick label (which would duplicate it).
       if (el._tipData && el.dataset.runLabeled !== "1" && !isCard) {
@@ -2029,8 +2030,7 @@
       // cards keep this text as before; only isCard still needs its own
       // early return (skipping straight past it here) so a hovered card
       // never falls through into the delayed #tip tooltip path below.
-      if (isCard && el._tipData && el !== cardEls.get(cardExpandedKey)) {
-        const d = el._tipData;
+      const fillCardHoverText = (d) => {
         cardHoverText.textContent = "";
         const line = (cls, text) => {
           const div = document.createElement("div");
@@ -2041,6 +2041,9 @@
         line("cht-title", d.siteName);
         line("cht-meta", d.meta);
         if (d.pages.length) line("cht-page", d.pages[0].title);
+      };
+      if (isCard && el._tipData && el !== cardEls.get(cardExpandedKey)) {
+        fillCardHoverText(el._tipData);
         const left = parseFloat(el.style.left) || 0;
         const top = parseFloat(el.style.top) || 0;
         const height = parseFloat(el.style.height) || 0;
@@ -2048,8 +2051,22 @@
         cardHoverText.style.top = top + height + LABEL_GAP + "px";
         cardHoverText.hidden = false;
       }
-      if (isCard) {
-        return; // cards never fall through to the delayed #tip below
+      // Child carousel thumbnails (2026-08-12): same below-item label as
+      // deck cards, but positioned off the thumbnail's own offset WITHIN
+      // cardChildRow (a flex child, not individually left/top-positioned
+      // like a deck card) plus the row's own inline left/top — cardChildRow
+      // and #ribbon share the same coordinate space cardHoverText is
+      // positioned in, same as the isCard branch above.
+      if (isChildThumb && el._tipData) {
+        fillCardHoverText(el._tipData);
+        const rowLeft = parseFloat(cardChildRow.style.left) || 0;
+        const rowTop = parseFloat(cardChildRow.style.top) || 0;
+        cardHoverText.style.left = rowLeft + el.offsetLeft + "px";
+        cardHoverText.style.top = rowTop + el.offsetTop + el.offsetHeight + LABEL_GAP + "px";
+        cardHoverText.hidden = false;
+      }
+      if (isCard || isChildThumb) {
+        return; // cards and child thumbnails never fall through to the delayed #tip below
       }
       const px = ev.clientX;
       const py = ev.clientY;
@@ -2639,7 +2656,10 @@
     const wrapEl = document.getElementById("ribbon-wrap");
     const viewportW = Math.max(wrapEl.clientWidth - CARD_EXPAND_VIEWPORT_MARGIN, CARD_TIER_W.low);
     const deckBottom = maxH + CARD_HOVER_TEXT_H;
-    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H : 0;
+    // + CARD_HOVER_TEXT_H when there's a child row: budgets room for that
+    // row's own below-thumbnail hover label too (see setRibbonExpandedHeight
+    // for the matching #ribbon-height reserve and why).
+    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H + CARD_HOVER_TEXT_H : 0;
     const availableH = Math.max(
       window.innerHeight -
         wrapEl.getBoundingClientRect().top -
@@ -2872,6 +2892,14 @@
       thumb.dataset.idx = String(i);
       thumb.style.width = thumbW + "px";
       thumb.style.height = CARD_CHILD_THUMB_H + "px";
+      // Same hover label as deck cards (cardHoverText), just on the child
+      // thumbnails now (2026-08-12) — data-tip marks it for the delegated
+      // #ribbon pointerover handler, _tipData computed once here (not
+      // recomputed on hover) same as selectCarouselItem does for the click
+      // path, reusing the same tipDataOf/siteName lookup.
+      thumb.dataset.tip = "1";
+      const siteName = el._hostNames.get(labelKeyOf(item.host, item.url)) || item.host;
+      thumb._tipData = tipDataOf(item, siteName, null);
       const img = document.createElement("img");
       img.alt = "";
       img.hidden = true;
@@ -2953,7 +2981,12 @@
     // Reserve the child row's own space too (Stage 3) so #ribbon's height
     // still guarantees no overlap by construction, same reasoning as
     // CARD_EXPAND_GAP's own comment — just extended to cover the new row.
-    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H : 0;
+    // + CARD_HOVER_TEXT_H (2026-08-12): child thumbnails now show the same
+    // below-item hover label deck cards do, positioned below the thumbnail
+    // row — without this, #ribbon-wrap's forced overflow-y: auto (Stage 1
+    // build log #4) clips that label exactly like the original deck
+    // hover-text bug it was fixed for.
+    const childRowReserve = hasChildren ? CARD_CHILD_ROW_GAP + CARD_CHILD_THUMB_H + CARD_HOVER_TEXT_H : 0;
     ribbon.style.height = target.top + target.height + childRowReserve + CARD_EXPAND_GAP + "px";
   }
 
