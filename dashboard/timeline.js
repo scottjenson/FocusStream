@@ -187,7 +187,16 @@
   // (2026-08-11, Scott: "should be lining up on top of each other") — was
   // 60.
   const CARD_STEP = 20;
-  const CARD_LABEL_H = 22; // domain-label strip painted on the card face itself (spec §6 old floating .rtitle is NOT used here)
+  // Reserved band below the card deck for cardHoverText (2026-08-11 follow-
+  // up: on-face .card-label retired, site name/meta/top-page now show as
+  // plain text under the hovered card instead). #ribbon-wrap sets
+  // `overflow-x: auto`, which per the CSS overflow spec forces the other
+  // axis to `auto` too — so anything positioned below #ribbon's own height
+  // gets silently clipped. This height must be added into ribbon.style.
+  // height (paintCards) so the hover text band sits INSIDE the box
+  // #ribbon-wrap sizes to, not below it. Three lines at 12px/16px line-
+  // height plus a little breathing room.
+  const CARD_HOVER_TEXT_H = 56;
   // Contained children render at one uniform height regardless of band
   // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
   // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
@@ -1870,22 +1879,57 @@
     quickLabel.hidden = true;
   }
 
+  // Card hover text (plans/stack-ribbon.md Stage 1 follow-up, 2026-08-11):
+  // replaces the on-face .card-label AND the floating #tip tooltip for
+  // cards. Same one-shared-floating-element pattern as quickLabel above
+  // (repositioned per hover, not per-card DOM) — sits below the card deck,
+  // shows instantly (no TIP_DELAY_MS), three lines: site name, time ·
+  // duration, then the top-scoring page title (tipDataOf's first entries).
+  const cardHoverText = document.createElement("div");
+  cardHoverText.id = "card-hover-text";
+  cardHoverText.hidden = true;
+  document.getElementById("ribbon").appendChild(cardHoverText);
+
+  function hideCardHoverText() {
+    cardHoverText.hidden = true;
+  }
+
   {
     const ribbonEl = document.getElementById("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
       hideTip();
       hideQuickLabel();
+      hideCardHoverText();
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
-      // Stage 1 cards (plans/stack-ribbon.md) already carry a permanent
-      // on-face domain label (.card-label) — the floating quick label is
-      // the old block-ribbon's substitute for that and would just
-      // duplicate it here, so it's suppressed for .card elements.
-      if (el._tipData && el.dataset.runLabeled !== "1" && !el.classList.contains("card")) {
+      const isCard = el.classList.contains("card");
+      // Stage 1 cards show their own below-card text instead of the
+      // floating quick label (which would duplicate it).
+      if (el._tipData && el.dataset.runLabeled !== "1" && !isCard) {
         quickLabel.textContent = el._tipData.siteName;
         const left = parseFloat(el.style.left) || 0;
         quickLabel.style.left = left + "px";
         quickLabel.hidden = false;
+      }
+      if (isCard && el._tipData) {
+        const d = el._tipData;
+        cardHoverText.textContent = "";
+        const line = (cls, text) => {
+          const div = document.createElement("div");
+          div.className = cls;
+          div.textContent = text;
+          cardHoverText.appendChild(div);
+        };
+        line("cht-title", d.siteName);
+        line("cht-meta", d.meta);
+        if (d.pages.length) line("cht-page", d.pages[0].title);
+        const left = parseFloat(el.style.left) || 0;
+        const top = parseFloat(el.style.top) || 0;
+        const height = parseFloat(el.style.height) || 0;
+        cardHoverText.style.left = left + "px";
+        cardHoverText.style.top = top + height + LABEL_GAP + "px";
+        cardHoverText.hidden = false;
+        return; // cards get this instant text only, not the delayed #tip
       }
       const px = ev.clientX;
       const py = ev.clientY;
@@ -1933,10 +1977,12 @@
     ribbonEl.addEventListener("pointerout", () => {
       hideTip();
       hideQuickLabel();
+      hideCardHoverText();
     });
     ribbonEl.addEventListener("pointerdown", () => {
       hideTip();
       hideQuickLabel();
+      hideCardHoverText();
     });
   }
 
@@ -2393,10 +2439,11 @@
   // (CARD_TIER_H). Card face = snapshot only, fetched eagerly (unlike the
   // old lazy hover-only fetch — every card needs its image up front, not
   // just a hovered one); falls back to a plain tier-fill when no snapshot
-  // exists. Domain label paints on the swiveled card face itself, not the
-  // separate floating .rtitle layer. Containers get a plain corner count
-  // badge — no drop-down shelf (Stage 3). Click-to-open and the existing
-  // hover tooltip stay as the interim interaction model, per the plan.
+  // exists. No on-face domain label (dropped 2026-08-11 follow-up): site
+  // name now shows only in the below-card hover text (cardHoverText,
+  // above), keeping the card face pure image. Containers get a plain
+  // corner count badge — no drop-down shelf (Stage 3). Click-to-open stays;
+  // the floating tooltip is replaced by cardHoverText for cards.
   const cardEls = new Map();
   function paintCards(events, hostNames) {
     const { segs, total } = cardLayout(events);
@@ -2404,7 +2451,11 @@
     const ribbon = document.getElementById("ribbon");
     const maxH = Math.max(CARD_TIER_H.high, 1);
     ribbon.style.width = total + "px";
-    ribbon.style.height = maxH + "px";
+    // + CARD_HOVER_TEXT_H reserves room for cardHoverText below the deck —
+    // see that constant's comment: #ribbon-wrap clips anything positioned
+    // below #ribbon's own height, so the hover-text band must be counted
+    // into it, not left to float past the bottom edge.
+    ribbon.style.height = maxH + CARD_HOVER_TEXT_H + "px";
     document.getElementById("ribbon-empty").hidden = segs.length > 0;
 
     // No hour axis, no gap plates, no fences in Stage 1 — the .transient
@@ -2427,15 +2478,12 @@
         img.className = "card-img";
         img.alt = "";
         img.hidden = true;
-        const label = document.createElement("div");
-        label.className = "card-label";
         const badge = document.createElement("div");
         badge.className = "card-badge";
         badge.hidden = true;
-        face.append(img, label, badge);
+        face.append(img, badge);
         el.appendChild(face);
         el._img = img;
-        el._label = label;
         el._badge = badge;
         ribbon.appendChild(el);
         cardEls.set(s.key, el);
@@ -2461,7 +2509,6 @@
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
 
       const siteName = hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host;
-      el._label.textContent = siteName;
 
       const childCount = s.e.children ? s.e.children.length : 0;
       el._badge.hidden = !childCount;

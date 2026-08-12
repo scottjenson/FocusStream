@@ -130,6 +130,17 @@
     #ribbon-wrap {
       background: #14161a;
       overflow-x: auto;
+      /* Explicit overflow-y: hidden (2026-08-11 cardHoverText follow-up) —
+         without it, the CSS overflow spec forces overflow-y to compute as
+         `auto` too (setting one axis to non-visible forces the other off
+         `visible`), which both clipped cardHoverText below #ribbon's old
+         height AND, once #ribbon's height grew to include room for it,
+         could pop a spurious vertical scrollbar. #ribbon's height
+         (paintCards, timeline.js) is sized to exactly contain the deck +
+         reserved hover-text band, so vertical content never actually
+         overflows this box — `hidden` here is a belt-and-suspenders
+         guarantee against a stray scrollbar, not a real clip. */
+      overflow-y: hidden;
       padding: 8px 16px;
     }
     /* Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
@@ -267,29 +278,9 @@
       object-fit: cover;
       object-position: top;
     }
-    /* Domain label lives ON the swiveled face (spec Stage 1 discussion —
-       replaces the old floating .rtitle layer for cards). Moved to the
-       TOP-left corner (2026-08-11, Scott: legible on the taller/more
-       important cards) — was a bottom strip; with CARD_STEP now tight
-       enough that cards heavily overlap, a bottom label risked sitting
-       under the next (later, higher-z) card's left edge, while the top-left
-       corner is the one area of a card that's never covered by a later
-       sibling (cards are bottom-flush, so a later/shorter card's top edge
-       sits below a taller predecessor's top-left, not over it). */
-    .card-label {
-      position: absolute;
-      left: 0;
-      top: 0;
-      max-width: 100%;
-      padding: 3px 6px;
-      font-size: 12px;
-      color: #fff;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.75), rgba(0,0,0,0));
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      pointer-events: none;
-    }
+    /* Card face is image-only now (domain label dropped 2026-08-11
+       follow-up — see #card-hover-text below, which replaced both the
+       on-face .card-label and the floating #tip tooltip for cards). */
     /* Container badge (plan Stage 1: plain, non-interactive count only —
        no drop-down shelf yet, that's Stage 3). */
     .card-badge {
@@ -367,6 +358,28 @@
       border-radius: 3px;
       padding: 1px 5px;
       margin-left: -5px;
+    }
+    /* Card hover text (plans/stack-ribbon.md Stage 1 follow-up, 2026-08-11):
+       replaces both the on-face .card-label and the floating #tip tooltip
+       for cards. One shared reused element, repositioned per hover (same
+       "snap, don't glide" reasoning as #quicklabel above) below the card
+       deck's bottom edge. Three lines, no chip/background — reads as plain
+       page text sitting under the strip rather than a floating popover. */
+    #card-hover-text {
+      position: absolute;
+      z-index: 5;
+      max-width: 320px;
+      font-size: 12px;
+      line-height: 16px;
+      pointer-events: none;
+    }
+    #card-hover-text .cht-title { font-weight: 600; color: #fff; }
+    #card-hover-text .cht-meta { color: #9aa1ab; }
+    #card-hover-text .cht-page {
+      color: #c7cbd1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it

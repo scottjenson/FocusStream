@@ -27,6 +27,16 @@ kept per Scott's explicit "keep the code to the side, don't delete it"
 direction, not called by anything live. The LIVE path is
 `cardLayout()`/`paintCards()`, wired in via `render()`/`relayout()`.
 
+**What to do next, concretely:** do NOT start scoping or building Stage 2
+(magnify-on-hover) speculatively — Scott has been explicit multiple times
+in this stage's history that stages are not to be batched or run ahead of.
+The one open item is the Stage 1 exit criterion itself (felt-browsability,
+above) — that verdict is Scott's to give from actually using the card view
+day-to-day, not something to solicit with a leading question or infer from
+"looks like you've got it" (that was visual/structural approval, a
+different thing — see Status above). If Scott raises stack-ribbon again,
+ask where he landed on browsability before proposing any Stage 2 work.
+
 ## Why (recap of the discussion, 2026-08-11)
 
 The current ribbon (`spec/display.md` §5-6) encodes duration as block width
@@ -156,16 +166,15 @@ not a spec to implement end to end blind.
 - Cards overlap heavily (`CARD_STEP` ≪ card width) — later (rightward)
   cards are later DOM siblings so they paint over the receded right edge
   of their predecessor for free, no z-index needed.
-- Domain label: top-left corner of the card face (moved there from an
-  initial bottom-strip placement — legible on tall/important cards, never
-  covered by an overlapping neighbor since cards are bottom-flush).
-- Card face = snapshot image ONLY, no favicon. No-snapshot fallback = plain
-  tier-colored fill (`TIER_FILL`, reused from the old block ribbon), no
-  placeholder glyph.
+- **Superseded 2026-08-11 follow-up:** on-face domain label and the
+  floating `#tip` tooltip are both retired for cards — see the
+  "cardHoverText" entry in the build log below.
+- Card face = snapshot image ONLY, no favicon, no label. No-snapshot
+  fallback = plain tier-colored fill (`TIER_FILL`, reused from the old
+  block ribbon), no placeholder glyph.
 - Containers: plain non-interactive corner count badge. No drop-down shelf.
-- Existing click-to-open-top-fragment and hover tooltip stay as the interim
-  interaction model, retargeted to `.card` elements. The old floating
-  quick-label is suppressed for cards (redundant with the on-card label).
+- Click-to-open-top-fragment stays. Hover now shows `cardHoverText` (below-
+  deck plain text) instead of the floating tooltip — see build log.
 - Snapshot fetch is EAGER now, not lazy-on-hover: `paintCards()` batches
   one `chrome.storage.local.get()` for every visible card's snapshot,
   since every card needs its image up front, not just a hovered one.
@@ -269,6 +278,23 @@ correctly) is the one piece still open, and is what decides whether Stage
    assertions — lean on them before eyeballing a screenshot again, and
    remember eyeballing/incomplete-axis measurement is what let bugs ship
    as "fixed" twice in this stage.
+4. **`cardHoverText` follow-up (2026-08-11): on-face `.card-label` and the
+   floating `#tip` tooltip retired for cards, replaced by a single reused
+   plain-text block below the deck** (site name / time·duration / top page
+   title, shown instantly on hover — same one-shared-element pattern as
+   `quickLabel`). Two rounds to get right, both the same root cause:
+   `#ribbon-wrap` sets `overflow-x: auto` with no explicit `overflow-y` —
+   per the CSS overflow spec, a non-`visible` value on one axis forces the
+   other to compute as `auto` too, so anything positioned below `#ribbon`'s
+   own height silently clipped. Fix was two-part: (a) `#ribbon`'s height
+   (`paintCards`) must include a reserved band for the text, not just the
+   tallest card (`CARD_HOVER_TEXT_H`, repurposing the now-dead
+   `CARD_LABEL_H` slot), and (b) `#ribbon-wrap` needs an explicit
+   `overflow-y: hidden` — otherwise the forced `auto` can also surface a
+   spurious vertical scrollbar even with no real overflow. Takeaway: any
+   element positioned relative to `#ribbon` that can extend past its
+   current height needs that height accounted for explicitly — the wrap's
+   implicit auto/auto overflow doesn't give it for free.
 
 ### Stage 2 — dock-style magnify-on-hover
 
