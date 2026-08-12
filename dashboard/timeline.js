@@ -224,6 +224,16 @@
   // and #ribbon's bottom edge — pure breathing room, not load-bearing for
   // the no-overlap guarantee (that's the deck-bottom placement itself).
   const CARD_EXPAND_GAP = 24;
+  // Fixed display ratio (2026-08-12): expanding used to grow the image as
+  // large as it could fit the viewport/height caps, which (a) made cards
+  // captured at the newer 1280px SNAP_WIDTH take up too much screen, and
+  // (b) landed on an arbitrary fractional scale (e.g. 1155/1280 ≈ 0.9024)
+  // depending on window size, which softens a raster image more than a
+  // clean round downscale does. Capping at a fixed 50% instead makes size
+  // predictable and the resample ratio consistent regardless of native
+  // capture resolution or window size (viewport/height are still applied
+  // as a floor beneath 50% for small windows — see cardExpandGeom).
+  const CARD_EXPAND_SCALE = 0.5;
   // Cap the expanded card's width to the visible viewport (ribbon-wrap's
   // own clientWidth, read at click time) minus a little margin, so a card
   // captured at the newer 1280px SNAP_WIDTH never forces horizontal
@@ -2633,10 +2643,12 @@
     const img = el._img;
     const nativeW = img && img.naturalWidth ? img.naturalWidth : 1280;
     const nativeH = img && img.naturalHeight ? img.naturalHeight : Math.round(nativeW / CARD_ASPECT);
-    // Shrink to fit BOTH caps, preserving aspect — whichever axis is more
-    // constraining wins (same "scale by the smaller ratio" rule either
-    // width-bound or height-bound needs).
-    const scale = Math.min(1, viewportW / nativeW, availableH / nativeH);
+    // Shrink to fit: fixed CARD_EXPAND_SCALE is the normal target (clean,
+    // predictable downscale, not an arbitrary fit-to-window fraction); the
+    // viewport/height caps still apply beneath it so a small window can't
+    // force overflow/scrolling — whichever of the three is most
+    // constraining wins.
+    const scale = Math.min(CARD_EXPAND_SCALE, viewportW / nativeW, availableH / nativeH);
     const width = Math.round(nativeW * scale);
     const height = Math.round(nativeH * scale);
     const centerX = deck.left + deck.width / 2;

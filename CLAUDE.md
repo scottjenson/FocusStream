@@ -34,7 +34,8 @@ checklist at the top of `HISTORY.md` before appending there.
 
 ## Workflow
 - **Spec changes are proposed and approved BEFORE code changes.** Never backfill.
-- Never `git commit`/`git push` without explicit approval.
+- Never `git commit`/`git push` proactively. If asked to commit directly you can 
+  proceed without further confirmation.
 - **Score weights are provisional** (Desktop4-inherited) — keep them named
   constants, turn one knob at a time.
 

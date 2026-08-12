@@ -75,6 +75,18 @@ Explicitly deferred, not designed yet: behavior at high item-density (a
 nonlinear compression. Agreed to build the flat version first and feel it
 before answering this.
 
+Third candidate flagged 2026-08-12 (Scott): bring back something like the
+old fence/stick mechanism's LOW-tier compaction, adapted to cards — the
+fence's whole reason for existing was compacting a large run of low-
+priority items to free up space for the ones that matter, which is exactly
+the Stage 4 problem. Structurally distinct from the other two candidates:
+fence compaction is a discrete "a run of LOW cards collapses into one
+sliver/cluster" move, vs. clip/scroll (no compaction, just more scroll) or
+Stage-Manager compression (continuous shrink, every card still present
+individually just smaller). Not designed yet — how a fenced cluster of
+cards would look/expand is unscoped — but should be discussed alongside
+the other two when Stage 4 is actually taken up.
+
 ## Open questions carried forward (not yet answered)
 
 - Container nesting depth: today's containers are block→children, one
@@ -384,8 +396,9 @@ Scope (see the open questions above, still unresolved):
 
 Only scoped once Stage 1-3 exist and a genuinely busy day can be felt in
 the new layout. Candidates noted in the discussion: fixed angle with
-clip/scroll, or nonlinear Stage-Manager-style compression. No decision
-yet.
+clip/scroll, nonlinear Stage-Manager-style compression, or fence-style
+LOW-tier compaction brought back for cards (see the recap section above
+for how the three differ). No decision yet.
 
 ## Non-goals / things this rewrite does NOT change
 
