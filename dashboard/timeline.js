@@ -2194,6 +2194,42 @@
   // an actual reason (new data, day paging, fence expand/collapse).
   let lastAssembly = null; // { sessions, dayThreads, hostNames, events }
 
+  // Ribbon view mode (plans/ribbon-toggle.md, 2026-08-12): a standing
+  // toggle between the live card deck and the dormant-but-intact block
+  // ribbon, not a migration — both stay permanently available. A viewing
+  // preference like `zoom`, not part of a day's data, so it lives in
+  // localStorage rather than chrome.storage.local. Defaults to "cards" —
+  // the currently-shipped experience — on any missing or invalid stored
+  // value (fresh install, cleared storage, or a corrupted value all fall
+  // back the same way).
+  let ribbonMode = localStorage.getItem("fs_ribbon_mode") === "blocks" ? "blocks" : "cards";
+
+  // Mode switch (not just a re-render): closes whichever expand state the
+  // outgoing mode has open, tears down its persistent DOM elements (blockEls
+  // and cardEls are separate Maps — neither paint()/paintCards() clears the
+  // other's nodes, see paintCards's own .transient-sweep comment below), then
+  // does a full render() so the incoming mode lays out fresh rather than
+  // inheriting geometry computed for the other mode's #ribbon height rules.
+  function setRibbonMode(mode) {
+    if (mode === ribbonMode || (mode !== "cards" && mode !== "blocks")) return;
+    // Close open expand state directly rather than through the animated
+    // close paths (collapseFence/closeExpandedCard) — those exist to leave
+    // a kept element in a clean collapsed state, but the element is about
+    // to be removed entirely below, so animating it first is wasted work
+    // and risks touching a mid-animation node.
+    collapseAllFences();
+    if (cardExpandedKey !== null) {
+      cardExpandedKey = null;
+      hideCardChildRow();
+    }
+    const outgoing = ribbonMode === "cards" ? cardEls : blockEls;
+    for (const el of outgoing.values()) el.remove();
+    outgoing.clear();
+    ribbonMode = mode;
+    localStorage.setItem("fs_ribbon_mode", mode);
+    if (lastAssembly) render(lastAssembly.sessions, lastLockIntervals);
+  }
+
   function render(sessions, lockIntervals) {
     lastSessions = sessions;
     // lockIntervals is optional per call (internal re-renders omit it and
@@ -2213,7 +2249,8 @@
     renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions));
     lastAssembly = { sessions, dayThreads, hostNames, events };
-    paintCards(events, hostNames);
+    if (ribbonMode === "cards") paintCards(events, hostNames);
+    else paint(events, hostNames);
     // A real render (new data, day paging, fence toggle — never a zoom
     // relayout, which calls paint() directly) always resets to left-
     // justified (spec §6, 2026-08-08): the day's first event flush against
@@ -3193,10 +3230,13 @@
   // erroring, but visually nothing changes with zoom level.
   function relayout() {
     if (!lastAssembly) return;
-    paintCards(lastAssembly.events, lastAssembly.hostNames);
+    if (ribbonMode === "cards") paintCards(lastAssembly.events, lastAssembly.hostNames);
+    else paint(lastAssembly.events, lastAssembly.hostNames);
   }
 
   window.renderTimeline = render;
+  window.setRibbonMode = setRibbonMode;
+  window.FS_getRibbonMode = () => ribbonMode;
   // Single source of truth for scoring — the Score-table button in
   // dashboard.js uses these so diagnostics can never drift from the render.
   window.FS_SCORING = { scoreSession, attendedSeconds, bandFor, hostOf };
