@@ -263,6 +263,11 @@ async function finalizeCurrent(endReason) {
     session.url,
     `(${kept.length} total stored)`
   );
+  // Debug dual-write to the native app's SQLite store (2026-08-13,
+  // temporary — see decisions/capture_design.md, "Native Messaging debug
+  // bridge"). chrome.storage.local above is still the real, load-bearing
+  // write; this is best-effort and never blocks or reshapes it.
+  relayToNativeHost(session);
 }
 
 // On browser launch or extension reload storage.session is empty; adopt the
@@ -320,6 +325,100 @@ async function captureSnapshot(sessionId, windowId) {
     chrome.storage.local.set({
       ["snapErr:" + sessionId]: { when: Date.now(), message: e.message },
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Native Messaging debug bridge (2026-08-13, temporary — Phase 2 of the
+// native-capture project's PHASES.md; see decisions/capture_design.md,
+// "Native Messaging debug bridge" for why this skipped the usual
+// spec-first rule). Dual-write only:
+// chrome.storage.local above stays the extension's real, load-bearing
+// store — this just also relays the same finalized session to the native
+// app's SQLite store so its Swift side has real data to validate against.
+// Entirely best-effort/soft-fail, same contract as snapshot capture: any
+// failure here must never affect the extension's own behavior.
+// ---------------------------------------------------------------------------
+
+const NATIVE_HOST_NAME = "com.jenson.focusstream2.nativemessaging";
+
+// One-shot connection per session, not a held-open port: MV3 workers are
+// killed after ~30s idle (see file-top comment) and take no module-level
+// state with them, so there's nothing to keep a long-lived port alive
+// across finalizes anyway — session boundaries are already the natural
+// message boundary. The native host's read loop (main.swift) handles a
+// connect/one-message/disconnect cycle the same as a long-held one; it
+// just reads until EOF either way.
+async function relayToNativeHost(session) {
+  let snapshotDataUrl = null;
+  try {
+    const { ["snap:" + session.id]: snap } = await chrome.storage.local.get("snap:" + session.id);
+    snapshotDataUrl = snap ?? null;
+  } catch (e) {
+    log("native bridge: snapshot lookup failed, relaying without image:", e.message);
+  }
+
+  const message = {
+    id: session.id,
+    url: session.url,
+    title: session.title,
+    favIconUrl: session.favIconUrl,
+    tabId: session.tabId,
+    openerTabId: session.openerTabId ?? null,
+    startTime: session.startTime,
+    endTime: session.endTime,
+    endReason: session.endReason,
+    activity: session.activity,
+    heartbeats: session.heartbeats,
+    audibleMs: session.audibleMs,
+    audibleSinceTs: session.audibleSinceTs ?? null,
+    snapshotDataUrl,
+  };
+
+  // Ack-driven disconnect, not a guessed timeout (2026-08-13, replaces an
+  // earlier setTimeout(500) version — see decisions/capture_design.md).
+  // chrome.runtime.Port.postMessage() has no delivery callback of its own
+  // (confirmed against Chrome's own API docs: it's fire-and-forget by
+  // design, returning only means "enqueued," not "delivered"), so a fixed
+  // delay was a guess that could race a slow host launch. The host
+  // (NativeMessagingHost/main.swift) now sends a small framed JSON ack
+  // back over the same port after it finishes handling each message —
+  // onMessage below is what actually tells us it's safe to disconnect, no
+  // guessing involved. A safety-net timeout still guards against an ack
+  // that never arrives (host hung, or an old host build predating acks),
+  // so a stuck port can't accumulate forever.
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    let settled = false;
+    const disconnectOnce = () => {
+      if (settled) return;
+      settled = true;
+      port.disconnect();
+    };
+    port.onMessage.addListener((ack) => {
+      log(`native bridge: ack for session ${session.id}:`, ack);
+      disconnectOnce();
+    });
+    port.onDisconnect.addListener(() => {
+      if (chrome.runtime.lastError) {
+        // A REAL Chrome-reported failure (bad host name, no manifest
+        // registered, host process failed to launch, etc.) — as opposed to
+        // disconnectOnce()'s own disconnect() call, which never sets
+        // lastError since it's self-initiated, not an error Chrome is
+        // reporting.
+        log("native bridge: disconnected with error:", chrome.runtime.lastError.message);
+      }
+      settled = true;
+    });
+    port.postMessage(message);
+    // Safety net only — the expected path is the onMessage ack above.
+    setTimeout(() => {
+      if (!settled) log(`native bridge: no ack for session ${session.id} after 5s, disconnecting anyway`);
+      disconnectOnce();
+    }, 5000);
+    log(`native bridge: relay sent for session ${session.id}`, session.url);
+  } catch (e) {
+    log("native bridge: relay failed (host likely not installed):", e.message);
   }
 }
 

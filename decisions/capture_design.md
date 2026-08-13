@@ -630,3 +630,95 @@ heartbeat/finalize change, no interaction with the idle-split machinery
 (`IDLE_SPLIT_MS`) — that machinery already handles ending an unfinalized
 session on inactivity; lock intervals are purely additional testimony
 about a *gap that already exists*, read only by the display layer.
+
+## Native Messaging debug bridge (2026-08-13, temporary)
+
+**This entry is written after the code, not before — a deliberate,
+Scott-approved exception to this repo's own "spec changes are proposed and
+approved BEFORE code changes" rule (CLAUDE.md).** The native-capture
+project (a separate repo, system-wide successor to this extension — see
+its `PHASES.md` Phase 2) needed real web-session data flowing into its
+SQLite store to validate the Swift side, and the two projects are still
+actively probing whether the whole approach holds up. Scott's call:
+relax spec-first for this one change while both projects are still finding
+their shape; revisit properly once (if) it proves out. **SPEC.md itself is
+NOT updated by this entry** — that's the part being deliberately skipped,
+not an oversight. If this bridge becomes permanent, it still owes SPEC.md
+a real proposal-and-approval pass; this note exists so that debt isn't
+silently lost.
+
+**What changed.** `background.js`'s `finalizeCurrent` now calls
+`relayToNativeHost(session)` immediately after the existing
+`chrome.storage.local.set({ sessions: kept })` write — a **dual-write**,
+not a replacement. `chrome.storage.local` remains the extension's real,
+load-bearing store; the dashboard, orphan sweep, and everything else here
+are completely unchanged and untouched by this. The relay is purely
+additive and best-effort: `manifest.json` gained the `"nativeMessaging"`
+permission, and each call opens a fresh
+`chrome.runtime.connectNative("com.jenson.focusstream2.nativemessaging")`
+port, posts one message shaped like the SessionBlock (plus the session's
+`snap:<id>` value, if any, decoded and re-attached as `snapshotDataUrl`),
+and disconnects — no held-open port, since MV3 workers are killed after
+~30s idle anyway and take no module state with them, so there was never a
+long-lived connection to keep alive across finalizes in the first place.
+Any failure (host not installed, no manifest registered, connection
+refused) is caught and logged, never thrown — same soft-fail contract as
+snapshot capture.
+
+**Bug found 2026-08-13, same day: synchronous `disconnect()` silently
+dropped every relay.** The first working version called `port.disconnect()`
+immediately after `port.postMessage()`. The worker console showed
+`native bridge: relayed session ...` cleanly every time — no thrown error,
+no `onDisconnect`-reported `chrome.runtime.lastError` — and yet the native
+app's SQLite store never received a single row, and the native host's own
+log file (added specifically to chase this) never showed the process even
+starting. Root cause: `postMessage()` returning only means Chrome
+*enqueued* the message, not that it launched the host process and
+delivered it — an immediate self-initiated `disconnect()` tore the port
+down before that happened. Worse, `disconnect()` called by us (not by
+Chrome, not from an error) never sets `chrome.runtime.lastError`, so the
+failure was invisible from the JS side by design, not by omission — the
+API gives no synchronous signal that a message actually reached the
+far end. **First fix attempt:** `postMessage()`, then
+`setTimeout(() => port.disconnect(), 500)` — worked, but Scott correctly
+called this out as hacky: a fixed delay is exactly the kind of thing that
+turns into an intermittent failure on a slow machine or under load, not a
+real fix. **Real fix:** the host already has a live stdout channel back to
+Chrome that was going unused — it now sends a small framed JSON ack
+(`{"ok": true, "id": ...}`) after it finishes handling each message
+(`NativeMessagingHost/main.swift`, `writeFramedMessage`). `port.onMessage`
+here waits for that ack and disconnects then — an actual completion
+signal, not a guess. `onDisconnect`'s `lastError` check still catches a
+genuine Chrome-reported failure (bad host name, missing manifest, host
+crash). A 5s `setTimeout` remains, but only as a safety net against a
+never-arriving ack (hung host, or an old pre-ack host build) — the
+expected path never touches it, so it can't silently mask normal-case
+delivery the way the 500ms version effectively guessed at it.
+
+**A second, independent bug surfaced by the same debugging pass:**
+`Storage.swift` on the native-capture side is shared via symlink between
+its always-running LaunchAgent (stdout is a free console there) and the
+Native Messaging host process (stdout is Chrome's strict protocol
+channel — the ack above and Chrome's own framing both live there, and
+nothing else may). `Storage.open()` had a plain `print(...)` line that
+landed mid-stream on the host's stdout, corrupting every ack after it.
+Not this repo's bug or fix (native-capture project, `Storage.swift`), but
+worth recording here since it was invisible from this side: the ack
+count assertion in that project's own test harness is what caught it,
+not any signal visible in `background.js` or this console.
+
+**Screenshot format reconciliation lives on the other side.** This repo
+still only ever produces `data:image/jpeg;base64,...` strings, exactly as
+before (`captureSnapshot`, `blobToDataUrl`) — no format change here. The
+native-capture project's host manifest side is intended to decode that
+`data:` URL and write it as an ordinary file under
+`~/.focusstream2/snapshots/<id>.jpg`, per that project's PHASES.md Phase 2
+"Screenshot bridging" section — that convergence is Swift-side work, not
+this file's concern.
+
+**Meant to be temporary.** Once the native side is validated against this
+real data, expect this dual-write to either (a) get formally proposed
+through SPEC.md and kept, or (b) get removed if the native-capture
+approach doesn't pan out. Don't build further capture-side features on top
+of this relay call without first closing that loop — a debug bridge is not
+a foundation.
