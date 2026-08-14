@@ -2724,8 +2724,15 @@
     const width = Math.round(nativeW * scale);
     const height = Math.round(nativeH * scale);
     const centerX = deck.left + deck.width / 2;
+    // Clamp to the wrap's current scroll position, not 0: .card is
+    // positioned absolute inside the scrolling wrap, so left/top are
+    // scroll-content coordinates, and wrapEl.scrollLeft is where the
+    // visible viewport's left edge currently sits in that space. Cards
+    // near the left edge would otherwise center under the cursor and run
+    // off-screen.
+    const minLeft = wrapEl.scrollLeft + CARD_EXPAND_VIEWPORT_MARGIN;
     return {
-      left: Math.round(centerX - width / 2),
+      left: Math.max(Math.round(centerX - width / 2), minLeft),
       top: Math.round(deckBottom + CARD_EXPAND_GAP),
       width,
       height,
