@@ -21,6 +21,15 @@ const SPA_DEBOUNCE_MS = 15_000;
 // (redirect hops, instant bounces), not user activity — discarded at finalize.
 const BLIP_MS = 2_000;
 
+// chrome.tabs.audible can blip false for ~1s during a live WebRTC call
+// (Meet, observed 2026-08-14 investigating a 90-minute meeting that
+// fractured into 3 containers) with no real interruption — the call kept
+// running, Chrome's own detector just misfired momentarily. A false that
+// self-corrects within this window is noise, not a real drop; only a false
+// that persists past it (or the tab closes first) counts as audio actually
+// stopping. 3x the ~1s observed blip width — see decisions/capture_design.md.
+const AUDIBLE_FLICKER_MS = 3_000;
+
 // Finalized blocks older than this are pruned at finalize: the sessions
 // array is rewritten in full on every finalize, so unbounded growth makes
 // every tab switch serialize the entire history (and walks toward the
@@ -662,25 +671,64 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     // costs zero writes. startSession stamps it as audibleSinceTs; display
     // bridges a long container gap only when the audio predates the gap
     // (§6 gap-audio testimony).
-    const { audibleContinuity = {} } = await chrome.storage.session.get("audibleContinuity");
-    if (changeInfo.audible && audibleContinuity[tabId] == null) {
-      audibleContinuity[tabId] = Date.now();
-      await chrome.storage.session.set({ audibleContinuity });
-    } else if (!changeInfo.audible && audibleContinuity[tabId] != null) {
-      delete audibleContinuity[tabId];
-      await chrome.storage.session.set({ audibleContinuity });
+    //
+    // Flicker tolerance (2026-08-14): chrome.tabs.audible can blip false
+    // for ~1s mid-call with no real interruption (specimen: a live Meet
+    // call, tab never switched, flipped false then true again inside a
+    // second). A bare false must not be trusted immediately — it's held as
+    // "pending" (audiblePending) and only committed once it's proven
+    // itself real, either by outlasting AUDIBLE_FLICKER_MS before the next
+    // true arrives, or by the tab closing outright (onRemoved) with
+    // nothing left to wait for. A true that arrives while a pending false
+    // is still within the window is the flicker resolving itself: the
+    // pending false is simply discarded, and — since audibleContinuity/
+    // current.audibleSince were never touched while pending — the original
+    // interval is already exactly as if the blip never happened.
+    const { audibleContinuity = {}, audiblePending = {} } = await chrome.storage.session.get([
+      "audibleContinuity",
+      "audiblePending",
+    ]);
+    const pendingFalseAt = audiblePending[tabId];
+    let commitFalse = false;
+    if (changeInfo.audible) {
+      if (pendingFalseAt != null) {
+        delete audiblePending[tabId];
+        if (Date.now() - pendingFalseAt >= AUDIBLE_FLICKER_MS) {
+          // Outlasted the flicker window before this true arrived — the
+          // drop was real. Commit the close (backdated to when it actually
+          // dropped, not now) before treating this true as a fresh start.
+          commitFalse = true;
+        } else {
+          log("audible flicker absorbed, tab", tabId);
+        }
+      }
+      if (!commitFalse && audibleContinuity[tabId] == null) {
+        audibleContinuity[tabId] = Date.now();
+      }
+    } else if (pendingFalseAt == null) {
+      audiblePending[tabId] = Date.now();
     }
+    if (commitFalse) {
+      delete audibleContinuity[tabId];
+      audibleContinuity[tabId] = Date.now(); // this true starts a fresh stretch
+    }
+    await chrome.storage.session.set({ audibleContinuity, audiblePending });
+
     const current = await getCurrent();
     if (!current || current.tabId !== tabId) return;
     if (changeInfo.audible) {
-      current.audibleSince = current.audibleSince || Date.now();
-    } else if (current.audibleSince) {
-      current.audibleMs = (current.audibleMs || 0) + Date.now() - current.audibleSince;
-      delete current.audibleSince;
-      // Audible pinned attention to now; the idle-split clock starts here.
-      current.lastActiveTs = Date.now();
-      log("audible interval closed, total", Math.round(current.audibleMs / 1000) + "s", current.url);
+      if (commitFalse && current.audibleSince) {
+        current.audibleMs = (current.audibleMs || 0) + pendingFalseAt - current.audibleSince;
+        current.lastActiveTs = pendingFalseAt;
+        log("audible interval closed, total", Math.round(current.audibleMs / 1000) + "s", current.url);
+        current.audibleSince = Date.now();
+      } else {
+        current.audibleSince = current.audibleSince || Date.now();
+      }
     }
+    // The false branch intentionally does nothing to current.audibleSince —
+    // resolution happens above, on the next true, or in onRemoved for a
+    // pending false that never gets one.
     await setCurrent(current);
   });
 });
@@ -694,18 +742,22 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
     // The closed tab can never start another session; drop its opener edge.
     // Edges pointing AT it stay — they remain valid tree keys (spec §3).
-    // Its audible-continuity entry dies with it too.
-    const { openerEdges = {}, audibleContinuity = {} } = await chrome.storage.session.get([
-      "openerEdges",
-      "audibleContinuity",
-    ]);
+    // Its audible-continuity entry dies with it too — including any
+    // still-pending false (2026-08-14): the tab's gone, so there's no
+    // future true left to corroborate or refute it either way.
+    const {
+      openerEdges = {},
+      audibleContinuity = {},
+      audiblePending = {},
+    } = await chrome.storage.session.get(["openerEdges", "audibleContinuity", "audiblePending"]);
     if (openerEdges[tabId] != null) {
       delete openerEdges[tabId];
       await chrome.storage.session.set({ openerEdges });
     }
-    if (audibleContinuity[tabId] != null) {
+    if (audibleContinuity[tabId] != null || audiblePending[tabId] != null) {
       delete audibleContinuity[tabId];
-      await chrome.storage.session.set({ audibleContinuity });
+      delete audiblePending[tabId];
+      await chrome.storage.session.set({ audibleContinuity, audiblePending });
     }
   });
 });

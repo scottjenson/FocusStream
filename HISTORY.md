@@ -80,6 +80,13 @@ terse — write the entry there, then come back and add the one-line pointer.
   horizontal-inblock-labels (shipped per commit bcb461e), and 8 early
   scoring/visual watches unheard-from since the monochrome redesign.
   44 → 26 entries net.
+- **2026-08-14:** audible-continuity flicker tolerance — a real 90-minute
+  Meet call rendered as 3 containers because `chrome.tabs.audible` blips
+  false for ~1s mid-call with no real interruption, defeating gap-audio
+  testimony's `audibleSinceTs` on every gap over 5 minutes (never exposed
+  before: every prior meeting's gaps stayed under the plain gap threshold).
+  Live-reproduced on both a solo and a real two-device call. Capture-side
+  only, future sessions only — `decisions/capture_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

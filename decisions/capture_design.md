@@ -426,6 +426,108 @@ no entry). Display use: `decisions/timeline_design.md` (gap-audio bridge).
 Additive schema — old data simply never long-bridges; no history wipe
 needed.
 
+## Audible continuity — flicker tolerance (2026-08-14)
+
+**Why:** a real 90-minute Alex/Scott Meet call rendered as 3 separate
+containers instead of one. Investigation (full trail: transcript
+2026-08-14) initially suspected the same-day Native Messaging debug
+bridge (`relayToNativeHost`, dual-write to the native-capture project's
+SQLite) — ruled out: it fires fire-and-forget, after the
+`chrome.storage.local` write, never touches `session`, and the service
+worker's Errors log showed nothing. Next suspected the 2026-08-07
+earned-HIGH atomicity guard (`timeline.js`, blocks adjacent-container
+bridging on either side of an earned-HIGH neighbor) — real and correctly
+firing for one of the meeting's two gaps, but a red herring for the
+core question, since it only suppresses a bridge that gap-audio
+testimony would otherwise have offered. The actual defect: pulling the
+stored sessions showed every fragment's `audibleSinceTs` postdated the
+*previous* fragment's `endTime` — gap-audio testimony (above) had no
+evidence to offer for either gap, despite Scott's certainty the calls
+(both this one and a live-recreated repro) had continuous, unbroken
+audio the whole time.
+
+**Live reproduction:** a solo Meet call flickered `audible` false→true
+within ~1s while Scott was still sitting in the Meet tab — no tab
+switch, no presenting, nothing external. A real two-device call (one
+end on a second physical device) reproduced the same sub-second
+false→true blip mid-conversation, confirmed via `event: audible`
+console timestamps. Chrome's `tab.audible` heuristic itself blips
+briefly during a live, continuously-spoken WebRTC call — a Chrome/Meet
+quirk, not a regression in this project's code. `onUpdated`'s
+`changeInfo.audible` only reports *changes* (never two `false`s in a
+row without an intervening `true`), so "wait for a second false" isn't
+available telemetry — the only signal that exists is how long a
+`false` lasts before the next `true` (or nothing).
+
+**Why this was never seen before 2026-08-14:** gap-audio testimony is
+only ever consulted when the plain gap test already fails
+(`gap >= VISIT_GAP_MS`, 5 min) — every prior Meet meeting in stored
+history (8/10–8/13) had every fragment-to-fragment gap under a minute,
+so all of them bridged on the plain gap clause and never touched the
+audio clause at all. The flicker bug was very likely present the whole
+time; this was the first meeting with a genuine >5-minute side-quest
+gap (Alex sent a link they looked at together; Scott presented his
+screen) to actually exercise the audio-testimony path and expose it.
+
+**Rejected: plain setTimeout debounce on the false transition.**
+Simplest fix, but doesn't fit the existing "no polling, no redundant
+sampling" constraint from the 2026-07-24 design above, and MV3 workers
+can die mid-timeout — deliberately avoided per Scott's steer away from
+"just throw a timer in."
+
+**Rejected: re-check `tab.audible` fresh at `startSession` (return to
+tab) instead of trusting the stored continuity map.** Already the
+existing fallback when `audibleContinuity` has no entry, and tempting
+because `chrome.tabs.get`/`onActivated` already reads a fresh `Tab`
+object at exactly the return moment. Rejected on the same grounds the
+2026-07-24 entry above already rejected it: "audible at return" is a
+boolean, not a duration — it can't distinguish "audio ran the whole 90
+minutes" from "audio happened to restart 3 seconds before I switched
+back," which was the original fused-YouTube-binge failure mode this
+whole mechanism exists to prevent. Scott confirmed the "since" duration
+itself is worth keeping (future potential: cross-checking a container's
+start/end against its audio track) — the fix had to preserve continuity
+semantics, not replace them with a point-in-time check.
+
+**As built:** `chrome.tabs.onUpdated`'s `false` branch no longer
+instantly clears `audibleContinuity[tabId]` or closes
+`current.audibleSince`. It stages the drop in a new session-storage map,
+`audiblePending: {tabId: falseAtTs}`, and does nothing else — no timer
+armed, nothing scheduled. Resolution is lazy, driven only by whichever
+real event arrives next:
+- **The next `true` for that tab:** if it arrives within
+  `AUDIBLE_FLICKER_MS` (3s — 3x the ~1s observed blip width) of the
+  pending `false`, the drop was noise — the pending flag is discarded
+  and `audibleContinuity`/`current.audibleSince` are left exactly as
+  they already were (never having been touched, the interval is
+  already correct through the blip, no restoration needed). Past the
+  window, the drop was real — commit the close *backdated to the
+  original false timestamp* (not now, so `audibleMs` accrual stays
+  accurate), then start a fresh interval for this `true`.
+- **`chrome.tabs.onRemoved` (tab closes):** any pending false is
+  discarded unconditionally alongside `audibleContinuity` — the tab is
+  gone, so there's no future `true` left to corroborate or refute it
+  either way; `finalizeCurrent`'s existing fold-in already counts
+  through to the close moment via the still-open `audibleSince`.
+Event-driven throughout, same shape as the 2026-07-24 mechanism it
+extends — no `setTimeout`, no `chrome.alarms`, no polling.
+
+**Known miss, accepted:** if a pending `false` is still fresh
+(< 3s old) when the tab is switched away from (`finalizeCurrent`, not
+`onRemoved`), the closing session's `audibleMs` may overcount by up to
+`AUDIBLE_FLICKER_MS` — `finalizeCurrent` doesn't know about
+`audiblePending` and folds in through its own `endTime` regardless.
+Bounded, rare (requires switching away inside the same ~3s window a
+flicker starts), and far preferable to the prior behavior of silently
+losing gap-audio testimony on every flicker. `audibleContinuity` itself
+is unaffected by this miss — only the closing session's own `audibleMs`
+total, a minor display-time score input, not gap-audio testimony.
+
+**Retroactive scope:** capture-time only — `audibleSinceTs` is stamped
+once at `startSession` and never recomputed. Sessions already stored
+(including the 2026-08-14 Alex/Scott meeting itself) keep their
+already-corrupted values; this fixes future captures only, not history.
+
 ## Download presence gate (2026-07-26)
 
 **Why:** Scott rebooted his Mac; `utweb.rainberrytv.com` (BitTorrent
