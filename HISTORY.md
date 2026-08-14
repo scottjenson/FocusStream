@@ -87,6 +87,13 @@ terse — write the entry there, then come back and add the one-line pointer.
   before: every prior meeting's gaps stayed under the plain gap threshold).
   Live-reproduced on both a solo and a real two-device call. Capture-side
   only, future sessions only — `decisions/capture_design.md`.
+- **2026-08-14:** container qualification weak-bridge guard — when a real
+  excursion fills a gap, at least one side's own edge fragment (not a
+  container endpoint's summed band) must be MEDIUM+ to bridge; closes a
+  case where a chain's later strength retroactively legitimized an
+  unrelated excursion swept in as children of a near-zero-intent opener,
+  caught recurring one layer up in the adjacent-container pass before the
+  final fix — spec §6; `decisions/timeline_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

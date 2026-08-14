@@ -1869,3 +1869,115 @@ tighter than the implied-break fold threshold (60min), an ordinary unlocked
 45-minute gap fences (folds into the run) yet still earns an away-plate on
 hover — the two thresholds no longer move together, whereas before the fix
 they were the same number by definition.
+
+## Weak-bridge guard — container qualification (2026-08-14)
+
+**Why:** a Figma thread rendered as `figma.com 11:31 AM–11:46 AM · 2
+visits + 3 excursions`, framing a 6-minute unrelated excursion (a Google
+speed test, two Gemini sessions, Google Keep, a Calendar search — all on
+different tabs) as contained children. Scott's read on sight: "the start
+was three glances totaling ~12 seconds, then I bounced to get some
+information, then came back — that shouldn't containerize." Confirmed
+against stored data: the pre-excursion Figma fragments (2s, 6s, 4s;
+scores 10/11/10) and the fragment immediately resuming after the
+excursion (score 20) were all individually LOW — well under `MED_SCORE`
+(150) on their own. The chain nonetheless qualified because
+`chainScore` sums the WHOLE chain, and later Figma engagement inside
+the same tabId, well after the excursion (scores up to 345), pulled the
+total past `MED_SCORE`. The qualification gate was correctly testing
+"does the anchor chain have real intent," but summed-over-everything
+let strength earned long after a bridge retroactively justify that
+bridge, even when neither fragment actually bracketing the gap carried
+any.
+
+**Investigation note:** this surfaced adjacent to, but is unrelated to,
+the same-day `decisions/capture_design.md` audible-continuity flicker
+fix — a different meeting's containerization complaint led to that one;
+this Figma complaint is a separate specimen, independently diagnosed.
+
+**Design constraint (Scott):** don't over-correct — a real "quick
+check, bounce for more info, then substantial return" pattern (his own
+words) must keep containerizing. A per-bridge test needing BOTH
+endpoints to individually qualify was rejected in discussion for
+exactly this reason: it would also block the legitimate pattern, not
+just the noise one. The chosen shape needs only ONE endpoint of each
+bridge to be real.
+
+**First cut, shipped then caught broken same day:** `detectContainers`'s
+bridge test gained `weakBridge = last.band === "low" && e.band ===
+"low"`, checked alongside the existing `earnedHighAtomic` guard.
+Validated against six LOW-LOW bridges from one real day (below) with
+zero disagreements — but validation only checked PASS ONE (raw
+fragments), and the live dashboard immediately surfaced a pass-two
+failure the diagnostic log itself had walked past: after the fix,
+console showed `figma.com 11:37 AM–11:46 AM · 5 visits + 0 excursions`
+(correct — the original bug fixed), but the RIBBON still showed a
+`figma.com 11:31 AM–11:46 AM · 2 visits + 3 excursions` card. Full
+member dump (temporary diagnostic) showed why: the adjacent-container
+pass (`CONTAINER_CHAIN_GAP_MS`) re-bridged the isolated 11:31 AM LOW
+glance directly onto the now-fixed 11:37 AM container — reconstructing
+the exact excursion-swallowing shape one layer up. Root cause: `e.band`
+on a container endpoint is the container's own SUMMED band (here,
+`"high"`, scored 1712, well past `MED_SCORE`), not the band of the one
+fragment actually touching the gap — so `last.band === "low" &&
+e.band === "low"` was structurally blind to a strong container with a
+weak leftover neighbor, in exactly the same way the original
+whole-chain-score bug was blind to a strong chain with a weak opener.
+
+**Second thing caught in the same pass:** re-examining the pass-two
+case raised a real ambiguity the first design hadn't considered — is a
+weak-opener-then-gap-then-strong-container ALWAYS wrong, or only when
+an actual excursion filled the gap (vs. just silence, which is
+ordinary "stepped away, came back" behavior a container should still
+credit)? Checked directly against the specimen: the 11:31 AM glance and
+the 11:37 AM container WERE in fact separated by the same real
+excursion (gemini.google.com, keep.google.com, calendar.google.com, all
+different tabs) as the original bug — not silence — so both layers of
+this specimen are the identical shape, and Scott confirmed both should
+block on the same rule rather than carving out an exception.
+
+**As built (final):** two changes to the first cut. (1) `edgeBand(e,
+side)` walks to the chronological edge fragment through `.members`
+(first member if resuming after a gap, last if closing before one),
+recursively through nesting, and returns THAT fragment's own `.band` —
+replacing the raw `last.band`/`e.band` read, so a container endpoint is
+judged by the one fragment touching the gap, not its own aggregate
+strength. (2) the guard only applies when `excursionFilledGap` is true
+— some other event (different host or tree) with a start/end strictly
+inside the gap — computed by scanning the full `events` array passed
+into `detectContainers` (already in scope, no new plumbing). An empty
+gap never trips the guard regardless of either edge's band. Applies in
+both passes — no pass-specific carve-out, since the failure shape can
+occur at either granularity, and `edgeBand` degrades to a plain
+`.band` read for a raw fragment with no `.members` (pass one is
+unaffected in shape, only in the added excursion gate).
+
+**Validation (live, 2026-08-14, one real day's data via a temporary
+read-only diagnostic log — not a full offline replay):** pass-one
+validation from the first cut carried forward unchanged — six LOW-LOW
+bridges, zero disagreements: the Figma specimen itself (correctly
+blocked); two isolated youtube.com glances (correctly blocked); an
+openrouter.ai pair, first endpoint under threshold (correctly blocked);
+and a calendar.google.com/meet.google.com pair at 12:38–12:56 PM,
+closest to `MED_SCORE` (20→101, 40→120, 120→120) and the most
+plausible false positive on inspection — Scott confirmed it was in fact
+a scattered, low-intent debugging session (this very investigation's
+own Claude Code session), correctly blocked. The pass-two failure and
+fix above were themselves found and confirmed live, on the actual
+running dashboard, not via the diagnostic alone — the console log
+looked correct while the ribbon visibly wasn't, which is what surfaced
+the container-vs-fragment `.band` bug in the first place. No specimen
+of an EMPTY-gap weak-opener-then-strong-return pattern appeared in that
+day's data to test directly (the one candidate found had a real
+excursion in it); the `excursionFilledGap` gate is reasoned to preserve
+that pattern, not yet observed doing so.
+
+**Known gap:** no full offline harness exists for `detectContainers` —
+validation here was a live diagnostic log against one day, hand-checked
+against memory and the actual rendered ribbon, not a reproducible
+before/after diff over historical data the way the 2026-07-25
+spawn-edge validation above had. The pass-two miss in the first cut is
+itself evidence this matters: a log-only check (no visual cross-check)
+would have shipped the broken version. Acceptable for a small,
+narrowly-scoped guard once caught; a larger container-logic change
+would warrant building the harness first.

@@ -58,6 +58,22 @@
     return members.some((m) => m.score >= HIGH_SCORE);
   }
 
+  // Weak-bridge guard support (spec §6, 2026-08-14): a container's own
+  // .band is its SUMMED strength, which says nothing about how weak the
+  // ONE fragment actually touching a given gap was — a container that
+  // earned HIGH from members deep inside its span can still open or close
+  // with a near-zero fragment at its edge. Walks to the chronological edge
+  // fragment (first member if resuming after a gap, last if closing before
+  // one) recursively through nested containers, and tests THAT fragment's
+  // own band, not the container's.
+  function edgeBand(e, side) {
+    let cur = e;
+    while (cur.members && cur.members.length) {
+      cur = side === "start" ? cur.members[0] : cur.members[cur.members.length - 1];
+    }
+    return cur.band;
+  }
+
   const HOUR = 3600 * 1000;
   // Visit-merge gap limit: a brief tab-away stays the same visit; coming
   // back after minutes of absence is a NEW visit (interruption-by-absence).
@@ -894,8 +910,43 @@
         const earnedHighAtomic =
           chainGapMs === CONTAINER_CHAIN_GAP_MS &&
           (hasEarnedHigh(last) || hasEarnedHigh(e));
+        // Weak-bridge guard (spec §6, 2026-08-14): a bridge needs real
+        // intent on at least ONE side, but ONLY when something else
+        // actually filled the gap — an empty pause between a weak opener
+        // and a strong return is still one thread with a break in it
+        // (returning is the strongest intent signal there is; a weak
+        // opener shouldn't forfeit that). What the guard actually refuses
+        // is a chain's LATER strength retroactively legitimizing an
+        // UNRELATED excursion it never earned: a brief glance, a real
+        // excursion onto other hosts/tabs, a brief glance back — the
+        // excursion becomes contained children of an anchor that was never
+        // strong at either edge touching it (specimen: three sub-15s Figma
+        // glances framing a 6-minute speed-test/Gemini/Keep/Calendar
+        // excursion). Deliberately per-bridge, not whole-chain: only one
+        // endpoint needs to clear LOW, not both, and an EMPTY gap never
+        // trips the guard regardless of both endpoints' bands (2026-08-14
+        // same-day fix: a lone LOW glance directly preceding a genuinely
+        // strong same-host return, no excursion in between, is exactly the
+        // "quick check, then substantial return" pattern the guard must
+        // NOT block — caught live when pass two re-attached an isolated
+        // 11:31 AM glance onto the now-fixed 11:37 AM container). Tests
+        // edgeBand, not last.band/e.band directly: in pass two, `e`/`last`
+        // can themselves BE already-assembled containers, and a
+        // container's own .band is its summed strength, not the strength
+        // of the one fragment actually touching this gap.
+        const excursionFilledGap = events.some(
+          (o) =>
+            o !== last &&
+            o !== e &&
+            o.startTime >= last.endTime &&
+            o.endTime <= e.startTime &&
+            (o.treeId !== e.treeId || o.host !== e.host)
+        );
+        const weakBridge =
+          excursionFilledGap && edgeBand(last, "end") === "low" && edgeBand(e, "start") === "low";
         const bridged =
           !earnedHighAtomic &&
+          !weakBridge &&
           (gap < chainGapMs ||
             (gap < AUDIO_BOOKEND_GAP_MS &&
               e.audibleSinceTs != null &&
