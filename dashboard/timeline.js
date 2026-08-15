@@ -169,56 +169,45 @@
   // overlaps/obscures the start of its neighbor (the hover-gap effect,
   // Stage 5, is what un-hides it).
   //
-  // Pivot is a SHARED point, not each card's own edge (2026-08-15): the
-  // pivot (transform-origin/perspective-origin) sits at one fixed Y —
-  // CARD_PIVOT_Y_FRAC × the deck's max height — the SAME absolute height
-  // for every tier, rather than each card's own top/center/bottom. A
-  // per-card pivot (tried first: `left center`, then `left bottom`) always
-  // traded one edge's alignment for the other's, since a shorter card's
-  // own edges sit at different absolute heights than a taller one's once
-  // rotated around its own box. A shared external pivot avoids that
-  // trade-off structurally. 0.8 (80% of the way down from the deck's top,
-  // i.e. just above the shared bottom baseline every card is flush
-  // against) was landed on by feel, using an interactive slider tool
-  // (`test.html`, Desktop, not part of the repo) rather than more
-  // back-and-forth hardcoding — see `plans/stack-ribbon.md` Stage 5 for
-  // the fuller story and the two rejected intermediate pivots.
-  // swivelPivotPx(cardTopAbs) below converts this fraction into each
-  // card's own LOCAL pivot Y, in px (transform-origin/perspective-origin
-  // can't take a value shared across elements directly — each is relative
-  // to its own box).
+  // Pivot is a SHARED point, not each card's own edge (2026-08-15): fixed
+  // at CARD_PIVOT_Y_FRAC × the deck's max height, the same absolute Y for
+  // every tier — a per-card pivot (each card's own top/center/bottom)
+  // always traded one edge's alignment for the other's, since shorter and
+  // taller cards' edges sit at different absolute heights once rotated
+  // around their own box. swivelPivotPx(cardTopAbs) converts the shared
+  // fraction into each card's own local pivot Y in px (transform-origin/
+  // perspective-origin are relative to each element's own box, so the
+  // shared value can't be written as a plain CSS %). See
+  // plans/stack-ribbon.md Stage 5 for the exploration behind 0.8.
   const CARD_PIVOT_Y_FRAC = 0.8;
   const CARD_SWIVEL_DEG = 64;
+  // LOW rotates 10° less than every other tier (2026-08-15) — a small
+  // deliberate exception on top of the shared pivot above, not a per-tier
+  // angle map (that fights the shared pivot — see git history for why one
+  // was tried and reverted). swivelDegFor(band) is the one place this
+  // applies.
+  const CARD_SWIVEL_DEG_LOW_DELTA = -10;
+  function swivelDegFor(band) {
+    return band === "low" ? CARD_SWIVEL_DEG + CARD_SWIVEL_DEG_LOW_DELTA : CARD_SWIVEL_DEG;
+  }
   // Perspective depth, RATIO not a fixed px value (2026-08-11 — see
   // index.html's .card comment for why a fixed px value is wrong): must
   // scale WITH each card's own height so the Z÷perspective ratio — not
   // perspective alone — stays constant across tiers, or a taller card
   // converges harder than a shorter one at the identical rotation angle.
   // CARD_PERSPECTIVE_RATIO is that constant (perspective_px = height ×
-  // ratio, computed per-card in paintCards). Raised 900/260 (≈3.46) → 6.0
-  // (2026-08-15) alongside the pivot move above — the two were tuned
-  // together by feel, not independently; retune one, recheck the other.
+  // ratio, computed per-card in paintCards).
   const CARD_PERSPECTIVE_RATIO = 6.0;
   // px between consecutive cards' own left edges — deliberately less than
   // even the smallest tier's own width (LOW ≈163px post-CARD_ASPECT) so
-  // any tier adjacency still overlaps into a stack. Uniform across ALL
-  // tiers as of Stage 5 (2026-08-15): the hover-gap effect (CARD_GAP_*
-  // below) is what earns back browsability at a tight pitch, so there's no
-  // more per-tier split. Tried at 20 same day as the pivot/angle/
-  // perspective retune above — reverted the same day once real data showed
-  // it read far too wide. Retune by feel, same as its predecessor.
+  // any tier adjacency still overlaps into a stack. Uniform across all
+  // tiers (Stage 5) — the hover-gap effect (CARD_GAP_* below) earns back
+  // browsability at this tight a pitch. Retune by feel.
   const CARD_STEP = 10;
-  // Converts the shared CARD_PIVOT_Y_FRAC into ONE card's own local pivot
-  // Y, in PX (2026-08-15 — see CARD_PIVOT_Y_FRAC's own comment for why).
-  // Can't be expressed as a CSS `%` on transform-origin/perspective-origin
-  // directly: a CSS percentage is relative to THAT element's own box, but
-  // the pivot here is fixed in DECK space (same absolute height for every
-  // tier) — a %, unlike a px value, can't reach outside 0–100% of a short
-  // card's own box to land at a point above its own top edge, which
-  // happens for MEDIUM/LOW once the shared pivot sits high enough.
-  // cardTopAbs is this card's own top edge in the deck's shared coordinate
-  // space (`maxH - cardHeight`, matching paintCards' own bottom-flush
-  // placement) — same units `dataset.deckTop` already uses elsewhere.
+  // Converts the shared CARD_PIVOT_Y_FRAC into one card's own local pivot
+  // Y in px — can't be a CSS `%` since that's relative to the element's
+  // own box, not the shared deck height. cardTopAbs is this card's own top
+  // edge in the deck's coordinate space (`maxH - cardHeight`).
   function swivelPivotPx(cardTopAbs) {
     return CARD_TIER_H.high * CARD_PIVOT_Y_FRAC - cardTopAbs;
   }
@@ -3321,7 +3310,7 @@
     };
     const face = el.firstChild;
     const fromRotate = /rotateY\(([-\d.]+)deg\)/.exec(face.style.transform);
-    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : CARD_SWIVEL_DEG;
+    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : swivelDegFor(el._e && el._e.band);
     // Only the collapse-to-deck callers pass a nonzero rotateDeg (expand
     // always flattens to 0, where the pivot is moot) — both animate `top`
     // TOWARD target.top, so that's the right basis, not a per-frame value.
@@ -3400,9 +3389,9 @@
       cardExpandedKey = null;
       el._closeBtn.hidden = true;
       el._info.hidden = true;
-      el.classList.remove("expanded"); // restores the tier-low dim scrim (CSS), same direct-set-on-click reasoning as _closeBtn/_info above
+      el.classList.remove("expanded"); // same direct-set-on-click reasoning as _closeBtn/_info above
       hideCardChildRow();
-      animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
+      animateCardTo(el, cardDeckGeom(el), swivelDegFor(el._e && el._e.band), maxH);
       setRibbonExpandedHeight(maxH, null);
       return;
     }
@@ -3463,8 +3452,8 @@
     el._closeBtn.hidden = false;
     fillCardInfo(el);
     el._info.hidden = false;
-    el.classList.add("expanded"); // suppresses the tier-low dim scrim (CSS) immediately, not on next repaint
-    if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
+    el.classList.add("expanded"); // set immediately, not on next repaint (matches _closeBtn/_info above)
+    if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), swivelDegFor(prevEl._e && prevEl._e.band), maxH);
     const items = carouselItemsOf(el._e);
     const hasChildren = items.length > 1;
     const target = cardExpandGeom(el, maxH, hasChildren);
@@ -3771,7 +3760,7 @@
           face.style.transformOrigin = `0px ${pivotPx}px`;
           el.style.perspectiveOrigin = `0px ${pivotPx}px`;
         }
-        face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+        face.style.transform = `rotateY(${swivelDegFor(s.band)}deg)`;
         // Stage 5: reapply this card's current gap-effect transform (its
         // own live offset if it's the traveling card, a pile shift if it's
         // left/right of the gap, identity otherwise) — a freshly-created
@@ -3803,9 +3792,6 @@
       const isExpanded = s.key === cardExpandedKey;
       el._closeBtn.hidden = !isExpanded;
       el._info.hidden = !isExpanded;
-      // .expanded also drives the .tier-low dim scrim's suppression (CSS) —
-      // see that rule's comment for why demotion doesn't apply once a card
-      // is committed-to via click.
       el.classList.toggle("expanded", isExpanded);
 
       // Snapshot: eager fetch (Stage 1 needs every visible card's image up

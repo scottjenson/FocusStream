@@ -302,41 +302,18 @@
       border: 1px solid;
       border-radius: 4px;
       overflow: hidden;
-      /* rotateY angle is set inline by timeline.js from CARD_SWIVEL_DEG —
-         one source of truth instead of a value duplicated in CSS and JS.
-         transform-origin is ALSO set inline, per-card (swivelPivotPx), not
-         fixed here: the rotation pivot is one SHARED absolute height,
-         same for every tier, not any one card's own edge — CSS's `%`
-         can't express a point shared across differently-sized boxes, only
-         a fraction of the element's own box. Matches perspective-origin,
-         set at the same call site on .card (perspective must live on the
-         rotated element's PARENT) — see CARD_PIVOT_Y_FRAC/swivelPivotPx
-         (timeline.js) and plans/stack-ribbon.md Stage 5 for the story. */
+      /* rotateY angle + transform-origin are set inline by timeline.js
+         (CARD_SWIVEL_DEG/swivelPivotPx), not fixed here — the rotation
+         pivot is one shared absolute height across all tiers, which CSS's
+         `%` can't express (it's relative to the element's own box).
+         perspective-origin (on .card, the parent) is set at the same call
+         site and must match this same pivot. */
       transition: left 0.3s, top 0.3s, width 0.3s, height 0.3s;
       box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
     }
     .card.earned-high .card-face { border-width: 2px; }
-    /* Stage 4 (2026-08-12): visual demotion for LOW-tier deck cards — a
-       vertical scrim, transparent at top fading to dark at bottom, so a
-       LOW card reads as less important at a glance without hiding it
-       behind an interactive collapse (see CARD_STEP_LOW's own comment in
-       timeline.js for the companion X-spacing half of this same goal).
-       ::after (not a real element) so it's free positioning-wise — paints
-       above .card-img in the same stacking context, no z-index needed.
-       pointer-events: none so it never blocks the card's own click/hover.
-       Deck-only: suppressed on the expanded card (.card.expanded, toggled
-       in paintCards alongside the close-button/info-overlay reveal) —
-       once you've committed to a card by clicking, demoting it further
-       doesn't serve the "browse the deck" goal this is for, same
-       reasoning cardHoverText already uses. */
-    .card.tier-low .card-face::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.55));
-      pointer-events: none;
-    }
-    .card.tier-low.expanded .card-face::after { display: none; }
+    /* .tier-low is still toggled in paintCards but unstyled — the
+       demotion scrim it used to drive was removed 2026-08-15. */
     .card-img {
       position: absolute;
       inset: 0;

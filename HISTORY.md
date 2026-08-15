@@ -95,29 +95,15 @@ terse — write the entry there, then come back and add the one-line pointer.
   caught recurring one layer up in the adjacent-container pass before the
   final fix — spec §6; `decisions/timeline_design.md`.
 - **2026-08-15:** card-deck ribbon (`plans/stack-ribbon.md`) Stage 5 —
-  single-traveling-card hover-gap effect: cursor over `#ribbon` opens a gap
-  around the card it's over (piles-are-fixed model, all-JS/no-CSS-transition
-  mechanism), gapKey made the sole hit-testing/label authority after a
-  DOM-stacking bug. Experimental, deliberately NOT folded into
-  `spec/display.md` yet — see that plan doc's own top-of-file status note.
-- **2026-08-15 (same day, follow-up session):** card-deck gap effect —
-  riffle lift removed outright (redundant with the gap itself), gap
-  re-centered on the cursor (both piles now shift, was only the right),
-  animated open added (mirrors the existing animated close), hover label
-  decoupled from the traveling card and simplified to a plain snap at
-  handoff after an eased version read as flickery — `plans/stack-ribbon.md`
-  (same status note as above).
-- **2026-08-15 (same day, second follow-up session):** card-deck gap-label
-  flicker fixed — the raw `#ribbon` `pointerover`/`pointerout` delegate was
-  blanking the gap-authoritative label on every stale-hit-box crossing
-  mid-sweep; now skipped whenever a gap is active. LOW cards' "over-rotated"
-  look — a real optical illusion, top edge provably parallel to HIGH's —
-  fixed by moving the rotation pivot to one SHARED absolute height across
-  all tiers (`CARD_PIVOT_Y_FRAC`/`swivelPivotPx`, 80% of deck max height)
-  instead of each card's own edge; `CARD_SWIVEL_DEG` back to one shared
-  constant (64°), `CARD_PERSPECTIVE_RATIO` 6.0, `CARD_STEP` unchanged at
-  10 after a same-day 20px detour read too wide against real data —
-  `plans/stack-ribbon.md` (same status note as above).
+  single-traveling-card hover-gap effect (cursor over `#ribbon` opens a gap
+  around the card it's over), plus same-day follow-ups: riffle lift
+  removed, gap re-centered on the cursor, animated open, gap-label flicker
+  fixed (stale-hit-box `pointerover`/`pointerout` was fighting the
+  gap-authoritative label), rotation pivot moved to one shared absolute
+  height across tiers (fixes LOW cards reading as "over-rotated"), LOW
+  demotion scrim removed, LOW rotates 10° less than other tiers.
+  Experimental, deliberately NOT folded into `spec/display.md` yet — see
+  that plan doc's own top-of-file status note.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

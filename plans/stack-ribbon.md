@@ -734,28 +734,20 @@ here," not superseding corrections you also need to apply):
   avoid fighting the position.
 
 - **Rotation pivot, landed (2026-08-15):** LOW cards read as "over-rotated"
-  next to HIGH despite their top edges being provably parallel (hand-derived
-  and pixel-measured) — a real optical illusion, not a geometry bug: LOW's
-  visible post-rotation width shrinks to a thin sliver at the same angle
-  HIGH uses, and a thin sliver reads as "rotated harder" to the eye. Two
-  intermediate fixes were tried and rejected before landing on the real
-  cause: a per-tier `CARD_SWIVEL_DEG` fixed the top edge but broke the
-  bottom edge by the same amount (the pivot, `left center`, rotates both
-  symmetrically around each card's own midpoint); `left bottom` then fixed
-  the bottom edge but made the far (right) edge droop/clip below the
-  baseline (nothing below an edge-pinned pivot to counterbalance the
-  rotation). The actual fix: the pivot is now a SHARED absolute height —
-  `CARD_PIVOT_Y_FRAC` (0.8, i.e. 80% of the deck's max height) — the same
-  Y for every tier rather than each card's own edge, expressed per-card as
-  a px offset via `swivelPivotPx(cardTopAbs)` (CSS `%` can't reach outside
-  a short card's own box). `CARD_SWIVEL_DEG` is back to one shared
-  constant (64°, was 65°) and `CARD_PERSPECTIVE_RATIO` is 6.0 (was
-  900/260 ≈ 3.46), both tuned together with the pivot. `CARD_STEP` was
-  tried at 20 in the same pass and reverted to 10 the same day — 20 read
-  far too wide against real data. Explored with an interactive slider tool
-  (`test.html`, Desktop, not part of the repo) rather than more
-  back-and-forth hardcoding; Scott's framing going in: "there is no
-  perfect setting, this is a set of trade-offs."
+  next to HIGH despite provably parallel top edges — a thin post-rotation
+  sliver reading as "rotated harder," not an angle bug. Fixed by moving the
+  rotation pivot off each card's own edge (which always trades top-edge
+  alignment for bottom-edge alignment or vice versa) to one SHARED absolute
+  height — `CARD_PIVOT_Y_FRAC` (0.8 of the deck's max height), converted
+  per-card to a px offset via `swivelPivotPx`, since CSS `%` can't express
+  a point shared across differently-sized boxes. `CARD_SWIVEL_DEG` = 64°,
+  `CARD_PERSPECTIVE_RATIO` = 6.0, `CARD_STEP` stays 10 (briefly tried at 20,
+  reverted same day — too wide against real data). Tuned using an
+  interactive slider tool (`test.html`, Desktop, not in the repo).
+- **LOW-tier cleanup, same day:** the Stage 4 demotion scrim (gradient
+  fade on LOW cards) is removed — wasn't earning its keep. LOW also
+  rotates 10° less than every other tier (`CARD_SWIVEL_DEG_LOW_DELTA`),
+  on top of the shared pivot above — confirmed keeper, not provisional.
 
 **Not yet done / still open:**
 - Perf at real on-screen card counts — implemented straightforwardly (one
