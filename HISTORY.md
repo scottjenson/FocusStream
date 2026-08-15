@@ -94,6 +94,19 @@ terse — write the entry there, then come back and add the one-line pointer.
   unrelated excursion swept in as children of a near-zero-intent opener,
   caught recurring one layer up in the adjacent-container pass before the
   final fix — spec §6; `decisions/timeline_design.md`.
+- **2026-08-15:** card-deck ribbon (`plans/stack-ribbon.md`) Stage 5 —
+  single-traveling-card hover-gap effect: cursor over `#ribbon` opens a gap
+  around the card it's over (piles-are-fixed model, all-JS/no-CSS-transition
+  mechanism), gapKey made the sole hit-testing/label authority after a
+  DOM-stacking bug. Experimental, deliberately NOT folded into
+  `spec/display.md` yet — see that plan doc's own top-of-file status note.
+- **2026-08-15 (same day, follow-up session):** card-deck gap effect —
+  riffle lift removed outright (redundant with the gap itself), gap
+  re-centered on the cursor (both piles now shift, was only the right),
+  animated open added (mirrors the existing animated close), hover label
+  decoupled from the traveling card and simplified to a plain snap at
+  handoff after an eased version read as flickery — `plans/stack-ribbon.md`
+  (same status note as above).
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.
