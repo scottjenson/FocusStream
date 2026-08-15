@@ -2855,6 +2855,16 @@
   // feature existed.
   let gapEnterT0 = null;
   let lastCursorX = 0; // most recent #ribbon-relative cursor X; entry-ease's self-tick re-invokes updateCardGap with this when the pointer itself hasn't moved
+  // Whether the pointer is currently over #ribbon. Lets card-collapse decide
+  // whether to resume live gap tracking or ease the gap shut.
+  let ribbonHovered = false;
+  // Post-click dead zone: gapFreezeX is the cursor X at the moment the
+  // expanded card was clicked; gapDeadZoneActive is a one-way latch, true on
+  // every fresh expand, that flips permanently false once the cursor strays
+  // past CARD_GAP_HALF_PX from gapFreezeX. See updateCardGap for how it's
+  // used. Both meaningless when cardExpandedKey is null.
+  let gapDeadZoneActive = false;
+  let gapFreezeX = 0;
 
   // Steady-state vs. entry-ease dispatch for the three cursor-driven
   // offsets (2026-08-15, entry-ease follow-up). Called every updateCardGap
@@ -2957,10 +2967,15 @@
   function updateCardGap(cursorX) {
     // The expanded card (if any) has left the deck row entirely — it's
     // WAAPI-driven to its own expanded slot below the deck, so gap math
-    // against its rest x would be meaningless. Suppress the whole effect
-    // while a card is open, same as the Y-lift/cardHoverText already do
-    // elsewhere for this case.
-    if (cardExpandedKey != null) return;
+    // against its rest x would be meaningless there. But scanning past it is
+    // still allowed once the cursor clears the post-click dead zone: within
+    // CARD_GAP_HALF_PX of the click point, hold the gap exactly where it was
+    // (stable target for the click-then-move-down gesture); past that, latch
+    // the dead zone off for good and fall through to live scanning below.
+    if (cardExpandedKey != null && gapDeadZoneActive) {
+      if (Math.abs(cursorX - gapFreezeX) <= CARD_GAP_HALF_PX) return;
+      gapDeadZoneActive = false;
+    }
     const segs = lastCardSegs;
     if (!segs.length) return;
     const wasInactive = gapKey == null; // entry-ease trigger, see gapEnterT0's comment
@@ -3135,9 +3150,16 @@
       }
       const rect = ribbon.getBoundingClientRect();
       lastCursorX = ev.clientX - rect.left; // entry-ease's self-driven rAF re-tick (applyGapOffsets) needs this when the cursor itself hasn't moved
+      ribbonHovered = true;
       updateCardGap(lastCursorX);
     });
-    ribbon.addEventListener("pointerleave", relaxCardGap);
+    ribbon.addEventListener("pointerleave", () => {
+      ribbonHovered = false;
+      // Dead-zone freeze survives leaving the ribbon (the move onto the
+      // expanded card below routinely exits the ribbon's own bottom edge).
+      if (cardExpandedKey != null && gapDeadZoneActive) return;
+      relaxCardGap();
+    });
     // Click redirect (2026-08-15, Scott's catch — same root cause as the
     // label bug above, same fix shape): "there should always be a concept
     // of a card in the gap... as long as there's a gap opened, only the
@@ -3393,45 +3415,30 @@
       hideCardChildRow();
       animateCardTo(el, cardDeckGeom(el), swivelDegFor(el._e && el._e.band), maxH);
       setRibbonExpandedHeight(maxH, null);
+      // Gap stays open through the click; resolve it now that the card is
+      // back in the deck — resume live tracking if the cursor's still over
+      // the ribbon, else ease it shut like an ordinary pointerleave.
+      gapDeadZoneActive = false;
+      if (ribbonHovered) updateCardGap(lastCursorX);
+      else relaxCardGap();
       return;
     }
 
-    // Stage 5: a card that expands while it happens to be the live gap-
-    // effect's traveling card must not carry its translateX/Y offset into
-    // animateCardTo's target below — that animation only ever writes
-    // left/top/width/height/perspective + rotateY (never .card's own
-    // transform), so a stale offset here would silently ride along into
-    // the expanded position. No relax animation needed: the expand
-    // animation itself is the visible transition, so this can snap.
+    // The expanding card must not carry its live gap translateX/Y offset
+    // into animateCardTo's target below — but animateCardTo only ever
+    // animates left/top/width/height/perspective + the face's rotateY, never
+    // .card's own transform, so the offset just rides along harmlessly and
+    // needs no explicit clearing here.
     if (gapRafId != null) {
       cancelAnimationFrame(gapRafId);
       gapRafId = null;
     }
     gapEnterT0 = null; // in case expand interrupted a still-in-flight entry ease
-    if (gapKey != null) {
-      // Same reasoning extends to both piles (2026-08-15 follow-up, widened
-      // for the centering fix): those cards are also sitting at a live
-      // translateX(±CARD_GAP_HALF_PX) that nothing will clear until the
-      // next pointermove — snap them back to identity right now instead of
-      // leaving a visible stale shift between this click and whenever the
-      // cursor next moves.
-      const gapIdx = lastCardSegs.findIndex((s) => s.key === gapKey);
-      const rightPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
-      const leftPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(0, gapIdx).map((s) => s.key);
-      gapKey = null;
-      gapOffsetPx = 0;
-      leftPileOffsetPx = 0;
-      rightPileOffsetPx = 0;
-      el.style.transform = "";
-      for (const k of rightPileKeys) {
-        const pEl = cardEls.get(k);
-        if (pEl) pEl.style.transform = "";
-      }
-      for (const k of leftPileKeys) {
-        const pEl = cardEls.get(k);
-        if (pEl) pEl.style.transform = "";
-      }
-    }
+
+    // Fresh dead zone for this expand, including when swapping directly
+    // between two expanded cards via a live-scan click.
+    gapDeadZoneActive = true;
+    gapFreezeX = lastCursorX;
 
     cardExpandedKey = key;
     cardCarouselIndex = 0; // always reopen on the container itself, never a remembered child
