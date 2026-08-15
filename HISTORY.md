@@ -104,6 +104,13 @@ terse — write the entry there, then come back and add the one-line pointer.
   demotion scrim removed, LOW rotates 10° less than other tiers.
   Experimental, deliberately NOT folded into `spec/display.md` yet — see
   that plan doc's own top-of-file status note.
+- **2026-08-15:** gap-active card highlight (navy border + blue glow,
+  disambiguates the handoff between traveling cards) and three related
+  bugs fixed — highlight riding down with an expanding card, close-click
+  misrouted to a stale `gapKey` card, and the expanded card still getting
+  `translateX`'d by resumed scanning (root cause: `lastCardSegs` must
+  exclude the expanded card, kept in sync immediately at click time, not
+  just at the next repaint) — `decisions/timeline_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

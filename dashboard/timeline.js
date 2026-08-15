@@ -2823,6 +2823,25 @@
   // refreshed each paintCards call so the gap math never reads stale
   // layout after a repaint (day paging, live data refresh, tier changes).
   let lastCardSegs = [];
+  // The expanded card's own lastCardSegs entry, held here while it's
+  // excluded from lastCardSegs (2026-08-15) — toggleCardExpand pulls it out
+  // on expand, splices it back on collapse, so the exclusion and its
+  // reversal both take effect the instant a click happens rather than
+  // waiting for the next paintCards repaint to catch up (that lag was the
+  // actual bug: live scanning right after a click still found the
+  // expanded card in a stale lastCardSegs and translateX'd it).
+  let fullCardSeg = null;
+  // Splices fullCardSeg (if set) back into lastCardSegs at its original
+  // chronological (rest-x) position, then clears fullCardSeg. Shared by
+  // both toggleCardExpand branches (collapse, and expand-while-swapping-
+  // directly-between-two-expanded-cards) — same restore, same reasoning.
+  function restoreFullCardSeg() {
+    if (!fullCardSeg) return;
+    const idx = lastCardSegs.findIndex((s) => s.x > fullCardSeg.x);
+    if (idx === -1) lastCardSegs.push(fullCardSeg);
+    else lastCardSegs.splice(idx, 0, fullCardSeg);
+    fullCardSeg = null;
+  }
   // Which seg key currently owns the offset, and how much — module-level
   // (not recomputed from scratch each frame) purely so applyCardTransform
   // can distinguish "this card, clear its offset" from "every other card,
@@ -3116,6 +3135,24 @@
   const GAP_ENTER_MS = 180;
   function relaxCardGap() {
     if (gapRafId != null) cancelAnimationFrame(gapRafId);
+    // Bug fix (2026-08-15): if gapKey still equals cardExpandedKey (true
+    // right after a click-to-expand — nothing resets gapKey synchronously
+    // at expand time, only the next live scan would, and that scan is
+    // exactly what this function runs INSTEAD OF), settle it immediately
+    // rather than let the eased step() loop below run its translateX slide
+    // against the expanded card's own element. lastCardSegs already
+    // excludes the expanded card (so gapIdx below correctly comes back -1,
+    // pile keys empty) — but the TRAVELING card itself is read straight
+    // from gapKey, not from lastCardSegs, so that one card's eased slide
+    // was the one path the lastCardSegs filter didn't cover: the expanded
+    // card visibly sliding when the cursor returned to its old deck X.
+    if (gapKey === cardExpandedKey) {
+      gapKey = null;
+      gapOffsetPx = 0;
+      leftPileOffsetPx = 0;
+      rightPileOffsetPx = 0;
+      return;
+    }
     // Pile keys: snapshotted once at the start of the relax, not
     // recomputed per tick — the SET doesn't change mid-relax (no cursor
     // input driving it anymore), only the offset magnitudes do.
@@ -3453,6 +3490,18 @@
     if (prevKey === key) {
       // Collapse the currently-expanded card back to its deck spot.
       cardExpandedKey = null;
+      // Bug fix (2026-08-15): lastCardSegs' expanded-card exclusion (see
+      // paintCards) is only as fresh as the last REPAINT (~every 10s / on
+      // data change), but cardExpandedKey changes on every click — live
+      // scanning (updateCardGap) right after this click, before the next
+      // repaint lands, would otherwise still find this card's stale entry
+      // (or lack of one) in lastCardSegs. rest-x/w/h don't change between
+      // paints (cardLayout is a pure function of events, unaffected by
+      // expand state), so re-syncing the ONE entry that changed — no
+      // reflow, no data recompute — is enough: restore this card's rest
+      // slot (fullCardSeg, stashed at expand time below) back into the
+      // list, in its original chronological position.
+      restoreFullCardSeg();
       el._closeBtn.hidden = true;
       el._info.hidden = true;
       el.classList.remove("expanded"); // same direct-set-on-click reasoning as _closeBtn/_info above
@@ -3484,7 +3533,18 @@
     gapDeadZoneActive = true;
     gapFreezeX = lastCursorX;
 
+    // Restore the PREVIOUS expanded card's entry (if any — direct swap
+    // between two expanded cards via live-scan click) before pulling this
+    // new one out, same immediacy reasoning as the collapse branch above.
+    restoreFullCardSeg();
     cardExpandedKey = key;
+    // Pull THIS card's entry out of lastCardSegs immediately (see
+    // fullCardSeg's own comment) — stash it so collapse can restore it
+    // without needing to re-run cardLayout.
+    {
+      const idx = lastCardSegs.findIndex((s) => s.key === key);
+      if (idx !== -1) fullCardSeg = lastCardSegs.splice(idx, 1)[0];
+    }
     cardCarouselIndex = 0; // always reopen on the container itself, never a remembered child
     // paintCards is the only other writer of _closeBtn.hidden/_info.hidden,
     // and it only runs on a data repaint — set them directly here too so
@@ -3699,7 +3759,34 @@
     // index" block-shift boundary updateCardGap uses, recomputed against
     // THIS paint's fresh segs (a repaint mid-hover must not leave a card
     // block-shifted, or not, based on the previous paint's ordering).
-    lastCardSegs = segs;
+    //
+    // lastCardSegs EXCLUDES the expanded card (2026-08-15, structural fix —
+    // "if it's expanded, it's not really in the ribbon"): this is the one
+    // list updateCardGap/relaxCardGap scan to find gaps/piles, and an
+    // expanded card has already left the deck row for its own WAAPI-driven
+    // slot below — including it there meant every consumer of that scan had
+    // to separately remember "oh, except the expanded one" (the click
+    // redirect, hover-text suppression, gap-active exclusion, and this
+    // function's own translateX guard all grew their own copy of that
+    // check, and one was still missed — the bug where resumed scanning
+    // visibly translateX'd the already-expanded card). Filtering ONCE here
+    // means gap adjacency naturally treats the expanded card's former left/
+    // right neighbors as directly adjacent, same as if it were never laid
+    // out at all — no separate guard needed at each scan site.
+    // segs itself (unfiltered) still keeps the expanded card's entry — its
+    // rest x/y still needs to exist for the per-card loop below (dataset
+    // bookkeeping, animating back to the deck on collapse) and for every
+    // OTHER card's uniform CARD_STEP position to stay correct.
+    lastCardSegs = segs.filter((s) => s.key !== cardExpandedKey);
+    // Keep fullCardSeg (toggleCardExpand's stash of the expanded card's own
+    // rest slot, restored on collapse) in sync with THIS repaint's fresh
+    // positions — a repaint can legitimately land while a card is expanded
+    // (day paging, live data refresh; see the "must not overwrite mid-
+    // animation" guard below), and collapse must restore the CURRENT rest
+    // slot, not whatever stale one was captured back at click time.
+    if (cardExpandedKey != null) {
+      fullCardSeg = segs.find((s) => s.key === cardExpandedKey) || null;
+    }
     const gapBlockIdx = segs.findIndex((s) => s.key === gapKey);
 
     const ribbon = document.getElementById("ribbon");

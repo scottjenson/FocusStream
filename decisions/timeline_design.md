@@ -2125,3 +2125,69 @@ counts, first-guess tuning constants (`CARD_GAP_MAX_PX`, `CARD_GAP_LIFT_PX`,
 `GAP_EXIT_MS`), and cardHoverText's dual code path outside an active gap
 — are tracked in `plans/stack-ribbon.md` Stage 5, which also carries the
 fuller build-facing (function-by-function) detail this entry summarizes.
+
+## Gap-card highlight + expanded-card exclusion (2026-08-15)
+
+**Problem:** the handoff between two adjacent traveling cards was
+ambiguous at rest — a card that had already received `gapKey` looked
+identical to its still-piled neighbors except for X position, so a user
+scanning quickly could click during an ambiguous handoff.
+
+**Adopted:** the card currently `key === gapKey` gets a dark navy border
+(`GAP_ACTIVE_BORDER`) + bright blue `box-shadow` glow — two-part
+specifically because page-screenshot content ranges from near-white to
+near-black, and either color alone vanishes against one extreme.
+`border-width`/`box-shadow` are plain CSS (`.card.gap-active`); border
+*color* is written inline in JS (`applyCardTransform`) because
+`face.style.borderColor` is already inline-set every repaint
+(`TIER_RIM`/`EARNED_RIM`) — an inline style always beats a CSS class
+regardless of specificity, so the first cut (pure red, CSS-only) silently
+never rendered. Same reasoning killed a separate "scale up 10%" idea:
+`.card`'s `transform` is 100% inline-JS-owned every `pointermove`
+(`translateX`), so a CSS `transition` on it would also delay the
+cursor-tracking slide itself (the exact lag bug `transition: transform`
+was already removed once for) — an eased scale would need a second,
+JS-untouched element dedicated to that one transform, which was judged
+not worth the added DOM for an experiment; shelved.
+
+**Three real bugs, one root cause — "the expanded card must not exist for
+gap-scanning purposes at all," found by iterating against Scott's own
+repro each time:**
+1. The highlight rode down with a card as it expanded — `paintCards`
+   already skips `applyCardTransform` entirely for `cardExpandedKey`, so
+   nothing had ever cleared `gap-active` on expand. Fixed by stripping it
+   explicitly in `toggleCardExpand`, not by trying to make the skipped
+   function run.
+2. Closing the expanded card sometimes re-opened a *different* one — the
+   capture-phase click redirect (routes ambiguous clicks to `gapKey`,
+   see "Click/label redirect" above) could fire on the close button
+   itself, since it's still inside `#ribbon`'s DOM and `gapKey` might
+   have drifted to a different card by the time the close click landed.
+   Fixed with an explicit "target is the expanded card" bail before the
+   redirect.
+3. **Resumed scanning still `translateX`'d the expanded card itself**
+   (Scott's screenshot: the Figma card sliding left/right as the cursor
+   passed its old deck slot) — traced through three layers before it was
+   fully closed: (a) `lastCardSegs` — the one list `updateCardGap`/
+   `relaxCardGap` scan for gap/pile membership — was filtered to exclude
+   `cardExpandedKey` at the source (`paintCards`), which fixed *live*
+   scanning between repaints but not (b) `relaxCardGap`'s traveling-card
+   branch, which read `gapKey` directly rather than through the filtered
+   list, still sliding the expanded card on exit-relax if `gapKey`
+   happened to still equal `cardExpandedKey` (the normal case right after
+   a click); nor (c) the fact that `lastCardSegs`'s filter is only as
+   fresh as the last *repaint* (~10s cycle / data refresh), so a click
+   between repaints left a stale, unfiltered entry live in the interim —
+   this was the one Scott's own repro actually caught (dead zone → scan
+   away → return cursor to the expanded card's old X, all within one
+   repaint interval). Fixed by having `toggleCardExpand` pull/restore the
+   expanded card's own `lastCardSegs` entry (`fullCardSeg`) synchronously
+   at click time, and `relaxCardGap` settling immediately (no eased
+   slide) whenever `gapKey === cardExpandedKey`.
+
+**Lesson for the next feature that adds a "this card is special" state**
+(echoes the direction-inversion/lockstep lesson above): a value read
+straight off shared module state (`gapKey`) rather than derived from the
+one filtered/authoritative list is a hole waiting to reopen — worth
+auditing every direct read, not just the list's own construction site,
+before calling an exclusion complete.
