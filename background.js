@@ -810,6 +810,18 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
       current.snapped = true;
       await captureSnapshot(current.id, sender.tab.windowId);
     }
+    // Opportunistic re-capture (2026-08-14, spec §6): the first capture is
+    // often too early — slow-loading pages (Google Meet's join/lobby flow,
+    // the specimen that surfaced this) haven't painted real content yet by
+    // TRANSIT_MS. Rather than delay every session's first capture, sessions
+    // that prove they're not a quick bounce (3rd real heartbeat) get one
+    // free do-over that overwrites snap:<sessionId>. No new flag needed —
+    // heartbeats is monotonic, so === 3 can only ever match once. Deliberately
+    // not hardened: a nice-to-have, not a second admission rung. Best-effort,
+    // same soft-fail contract as the first capture.
+    if (current.heartbeats === 3 && msg.reason !== "flush-on-hidden") {
+      await captureSnapshot(current.id, sender.tab.windowId);
+    }
     const signals = msg.signals || {};
     for (const [key, value] of Object.entries(signals)) {
       const inc = typeof value === "number" ? value : value ? 1 : 0;
