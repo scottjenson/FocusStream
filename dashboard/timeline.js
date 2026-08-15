@@ -160,83 +160,68 @@
   // Swivel (Stage Manager-ish, 2026-08-11 deepened per Scott's "dominoes"
   // framing): EACH card rotates independently around its OWN left edge —
   // there is no shared deck anchor. rotateY(CARD_SWIVEL_DEG) (positive —
-  // 2026-08-11 correction: negative had the left edge receding and the
-  // right edge frontmost, backwards) around transform-origin: left keeps
-  // the card's own left edge frontmost and swings its RIGHT edge back in
-  // Z, which both (a) foreshortens its own projected width to well under 50%
-  // of
-  // CARD_W (cos(65°) ≈ 0.42) and (b) is what makes tight left-edge spacing
-  // read as a physical overlapping stack rather than cards floating apart
-  // — CARD_STEP (how far each card's own left edge sits from the previous
-  // one) is deliberately narrower than the foreshortened width, so a card
-  // visually overlaps/obscures the start of its neighbor (magnify-on-hover,
-  // Stage 2, is what un-hides it). Both tuned by eye, not derived.
+  // right edge recedes in Z, left edge stays frontmost) both (a)
+  // foreshortens the card's own projected width well under 50% of CARD_W
+  // and (b) is what makes tight left-edge spacing read as a physical
+  // overlapping stack rather than cards floating apart — CARD_STEP
+  // (how far each card's own left edge sits from the previous one) is
+  // deliberately narrower than the foreshortened width, so a card visually
+  // overlaps/obscures the start of its neighbor (the hover-gap effect,
+  // Stage 5, is what un-hides it).
   //
-  // Per-tier, not one shared angle (2026-08-15, Scott's catch: LOW cards
-  // "feel over-rotated" next to HIGH even though their top edges are
-  // provably parallel — hand-derived AND pixel-measured in an isolated
-  // render, both confirmed identical angles across tiers at a single
-  // shared CARD_SWIVEL_DEG). The illusion is real despite the geometry
-  // being correct: a fixed rotation angle forces EVERY tier through the
-  // same cos(θ) width-foreshortening factor, but LOW's pre-rotation width
-  // is already much smaller (CARD_ASPECT × its own short height), so its
-  // POST-rotation visible sliver shrinks to just a few px — thin enough
-  // that the eye reads "sliver" as "rotated harder," even though the
-  // angle matches HIGH exactly. Fix is perceptual, not mathematical:
-  // rotate smaller tiers by a shallower angle so their visible width
-  // doesn't collapse as aggressively, which is what reads as "matching"
-  // rotation to the eye. Values tuned by eye against a side-by-side
-  // render (same "tuned by eye, not derived" spirit as the original
-  // single angle) — retune freely, HIGH's value is the anchor others are
-  // judged against since it was the original, unchanged look.
-  const CARD_SWIVEL_DEG = { high: 65, medium: 52, low: 32 };
-  // Looks up a card's own swivel angle from its DECK height (not a band
-  // string) so every call site — including animateCardTo, which only ever
-  // sees a plain geometry object, never the assembled event — can derive
-  // the right angle from data it already has (el.dataset.deckHeight is
-  // always exactly one of CARD_TIER_H's three values). Falls back to
-  // HIGH's angle for any height that doesn't match a known tier (should
-  // not happen in practice, but a silent fallback beats a NaN rotation).
-  function swivelForHeight(h) {
-    if (h === CARD_TIER_H.medium) return CARD_SWIVEL_DEG.medium;
-    if (h === CARD_TIER_H.low) return CARD_SWIVEL_DEG.low;
-    return CARD_SWIVEL_DEG.high;
-  }
-  // Perspective depth, RATIO not a fixed px value (2026-08-11, corrected
-  // AGAIN — see index.html .card comment for the fix history; this was
-  // fix #4 for rotation-consistency, not #3). A large fixed perspective
-  // (an earlier pass tried 8000px) kills convergence almost entirely —
-  // cards read as horizontally SQUASHED rather than rotated (Scott's
-  // catch: "no skewing... don't look like rotated cards at all"). A SHORT
-  // fixed perspective (900px, the previous value here) does give every
-  // card an IDENTICAL PROJECTED WIDTH regardless of tier (verified
-  // empirically) — but width was the wrong thing to verify: it does NOT
-  // give every card the same VERTICAL convergence ratio (far edge length ÷
-  // near edge length), because a taller box's far corners sit at a larger
-  // absolute Z at the same rotation angle, and Z ÷ a FIXED perspective
-  // distance is what actually drives foreshortening — bigger box, bigger
-  // Z, more foreshortening, even though the rotation angle and projected
-  // width both matched. This is what Scott's screenshot caught: HIGH
-  // converged hard (far edge ≈67% of near edge) while LOW barely converged
-  // at all (≈86%) — confirmed by hand-deriving the CSS perspective-
-  // projection formula, not by eye. The actual fix: perspective must scale
-  // WITH each card's own height, so the Z÷perspective RATIO — not either
-  // value alone — stays constant across tiers. CARD_PERSPECTIVE_RATIO is
-  // that constant (perspective_px = height × CARD_PERSPECTIVE_RATIO,
-  // computed per-card in paintCards); chosen so HIGH (height 260) lands on
-  // the same 900px this constant used to be fixed at, leaving HIGH's own
-  // look unchanged and correcting LOW/MEDIUM to match it instead.
-  const CARD_PERSPECTIVE_RATIO = 900 / 260;
+  // Pivot is a SHARED point, not each card's own edge (2026-08-15): the
+  // pivot (transform-origin/perspective-origin) sits at one fixed Y —
+  // CARD_PIVOT_Y_FRAC × the deck's max height — the SAME absolute height
+  // for every tier, rather than each card's own top/center/bottom. A
+  // per-card pivot (tried first: `left center`, then `left bottom`) always
+  // traded one edge's alignment for the other's, since a shorter card's
+  // own edges sit at different absolute heights than a taller one's once
+  // rotated around its own box. A shared external pivot avoids that
+  // trade-off structurally. 0.8 (80% of the way down from the deck's top,
+  // i.e. just above the shared bottom baseline every card is flush
+  // against) was landed on by feel, using an interactive slider tool
+  // (`test.html`, Desktop, not part of the repo) rather than more
+  // back-and-forth hardcoding — see `plans/stack-ribbon.md` Stage 5 for
+  // the fuller story and the two rejected intermediate pivots.
+  // swivelPivotPx(cardTopAbs) below converts this fraction into each
+  // card's own LOCAL pivot Y, in px (transform-origin/perspective-origin
+  // can't take a value shared across elements directly — each is relative
+  // to its own box).
+  const CARD_PIVOT_Y_FRAC = 0.8;
+  const CARD_SWIVEL_DEG = 64;
+  // Perspective depth, RATIO not a fixed px value (2026-08-11 — see
+  // index.html's .card comment for why a fixed px value is wrong): must
+  // scale WITH each card's own height so the Z÷perspective ratio — not
+  // perspective alone — stays constant across tiers, or a taller card
+  // converges harder than a shorter one at the identical rotation angle.
+  // CARD_PERSPECTIVE_RATIO is that constant (perspective_px = height ×
+  // ratio, computed per-card in paintCards). Raised 900/260 (≈3.46) → 6.0
+  // (2026-08-15) alongside the pivot move above — the two were tuned
+  // together by feel, not independently; retune one, recheck the other.
+  const CARD_PERSPECTIVE_RATIO = 6.0;
   // px between consecutive cards' own left edges — deliberately less than
   // even the smallest tier's own width (LOW ≈163px post-CARD_ASPECT) so
   // any tier adjacency still overlaps into a stack. Uniform across ALL
-  // tiers as of Stage 5 (2026-08-15): previously HIGH/MEDIUM used a looser
-  // CARD_STEP (20) while only LOW compacted at CARD_STEP_LOW (Stage 4,
-  // 2026-08-12) — Stage 5's hover-gap effect (see paintCards/pointer
-  // handling near CARD_GAP_* below) is what now earns back browsability at
-  // the tighter pitch, so the two-tier split is retired and every band
-  // packs at the old LOW value. Retune by feel like its predecessor did.
+  // tiers as of Stage 5 (2026-08-15): the hover-gap effect (CARD_GAP_*
+  // below) is what earns back browsability at a tight pitch, so there's no
+  // more per-tier split. Tried at 20 same day as the pivot/angle/
+  // perspective retune above — reverted the same day once real data showed
+  // it read far too wide. Retune by feel, same as its predecessor.
   const CARD_STEP = 10;
+  // Converts the shared CARD_PIVOT_Y_FRAC into ONE card's own local pivot
+  // Y, in PX (2026-08-15 — see CARD_PIVOT_Y_FRAC's own comment for why).
+  // Can't be expressed as a CSS `%` on transform-origin/perspective-origin
+  // directly: a CSS percentage is relative to THAT element's own box, but
+  // the pivot here is fixed in DECK space (same absolute height for every
+  // tier) — a %, unlike a px value, can't reach outside 0–100% of a short
+  // card's own box to land at a point above its own top edge, which
+  // happens for MEDIUM/LOW once the shared pivot sits high enough.
+  // cardTopAbs is this card's own top edge in the deck's shared coordinate
+  // space (`maxH - cardHeight`, matching paintCards' own bottom-flush
+  // placement) — same units `dataset.deckTop` already uses elsewhere.
+  function swivelPivotPx(cardTopAbs) {
+    return CARD_TIER_H.high * CARD_PIVOT_Y_FRAC - cardTopAbs;
+  }
   // Hover-gap effect (Stage 5, 2026-08-15 — see plans/stack-ribbon.md
   // Stage 5 and decisions/timeline_design.md for the full design
   // discussion this implements). Exactly ONE card is ever offset from its
@@ -3336,7 +3321,13 @@
     };
     const face = el.firstChild;
     const fromRotate = /rotateY\(([-\d.]+)deg\)/.exec(face.style.transform);
-    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : swivelForHeight(from.height);
+    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : CARD_SWIVEL_DEG;
+    // Only the collapse-to-deck callers pass a nonzero rotateDeg (expand
+    // always flattens to 0, where the pivot is moot) — both animate `top`
+    // TOWARD target.top, so that's the right basis, not a per-frame value.
+    const pivotPx = swivelPivotPx(target.top);
+    face.style.transformOrigin = `0px ${pivotPx}px`;
+    el.style.perspectiveOrigin = `0px ${pivotPx}px`;
 
     // Scaling (left/width/height/perspective) finishes at CARD_EXPAND_SIZE_
     // DONE_AT (Scott, 2026-08-11: "scaling be done in roughly 70-80%... of
@@ -3411,10 +3402,7 @@
       el._info.hidden = true;
       el.classList.remove("expanded"); // restores the tier-low dim scrim (CSS), same direct-set-on-click reasoning as _closeBtn/_info above
       hideCardChildRow();
-      {
-        const deckGeom = cardDeckGeom(el);
-        animateCardTo(el, deckGeom, swivelForHeight(deckGeom.height), maxH);
-      }
+      animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
       setRibbonExpandedHeight(maxH, null);
       return;
     }
@@ -3476,10 +3464,7 @@
     fillCardInfo(el);
     el._info.hidden = false;
     el.classList.add("expanded"); // suppresses the tier-low dim scrim (CSS) immediately, not on next repaint
-    if (prevEl) {
-      const prevDeckGeom = cardDeckGeom(prevEl);
-      animateCardTo(prevEl, prevDeckGeom, swivelForHeight(prevDeckGeom.height), maxH);
-    }
+    if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
     const items = carouselItemsOf(el._e);
     const hasChildren = items.length > 1;
     const target = cardExpandGeom(el, maxH, hasChildren);
@@ -3778,7 +3763,15 @@
         // projected width — reads the same regardless of tier; origin pinned
         // to the same left edge the rotation itself is anchored to.
         el.style.perspective = deckPerspective + "px";
-        face.style.transform = `rotateY(${swivelForHeight(s.h)}deg)`;
+        // Shared pivot (see CARD_PIVOT_Y_FRAC/swivelPivotPx), set on both
+        // the rotated element (transform-origin) and its parent
+        // (perspective-origin — must live on the parent).
+        {
+          const pivotPx = swivelPivotPx(maxH - s.h);
+          face.style.transformOrigin = `0px ${pivotPx}px`;
+          el.style.perspectiveOrigin = `0px ${pivotPx}px`;
+        }
+        face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
         // Stage 5: reapply this card's current gap-effect transform (its
         // own live offset if it's the traveling card, a pile shift if it's
         // left/right of the gap, identity otherwise) — a freshly-created
@@ -3792,7 +3785,6 @@
           s.key === gapKey ? null : j > gapBlockIdx ? "right" : "left"
         );
       }
-      el.style.perspectiveOrigin = "left center";
       face.style.background = TIER_FILL[s.band];
       face.style.borderColor = s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));

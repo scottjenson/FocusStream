@@ -733,37 +733,29 @@ here," not superseding corrections you also need to apply):
   during that window and must stay out of the way entirely, not just
   avoid fighting the position.
 
-- **"Over-rotated" LOW cards, same follow-up session (2026-08-15):**
-  Scott's screenshot-with-drawn-reference-lines catch, but the actual
-  finding inverted the initial read. First hypothesis (top edges kink at
-  tier seams because bottom-flush stacking puts each tier's local
-  rotation/perspective origin — `left center`, 50% of that card's OWN
-  height — at a different absolute Y) was checked by hand-deriving the
-  rotateY+perspective projection matrix per tier: the top-edge angle came
-  out mathematically IDENTICAL (17.2°) regardless of tier, given
-  `CARD_PERSPECTIVE_RATIO`'s existing height-scaled perspective. Confirmed
-  a second way, not just algebra: an isolated headless-Chrome render,
-  pixel-measured, matched the formula (17.04°/17.10°/17.28° across
-  high/medium/low — noise-level variance only). Scott's own re-measured
-  screenshot (two straight reference lines drawn precisely over the real
-  ribbon) confirmed the same thing: the lines WERE parallel. So the
-  rotation math was correct all along — the "over-rotated" read is a
-  genuine optical illusion, not a geometry bug: a fixed `CARD_SWIVEL_DEG`
-  forces every tier through the same `cos(θ)` width-foreshortening
-  factor, but LOW's pre-rotation width is already small
-  (height × `CARD_ASPECT` at LOW's own short height), so its POST-rotation
-  visible sliver shrinks to just a few px — thin enough that the eye reads
-  "sliver" as "rotated harder" even though the angle provably matches
-  HIGH. Fix is perceptual, not mathematical: `CARD_SWIVEL_DEG` is now a
-  per-tier map (`{ high: 65, medium: 52, low: 32 }`, tuned by eye against
-  a side-by-side render, same as the original single value) instead of
-  one shared constant, so smaller tiers rotate less and keep more visible
-  width. A new `swivelForHeight(h)` helper looks the right angle up from a
-  card's own DECK height (not a band string), since some call sites —
-  `animateCardTo` in particular — only ever see a plain geometry object,
-  never the assembled event. `high: 65` is unchanged from Stage 1 (the
-  original, un-second-guessed look); `medium`/`low` are the only new
-  values and remain feel-tunable.
+- **Rotation pivot, landed (2026-08-15):** LOW cards read as "over-rotated"
+  next to HIGH despite their top edges being provably parallel (hand-derived
+  and pixel-measured) — a real optical illusion, not a geometry bug: LOW's
+  visible post-rotation width shrinks to a thin sliver at the same angle
+  HIGH uses, and a thin sliver reads as "rotated harder" to the eye. Two
+  intermediate fixes were tried and rejected before landing on the real
+  cause: a per-tier `CARD_SWIVEL_DEG` fixed the top edge but broke the
+  bottom edge by the same amount (the pivot, `left center`, rotates both
+  symmetrically around each card's own midpoint); `left bottom` then fixed
+  the bottom edge but made the far (right) edge droop/clip below the
+  baseline (nothing below an edge-pinned pivot to counterbalance the
+  rotation). The actual fix: the pivot is now a SHARED absolute height —
+  `CARD_PIVOT_Y_FRAC` (0.8, i.e. 80% of the deck's max height) — the same
+  Y for every tier rather than each card's own edge, expressed per-card as
+  a px offset via `swivelPivotPx(cardTopAbs)` (CSS `%` can't reach outside
+  a short card's own box). `CARD_SWIVEL_DEG` is back to one shared
+  constant (64°, was 65°) and `CARD_PERSPECTIVE_RATIO` is 6.0 (was
+  900/260 ≈ 3.46), both tuned together with the pivot. `CARD_STEP` was
+  tried at 20 in the same pass and reverted to 10 the same day — 20 read
+  far too wide against real data. Explored with an interactive slider tool
+  (`test.html`, Desktop, not part of the repo) rather than more
+  back-and-forth hardcoding; Scott's framing going in: "there is no
+  perfect setting, this is a set of trade-offs."
 
 **Not yet done / still open:**
 - Perf at real on-screen card counts — implemented straightforwardly (one

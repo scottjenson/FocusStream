@@ -303,8 +303,15 @@
       border-radius: 4px;
       overflow: hidden;
       /* rotateY angle is set inline by timeline.js from CARD_SWIVEL_DEG —
-         one source of truth instead of a value duplicated in CSS and JS. */
-      transform-origin: left center;
+         one source of truth instead of a value duplicated in CSS and JS.
+         transform-origin is ALSO set inline, per-card (swivelPivotPx), not
+         fixed here: the rotation pivot is one SHARED absolute height,
+         same for every tier, not any one card's own edge — CSS's `%`
+         can't express a point shared across differently-sized boxes, only
+         a fraction of the element's own box. Matches perspective-origin,
+         set at the same call site on .card (perspective must live on the
+         rotated element's PARENT) — see CARD_PIVOT_Y_FRAC/swivelPivotPx
+         (timeline.js) and plans/stack-ribbon.md Stage 5 for the story. */
       transition: left 0.3s, top 0.3s, width 0.3s, height 0.3s;
       box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
     }
