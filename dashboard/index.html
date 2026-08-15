@@ -236,8 +236,17 @@
          Left off .card:hover directly (below), not a JS pointerover
          listener — the delegated pointerover handler on #ribbon exists for
          cardHoverText/tooltip positioning, not general hover styling; this
-         doesn't need to hook into that at all. */
-      transition: transform 0.15s ease-out;
+         doesn't need to hook into that at all.
+         transition: transform RETIRED here (Stage 5, 2026-08-15): once
+         timeline.js writes this same transform inline every pointermove
+         for the hover-gap effect, a CSS transition on it would race every
+         one of those writes — each new inline value restarts a 0.15s ease
+         from wherever the last one landed, adding lag between the cursor
+         and the card that the whole point of the pure-cursor-X model was
+         to avoid (see decisions/timeline_design.md). The exit relax-to-
+         rest (the one place easing is still wanted) is done as a JS rAF
+         tween instead, for the same reason — not by re-arming a CSS
+         transition at exit. */
       /* Per-card perspective, fix history (2026-08-11, FOUR rounds — see
          plans/stack-ribbon.md "Stage 1 build log" for the compact version):
          (1) shared perspective on #ribbon put the vanishing point at the
@@ -276,11 +285,16 @@
          timeline.js alongside the rotation — see CARD_PERSPECTIVE_RATIO
          there. */
     }
-    /* :not(.expanded) — the open-below-the-ribbon card shouldn't also
-       riffle; its top is WAAPI-driven (animateCardTo) for the expand/
-       collapse animation, and stacking a hover lift on top of that reads
-       as unintended jitter rather than the deck-scanning cue this is for. */
-    .card:not(.expanded):hover { transform: translateY(-6px); }
+    /* Riffle lift retired as a CSS :hover rule (Stage 5, 2026-08-15):
+       the hover-gap effect (timeline.js, CARD_GAP_* / #ribbon pointermove)
+       now writes .card's inline transform itself every frame (translateX
+       for the gap offset, translateY(-6px) folded in for whichever card is
+       current) — an inline style write wins over this rule outright, so a
+       separate :hover rule here would just silently stop applying once a
+       gap offset is live. Driving both off the SAME "which card is
+       current" computation the gap effect already does per pointermove
+       also avoids the two-hover-paths-can-drift risk flagged in
+       plans/stack-ribbon.md Stage 5's open items. See setCardTransform. */
     .card-face {
       position: relative;
       box-sizing: border-box;

@@ -199,19 +199,63 @@
   const CARD_PERSPECTIVE_RATIO = 900 / 260;
   // px between consecutive cards' own left edges — deliberately less than
   // even the smallest tier's own width (LOW ≈163px post-CARD_ASPECT) so
-  // any tier adjacency still overlaps into a stack. Tightened to a third
-  // (2026-08-11, Scott: "should be lining up on top of each other") — was
-  // 60.
-  const CARD_STEP = 20;
-  // Stage 4 (2026-08-12, first cut): LOW cards advance by a tighter step
-  // than HIGH/MEDIUM, so a run of LOW cards compacts horizontally — same
-  // motivation as the old fence/stick mechanism (free up room for the
-  // cards that matter), but as a passive spacing difference rather than an
-  // interactive collapse hiding content behind a click. Started at a flat
-  // 50% of CARD_STEP (Scott's "let's just start simply" answer, not
-  // derived) — retune by feel, and revisit if LOW becomes hard to target
-  // individual cards in a dense run. See plans/stack-ribbon.md Stage 4.
-  const CARD_STEP_LOW = CARD_STEP * 0.5;
+  // any tier adjacency still overlaps into a stack. Uniform across ALL
+  // tiers as of Stage 5 (2026-08-15): previously HIGH/MEDIUM used a looser
+  // CARD_STEP (20) while only LOW compacted at CARD_STEP_LOW (Stage 4,
+  // 2026-08-12) — Stage 5's hover-gap effect (see paintCards/pointer
+  // handling near CARD_GAP_* below) is what now earns back browsability at
+  // the tighter pitch, so the two-tier split is retired and every band
+  // packs at the old LOW value. Retune by feel like its predecessor did.
+  const CARD_STEP = 10;
+  // Hover-gap effect (Stage 5, 2026-08-15 — see plans/stack-ribbon.md
+  // Stage 5 and decisions/timeline_design.md for the full design
+  // discussion this implements). Exactly ONE card is ever offset from its
+  // rest position at a time — the "traveling" card — determined purely by
+  // which gap (between two consecutive rest-position left edges) the
+  // cursor currently falls in. Its offset is a PURE function of cursor X
+  // within that gap (lerp, not a chase/velocity/spring model), and moves
+  // AGAINST the cursor's direction, not with it (corrected 2026-08-15
+  // after the first cut shipped the two moving the same way — Scott's
+  // catch): cursor at the gap's near (just-arrived-from) edge → card is at
+  // its FURTHEST offset, still reaching back toward where the cursor came
+  // from; cursor at the gap's far edge (about to hand off) → offset has
+  // eased back to 0, since the card has fully returned to meet the
+  // NEXT gap's handoff at its own rest slot. This directly implements the
+  // design's two load-bearing decisions: (1) cursor and card move toward
+  // each other, which is what keeps the physical mouse-travel to hand
+  // focus to the next card small (the card closes part of the distance
+  // too — the Mac-Dock-genie reference), and (2) handoff at a gap
+  // boundary is a hard snap — the traveling card's position is always
+  // exactly what the formula says for the CURRENT cursor X, so there's no
+  // independently-animated region for the cursor to cross through (that
+  // crossing mismatch was the flicker mechanism the naive "push the
+  // neighbor open" version hit).
+  // CARD_GAP_MAX_PX is how far the traveling card can shift, i.e. how much
+  // extra breathing room hovering opens up — deliberately NOT the same as
+  // CARD_STEP (the rest pitch): it can exceed it, since the card is
+  // moving INTO the space beyond its immediate neighbor's rest edge, not
+  // just closing the gap to it. Started at 48 (2026-08-15); raised to 4x
+  // (192) same day on the (mistaken, since-fixed — see updateCardGap's
+  // comment) belief the gap itself was too small; once the piles-are-
+  // fixed rebuild made the true gap visible, 192 read as too much and was
+  // halved back down to 96, same day. Still a feel knob, not derived.
+  //
+  // It's ALSO the fixed distance the "right pile" (every card right of
+  // the traveling one) sits shifted by, the whole time a gap is active —
+  // NOT a live/animated value for the pile (2026-08-15 rebuild, Scott's
+  // catch: the first two cuts re-shifted the right pile every frame in
+  // lockstep with the traveling card, so the gap between them never
+  // actually opened — no separation, since both moved together). The
+  // pile only ever steps (not eases) when the traveling card itself
+  // changes at a handoff; see applyCardTransform/updateCardGap below for
+  // the full "piles are fixed, only the traveling card moves" model.
+  const CARD_GAP_MAX_PX = 96;
+  // Same translateY the old CSS `.card:not(.expanded):hover` riffle rule
+  // used to apply — folded into this mechanism's own inline transform
+  // write (see index.html's .card comment for why the CSS rule was
+  // retired: an inline transform write wins over it outright, so the two
+  // can't coexist as separate mechanisms without one silently losing).
+  const CARD_GAP_LIFT_PX = 6;
   // Reserved band below the card deck for cardHoverText (2026-08-11 follow-
   // up: on-face .card-label retired, site name/meta/top-page now show as
   // plain text under the hovered card instead). #ribbon-wrap sets
@@ -1366,14 +1410,13 @@
   // independent rotateY around its OWN left edge is what makes this read
   // as physical overlap rather than misaligned spacing — CARD_SWIVEL_DEG).
   function cardLayout(events) {
-    // Running cursor, not i * CARD_STEP: LOW cards advance by CARD_STEP_LOW
-    // instead of CARD_STEP (Stage 4 compaction), so consecutive cards'
-    // spacing now depends on the PRECEDING card's own band, not just index.
+    // Uniform CARD_STEP pitch since Stage 5 (2026-08-15) — see that
+    // constant's own comment for why the old per-band branch was retired.
     let x = 0;
     const segs = events.map((e, i) => {
       const h = CARD_TIER_H[e.band];
       const seg = { e, key: e.id, band: e.band, w: CARD_TIER_W[e.band], h, x };
-      x += e.band === "low" ? CARD_STEP_LOW : CARD_STEP;
+      x += CARD_STEP;
       return seg;
     });
     const last = segs[segs.length - 1];
@@ -2048,8 +2091,55 @@
   cardHoverText.hidden = true;
   document.getElementById("ribbon").appendChild(cardHoverText);
 
+  // Which card's key the currently-visible cardHoverText belongs to, if
+  // any (2026-08-15, Stage 5 label-tracking follow-up) — set whenever the
+  // pointerover branch below positions it for a deck card. Read by
+  // applyCardTransform so the label's OWN left offset can be kept in sync
+  // with that same card's live gap-effect translateX every frame the card
+  // moves, not just recomputed once at pointerover time (which only reads
+  // the card's REST left — see that branch's own comment for why a static
+  // read broke once cards started actually traveling).
+  let cardHoverTextKey = null;
+
   function hideCardHoverText() {
     cardHoverText.hidden = true;
+    cardHoverTextKey = null;
+  }
+
+  // Shared fill (2026-08-15 — pulled out of the pointerover handler below
+  // so updateCardGap can use it too; both need identical three-line
+  // content). d is a card's _tipData (siteName / meta / pages).
+  function fillCardHoverText(d) {
+    cardHoverText.textContent = "";
+    const line = (cls, text) => {
+      const div = document.createElement("div");
+      div.className = cls;
+      div.textContent = text;
+      cardHoverText.appendChild(div);
+    };
+    line("cht-title", d.siteName);
+    line("cht-meta", d.meta);
+    if (d.pages.length) line("cht-page", d.pages[0].title);
+  }
+
+  // Shows cardHoverText for a specific deck card, positioned at its
+  // CURRENT (gap-effect-aware) X — the single entry point updateCardGap
+  // uses to make gapKey authoritative for the label (2026-08-15, Scott's
+  // catch: the old pointerover-only path showed whatever DOM element the
+  // raw cursor happened to be over, which is the STATIC neighbor once a
+  // card is mid-travel, not the traveling card itself — see
+  // decisions/timeline_design.md and this file's Stage 5 section for the
+  // full bug). offsetPx defaults to 0 for non-traveling callers.
+  function showCardHoverTextFor(el, key, offsetPx) {
+    if (!el || !el._tipData) return;
+    fillCardHoverText(el._tipData);
+    cardHoverTextKey = key;
+    const restLeft = parseFloat(el.dataset.deckLeft) || 0;
+    const top = parseFloat(el.style.top) || 0;
+    const height = parseFloat(el.style.height) || 0;
+    cardHoverText.style.left = restLeft + (offsetPx || 0) + "px";
+    cardHoverText.style.top = top + height + LABEL_GAP + "px";
+    cardHoverText.hidden = false;
   }
 
   {
@@ -2081,26 +2171,16 @@
       // cards keep this text as before; only isCard still needs its own
       // early return (skipping straight past it here) so a hovered card
       // never falls through into the delayed #tip tooltip path below.
-      const fillCardHoverText = (d) => {
-        cardHoverText.textContent = "";
-        const line = (cls, text) => {
-          const div = document.createElement("div");
-          div.className = cls;
-          div.textContent = text;
-          cardHoverText.appendChild(div);
-        };
-        line("cht-title", d.siteName);
-        line("cht-meta", d.meta);
-        if (d.pages.length) line("cht-page", d.pages[0].title);
-      };
-      if (isCard && el._tipData && el !== cardEls.get(cardExpandedKey)) {
-        fillCardHoverText(el._tipData);
-        const left = parseFloat(el.style.left) || 0;
-        const top = parseFloat(el.style.top) || 0;
-        const height = parseFloat(el.style.height) || 0;
-        cardHoverText.style.left = left + "px";
-        cardHoverText.style.top = top + height + LABEL_GAP + "px";
-        cardHoverText.hidden = false;
+      //
+      // Suppressed entirely while a gap is active (2026-08-15, Scott's
+      // catch): raw pointerover fires on whatever DOM element the cursor
+      // is literally over, which is the STATIC neighbor once its own
+      // sibling has traveled on top of/away from it — updateCardGap is now
+      // the sole authority for the label whenever gapKey is set (it reruns
+      // every pointermove and calls showCardHoverTextFor for gapKey's own
+      // card), so this branch would only ever fight it, never help it.
+      if (isCard && gapKey == null && el._tipData && el !== cardEls.get(cardExpandedKey)) {
+        showCardHoverTextFor(el, el._e ? el._e.id : null, 0);
       }
       // Child carousel thumbnails (2026-08-12): same below-item label as
       // deck cards, but positioned off the thumbnail's own offset WITHIN
@@ -2670,6 +2750,261 @@
   // corner count badge — no drop-down shelf (Stage 3). Click-to-open stays;
   // the floating tooltip is replaced by cardHoverText for cards.
   const cardEls = new Map();
+
+  // Hover-gap effect (Stage 5, 2026-08-15) — see CARD_GAP_MAX_PX's own
+  // comment for the design. lastCardSegs is cardLayout's most recent
+  // output (rest positions only — never mutated by the gap effect itself,
+  // which is why the traveling card's rest slot is always recoverable),
+  // refreshed each paintCards call so the gap math never reads stale
+  // layout after a repaint (day paging, live data refresh, tier changes).
+  let lastCardSegs = [];
+  // Which seg key currently owns the offset, and how much — module-level
+  // (not recomputed from scratch each frame) purely so applyCardTransform
+  // can distinguish "this card, clear its offset" from "every other card,
+  // leave untouched" without a full pass over cardEls every pointermove.
+  let gapKey = null;
+  let gapOffsetPx = 0;
+  // The right pile's own offset — normally just CARD_GAP_MAX_PX (a fixed
+  // constant, per the "piles are fixed" model) whenever a gap is active,
+  // but relaxCardGap tweens it independently of gapOffsetPx on exit (both
+  // shrink to 0 together, but they're two separate values, not one shared
+  // one — the pile never has a "live" value while hovering, only while
+  // relaxing). 0 at rest/no-gap.
+  let rightPileOffsetPx = 0;
+  let gapRafId = null; // in-flight exit-relax tween, if any
+
+  // Applies ONE card's full transform: base swivel (rotateY, unchanged) is
+  // set separately in paintCards (it's on .card-face, not .card — see
+  // index.html's splitting-rationale comment); THIS writes .card's own
+  // transform, composing the gap-effect translateX with the translateY
+  // lift the retired CSS :hover rule used to provide (index.html's .card
+  // comment explains why both must be written from the same place now).
+  //
+  // Three roles a card can have, each a different translateX (2026-08-15,
+  // rebuilt after two rounds of feel-testing — see CARD_GAP_MAX_PX's
+  // comment for the full "piles are fixed, only the traveling card moves"
+  // model this now implements):
+  //   - key === gapKey: the traveling card, translateX(gapOffsetPx) —
+  //     the ONLY continuously-animated value in the whole mechanism,
+  //     lerping between the two pile boundaries below as cursor moves.
+  //   - key is to the RIGHT of gapKey in seg order (the "right pile"):
+  //     translateX(CARD_GAP_MAX_PX) — a FIXED constant, not gapOffsetPx.
+  //     Never varies while gapKey stays the same; only steps when gapKey
+  //     itself changes (one card transferring piles at handoff).
+  //   - everything else (the fixed "left pile", or no gap active):
+  //     identity — translateX(0).
+  // key===gapKey gets the lift too; the right pile doesn't (only the
+  // focused card lifts). Every card's transform is written explicitly
+  // every call this fires from (not left alone), so a card that changed
+  // piles doesn't visibly stick at its previous role's value.
+  function applyCardTransform(el, key, isRightPile) {
+    if (key === gapKey) {
+      el.style.transform = `translateX(${gapOffsetPx}px) translateY(-${CARD_GAP_LIFT_PX}px)`;
+      // Label rides along with the card it names (2026-08-15, Scott: "have
+      // the label associated with each card move with the card as well...
+      // reinforce the fact that the card we're focusing on has the same
+      // label" — completes the illusion that the traveling card carries
+      // its identity with it, not just its geometry). cardHoverText only
+      // exists for whichever card the pointer literally entered last
+      // (cardHoverTextKey, set in the #ribbon pointerover delegate) — if
+      // that's THIS card, keep its horizontal offset locked to the same
+      // live gapOffsetPx every frame the card moves, exactly mirroring the
+      // card's own translateX above. No lift on the label (it sits below
+      // the deck, not on it) and no top change (only X travels).
+      if (cardHoverTextKey === key && !cardHoverText.hidden) {
+        const restLeft = parseFloat(el.dataset.deckLeft) || 0;
+        cardHoverText.style.left = restLeft + gapOffsetPx + "px";
+      }
+    } else if (isRightPile && rightPileOffsetPx !== 0) {
+      el.style.transform = `translateX(${rightPileOffsetPx}px)`;
+    } else {
+      el.style.transform = "";
+    }
+  }
+
+  // Core position formula: given raw cursor X in #ribbon's own coordinate
+  // space (offsetLeft space — same space cardLayout's seg.x lives in),
+  // find which gap it falls in and compute that gap's card's lerp offset.
+  // "Piles are fixed, only the traveling card moves" (2026-08-15 rebuild,
+  // Scott's catch on the previous cut: the right pile was re-shifting
+  // every frame in lockstep with the traveling card, which is why the gap
+  // never read as visible — the two were moving together, so no
+  // separation ever opened between them). The LEFT pile boundary is
+  // always 0 (rest) and the RIGHT pile boundary is always the FULL
+  // CARD_GAP_MAX_PX — both fixed constants, only ever stepping (not
+  // easing) when gapKey itself changes at a handoff. The traveling card
+  // is the only thing that's a continuous function of cursorX, lerping
+  // between those same two fixed boundaries.
+  function updateCardGap(cursorX) {
+    // The expanded card (if any) has left the deck row entirely — it's
+    // WAAPI-driven to its own expanded slot below the deck, so gap math
+    // against its rest x would be meaningless. Suppress the whole effect
+    // while a card is open, same as the Y-lift/cardHoverText already do
+    // elsewhere for this case.
+    if (cardExpandedKey != null) return;
+    const segs = lastCardSegs;
+    if (!segs.length) return;
+    // Gap i is the span between segs[i]'s rest left edge and segs[i+1]'s —
+    // segs[i] is the traveling card for that whole span (deliberately the
+    // LEFT card of the pair, not the right: "the card currently hovered/
+    // peak stays traveling until fully handed off," decided explicitly
+    // during design — see decisions/timeline_design.md). Before the first
+    // card and after the last, there is no gap to travel across.
+    let i = -1;
+    for (let j = 0; j < segs.length - 1; j++) {
+      if (cursorX >= segs[j].x && cursorX < segs[j + 1].x) {
+        i = j;
+        break;
+      }
+    }
+    let frac; // 0 = at the gap's near/left boundary, 1 = at the far/right boundary
+    if (i === -1) {
+      const nearest = cursorX < segs[0].x ? segs[0] : segs[segs.length - 1];
+      gapKey = nearest.key;
+      frac = cursorX < segs[0].x ? 0 : 1;
+    } else {
+      const left = segs[i];
+      const right = segs[i + 1];
+      const span = right.x - left.x;
+      frac = span > 0 ? Math.min(1, Math.max(0, (cursorX - left.x) / span)) : 0;
+      gapKey = left.key;
+    }
+    // Card moves AGAINST the cursor, not with it (design doc: "as I
+    // traverse right to left of the expansion, the target card moves left
+    // to right" — cursor and card close the distance from opposite ends).
+    // At the gap's near (left) edge — cursor just arrived from the left,
+    // card is furthest right, i.e. still reaching TOWARD where the cursor
+    // came from — offset is at its max (full CARD_GAP_MAX_PX, matching the
+    // right pile's own fixed position); it eases back to 0 (matching the
+    // left pile's fixed position) as the cursor advances toward the right
+    // boundary, where handoff to the next card happens. (1 - frac), not
+    // frac.
+    gapOffsetPx = (1 - frac) * CARD_GAP_MAX_PX;
+    // Right pile is fixed at the full constant the whole time a gap is
+    // live (see applyCardTransform/CARD_GAP_MAX_PX's comments) — only
+    // relaxCardGap ever moves this value, on exit.
+    rightPileOffsetPx = CARD_GAP_MAX_PX;
+    // Full pass every call, not just the traveling card (the SET of cards
+    // in the right pile changes as gapKey itself moves from gap to gap, so
+    // a card that was in the right pile last call but has now changed
+    // piles needs its transform explicitly reset, not just left at its
+    // last value). segs is already in chronological/left-to-right rest-x
+    // order, so "index > gapKey's own index" is exactly the right-pile set.
+    const gapIdx = segs.findIndex((s) => s.key === gapKey);
+    for (let j = 0; j < segs.length; j++) {
+      const s = segs[j];
+      const el = cardEls.get(s.key);
+      if (!el) continue;
+      applyCardTransform(el, s.key, j > gapIdx);
+    }
+    // The card IN THE GAP is the sole hover/label target while a gap is
+    // active (2026-08-15, Scott's catch): "there should always be a
+    // concept of a card in the gap... only the card in the gap should be
+    // the label that is shown, and that label should animate across the
+    // gap with the card." gapKey already IS that card — updateCardGap is
+    // now the single authority for cardHoverText whenever a gap exists,
+    // superseding raw pointerover (which would otherwise show whatever
+    // STATIC neighbor the cursor happens to be physically over). Runs
+    // every pointermove, so this stays correct continuously, not just at
+    // the moment of a DOM element-enter.
+    const gapEl = cardEls.get(gapKey);
+    if (gapEl !== cardEls.get(cardExpandedKey)) {
+      showCardHoverTextFor(gapEl, gapKey, gapOffsetPx);
+    }
+  }
+
+  // Exit relax (Stage 5): the one place actual time-based easing applies
+  // — cursor has left #ribbon, so there's no cursor X left to derive a
+  // position from. Plain JS rAF tween, not a CSS transition (index.html's
+  // .card comment explains why: a CSS transition would also fight the
+  // live per-pointermove writes above while the pointer is still moving).
+  const GAP_EXIT_MS = 180;
+  function relaxCardGap() {
+    if (gapRafId != null) cancelAnimationFrame(gapRafId);
+    // Right-pile keys: snapshotted once at the start of the relax, not
+    // recomputed per tick — the SET doesn't change mid-relax (no cursor
+    // input driving it anymore), only the two offset magnitudes do.
+    const gapIdx = lastCardSegs.findIndex((s) => s.key === gapKey);
+    const pileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+    const settle = () => {
+      gapRafId = null;
+      const key = gapKey;
+      gapKey = null;
+      gapOffsetPx = 0;
+      rightPileOffsetPx = 0;
+      const el = key != null ? cardEls.get(key) : null;
+      if (el) applyCardTransform(el, null, false);
+      for (const k of pileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) applyCardTransform(pEl, null, false);
+      }
+    };
+    if (gapKey == null || (gapOffsetPx === 0 && rightPileOffsetPx === 0)) {
+      settle();
+      return;
+    }
+    const key = gapKey;
+    const startCard = gapOffsetPx;
+    const startPile = rightPileOffsetPx;
+    const t0 = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / GAP_EXIT_MS);
+      gapOffsetPx = startCard * (1 - t);
+      rightPileOffsetPx = startPile * (1 - t);
+      const el = cardEls.get(key);
+      if (el) applyCardTransform(el, key, false);
+      for (const k of pileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) applyCardTransform(pEl, null, true);
+      }
+      if (t < 1) {
+        gapRafId = requestAnimationFrame(step);
+      } else {
+        settle();
+      }
+    };
+    gapRafId = requestAnimationFrame(step);
+  }
+
+  {
+    const ribbon = document.getElementById("ribbon");
+    ribbon.addEventListener("pointermove", (ev) => {
+      if (gapRafId != null) {
+        cancelAnimationFrame(gapRafId); // live cursor input pre-empts any in-flight exit relax
+        gapRafId = null;
+      }
+      const rect = ribbon.getBoundingClientRect();
+      updateCardGap(ev.clientX - rect.left);
+    });
+    ribbon.addEventListener("pointerleave", relaxCardGap);
+    // Click redirect (2026-08-15, Scott's catch — same root cause as the
+    // label bug above, same fix shape): "there should always be a concept
+    // of a card in the gap... as long as there's a gap opened, only the
+    // card in the gap should open on click." Per-card el.onclick (set in
+    // paintCards) is bound to whatever DOM element receives the click,
+    // which is the STATIC neighbor once a sibling has traveled away from
+    // its own screen position — same DOM-hit-testing mismatch as the
+    // label bug, not a second issue. Fix takes the SAME shape as the label
+    // fix (redirect to gapKey, don't touch geometry/z-index/DOM order):
+    // capture phase, so this runs and can stopPropagation BEFORE the
+    // clicked element's own bubble-phase onclick fires. Only intercepts
+    // while a gap is genuinely active (gapKey set AND not already the
+    // expanded card, matching updateCardGap's own suppression) — outside
+    // a gap, cards behave exactly as before, untouched.
+    ribbon.addEventListener(
+      "click",
+      (ev) => {
+        if (gapKey == null || gapKey === cardExpandedKey) return;
+        const target = ev.target.closest(".card");
+        if (!target) return; // clicks outside any card (e.g. empty ribbon space) pass through unchanged
+        ev.stopPropagation();
+        ev.preventDefault();
+        toggleCardExpand(gapKey, Math.max(CARD_TIER_H.high, 1));
+      },
+      true
+    );
+  }
+
   // Click-to-expand state (Stage 2, distinct from the dormant fence
   // ribbon's own `expandedKey` above — named separately so the two don't
   // get confused while the old code sits alongside this, per the plan's
@@ -2894,6 +3229,35 @@
       return;
     }
 
+    // Stage 5: a card that expands while it happens to be the live gap-
+    // effect's traveling card must not carry its translateX/Y offset into
+    // animateCardTo's target below — that animation only ever writes
+    // left/top/width/height/perspective + rotateY (never .card's own
+    // transform), so a stale offset here would silently ride along into
+    // the expanded position. No relax animation needed: the expand
+    // animation itself is the visible transition, so this can snap.
+    if (gapRafId != null) {
+      cancelAnimationFrame(gapRafId);
+      gapRafId = null;
+    }
+    if (gapKey != null) {
+      // Same reasoning extends to the right pile (2026-08-15 follow-up):
+      // those cards are also sitting at a live translateX(CARD_GAP_MAX_PX)
+      // that nothing will clear until the next pointermove — snap them
+      // back to identity right now instead of leaving a visible stale
+      // shift between this click and whenever the cursor next moves.
+      const gapIdx = lastCardSegs.findIndex((s) => s.key === gapKey);
+      const pileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+      gapKey = null;
+      gapOffsetPx = 0;
+      rightPileOffsetPx = 0;
+      el.style.transform = "";
+      for (const k of pileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) pEl.style.transform = "";
+      }
+    }
+
     cardExpandedKey = key;
     cardCarouselIndex = 0; // always reopen on the container itself, never a remembered child
     // paintCards is the only other writer of _closeBtn.hidden/_info.hidden,
@@ -3087,10 +3451,30 @@
 
   function paintCards(events, hostNames) {
     const { segs, total } = cardLayout(events);
+    // Stage 5: refreshed every paint so the hover-gap effect's boundary
+    // lookup (updateCardGap) never reads stale rest positions after a
+    // repaint (day paging, live data refresh, tier changes) — gapKey
+    // itself is left alone here; the next pointermove (or the applyCard-
+    // Transform calls below, for the currently-gapped card) reconciles it
+    // against the new layout. gapBlockIdx: same "index > gapKey's own
+    // index" block-shift boundary updateCardGap uses, recomputed against
+    // THIS paint's fresh segs (a repaint mid-hover must not leave a card
+    // block-shifted, or not, based on the previous paint's ordering).
+    lastCardSegs = segs;
+    const gapBlockIdx = segs.findIndex((s) => s.key === gapKey);
 
     const ribbon = document.getElementById("ribbon");
     const maxH = Math.max(CARD_TIER_H.high, 1);
-    ribbon.style.width = total + "px";
+    // + CARD_GAP_MAX_PX (2026-08-15 follow-up): the block-shift fix above
+    // moves the right-hand block up to CARD_GAP_MAX_PX past its rest
+    // position via `transform`, which — per the CSS spec — does NOT grow
+    // an element's layout/scroll size. Without this padding, #ribbon-wrap's
+    // overflow-x: auto clips the shifted tail instead of it being
+    // scrollable into view whenever the gap is live near the right edge of
+    // the deck. Reserved unconditionally (not just while a gap is active)
+    // so #ribbon's width never jumps between hovered/idle, which would
+    // itself shift scroll position underfoot.
+    ribbon.style.width = total + CARD_GAP_MAX_PX + "px";
     // + CARD_HOVER_TEXT_H reserves room for cardHoverText below the deck —
     // see that constant's comment: #ribbon-wrap clips anything positioned
     // below #ribbon's own height, so the hover-text band must be counted
@@ -3109,7 +3493,7 @@
 
     const seen = new Set();
     const snapFetches = [];
-    for (const s of segs) {
+    for (const [j, s] of segs.entries()) {
       seen.add(s.key);
       let el = cardEls.get(s.key);
       if (!el) {
@@ -3177,6 +3561,14 @@
         // to the same left edge the rotation itself is anchored to.
         el.style.perspective = deckPerspective + "px";
         face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+        // Stage 5: reapply this card's current gap-effect transform (its
+        // own live offset if it's the traveling card, a block-shift if
+        // it's right of the gap, identity otherwise) — a freshly-created
+        // card, or one whose transform predates this paint, must not sit
+        // at a stale value. Expanded cards are exempt (see the `s.key !==
+        // cardExpandedKey` guard this sits inside): they're WAAPI-driven
+        // and never participate in the gap effect.
+        applyCardTransform(el, s.key === gapKey ? gapKey : null, j > gapBlockIdx);
       }
       el.style.perspectiveOrigin = "left center";
       face.style.background = TIER_FILL[s.band];

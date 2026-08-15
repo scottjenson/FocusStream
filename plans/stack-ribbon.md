@@ -400,6 +400,345 @@ clip/scroll, nonlinear Stage-Manager-style compression, or fence-style
 LOW-tier compaction brought back for cards (see the recap section above
 for how the three differ). No decision yet.
 
+### Stage 5 (maybe) — single-traveling-card hover-gap effect — Implemented, awaiting feel (2026-08-15)
+
+**Implemented as of 2026-08-15**, per the design discussion recorded
+below (kept intact as the design record, not trimmed, since the "why"
+still lives here rather than in `decisions/timeline_design.md`'s own
+entry, which stays a summary). Not yet folded into `spec/display.md` —
+per this file's top-of-file convention, that happens only once Scott has
+browsed real data in it and it's confirmed as staying, same as every
+other stage here. Supersedes the original Stage 2 "dock-style magnify-
+on-hover" idea (see Stage 2's note above) with a materially different
+mechanic.
+
+**As built — CURRENT state, after all fix rounds below** (this block is
+kept in sync with the code; if you're skimming, this is the accurate
+picture — the numbered fix-history entries after it are "how we got
+here," not superseding corrections you also need to apply):
+- `CARD_STEP` is uniform across all tiers at 10px (the old LOW-only
+  pitch); `CARD_STEP_LOW` and its per-band branch in `cardLayout` are
+  gone.
+- `CARD_GAP_MAX_PX = 96` (history: started 48 → 192 → 96, see fix entries
+  below for why each change happened) and `CARD_GAP_LIFT_PX = 6` are the
+  two tuning knobs, defined near `CARD_STEP`.
+- **Piles-are-fixed model** (near `cardEls`, just above click-to-expand
+  state): `lastCardSegs` (cardLayout's last rest-position output),
+  `gapKey` (the ONE traveling card's key), `gapOffsetPx` (that card's
+  live offset, a pure function of cursor X within its gap — the only
+  continuously-animated value), `rightPileOffsetPx` (the right pile's
+  offset — a SEPARATE value from `gapOffsetPx`, held constant at
+  `CARD_GAP_MAX_PX` for the whole time any gap is active, only ever
+  stepping — not easing — at a handoff), `gapRafId` (in-flight exit
+  tween). `applyCardTransform(el, key, isRightPile)` writes one card's
+  transform per its role (traveling / right-pile / neither); `update-
+  CardGap(cursorX)` is the per-`pointermove` entry point that resolves
+  which gap the cursor is in, sets `gapKey`/`gapOffsetPx`/
+  `rightPileOffsetPx`, and does a full pass over `lastCardSegs` calling
+  `applyCardTransform`; `relaxCardGap()` is the JS rAF exit-tween,
+  shrinking both offsets to 0 together on `pointerleave`. All-JS, no CSS
+  transition anywhere in the mechanism (a `pointermove`/`pointerleave`
+  pair on `#ribbon`).
+- **Label tracking:** `showCardHoverTextFor(el, key, offsetPx)` (module
+  scope, near `cardHoverText`) fills + positions + shows the label for
+  one card; `fillCardHoverText(d)` is the shared content-only builder.
+  `updateCardGap` calls `showCardHoverTextFor` for `gapKey`'s own card at
+  the end of every call, unconditionally — this is the sole authority for
+  the label whenever a gap is active. The `#ribbon` `pointerover` delegate
+  still drives it when NO gap is active (unchanged pre-Stage-5 behavior).
+- **Click routing:** a capture-phase `click` listener on `#ribbon`
+  redirects any click on any `.card` to `toggleCardExpand(gapKey, …)`
+  whenever a gap is active, before the physically-clicked element's own
+  (bubble-phase, per-card) `onclick` can fire.
+- The old CSS `.card:not(.expanded):hover { transform: translateY(-6px) }`
+  riffle rule is retired (index.html) — `applyCardTransform` now folds
+  that same lift into the same inline `transform` write as the gap
+  offset, since an inline write wins over the CSS rule outright and the
+  two can't coexist as separate mechanisms.
+- Expanded-card interaction: the gap effect is fully suppressed while
+  `cardExpandedKey` is set (`updateCardGap` early-returns), and
+  `toggleCardExpand` explicitly clears any live gap offset (both
+  `gapOffsetPx` AND `rightPileOffsetPx`, plus every right-pile card's own
+  transform) on whichever card is being expanded before handing it to
+  `animateCardTo` — that WAAPI animation only ever writes `left/top/
+  width/height/perspective` + `rotateY`, never `.card`'s own `transform`,
+  so a stale `translateX` would otherwise silently ride along into the
+  expanded position.
+- **Hard constraint, established after a reverted z-index attempt (see
+  fix history below) — treat as a rule, not a preference:** this
+  mechanism may ONLY ever write `transform` (translateX/translateY) on a
+  `.card` element. No z-index, no DOM reordering, no other paint/stacking
+  property, even to fix a real bug — route around the problem (e.g. via
+  `gapKey` as the hit-testing authority) instead.
+- **Direction bug, caught on first real feel-test and fixed same day:**
+  the first cut had `gapOffsetPx = frac * ...` — offset GREW as the
+  cursor advanced through the gap, so the traveling card moved WITH the
+  cursor. Design called for the opposite (card reaches back toward where
+  the cursor came from, easing to 0 as the cursor arrives at the next
+  handoff — see CARD_GAP_MAX_PX's own comment). Fix: `(1 - frac)`.
+  Worth flagging for future direction-sensitive tuning here: this formula
+  is easy to flip twice by mistake, verify against the exact right-to-
+  left walkthrough in the design discussion below before touching it
+  again, not just by eyeballing the running effect.
+- **No visible gap bug, caught on second feel-test and fixed same day:**
+  even with direction and magnitude fixed, the gap still didn't read as
+  visible space — because cards overlap heavily at rest (`CARD_STEP` ≪
+  card width, by design, so later DOM siblings paint over their
+  predecessor's receded right edge), moving ONLY the traveling card just
+  slides it further under its still-stationary right neighbor; there's no
+  empty background for it to reveal. Scott's fix, explicitly chosen as
+  the simpler of two options over shifting both directions Mac-Dock-
+  genie-style (which risks pushing left-side cards off-screen): the
+  ENTIRE block of cards to the right of the gap now rigidly shifts right
+  by the same live `gapOffsetPx` — same value the traveling card itself
+  uses, so it's still only one animated quantity, just applied to more
+  elements (`applyCardTransform`'s new `isBlockShift` parameter,
+  `updateCardGap`'s and `relaxCardGap`'s now-full per-call passes over
+  `lastCardSegs` instead of touching only `prevKey`/`gapKey`). Left of the
+  gap stays fixed — **explicitly provisional**, Scott: "let's get this
+  working first and we may tweak the which-cards-are-animated question a
+  bit further, but let's take small steps." One follow-on fix this
+  required: `#ribbon`'s width (fixed from `cardLayout`'s rest-space
+  `total`) now pads by `CARD_GAP_MAX_PX` unconditionally, since a CSS
+  `transform` doesn't grow an element's layout/scroll size — without the
+  pad, `#ribbon-wrap`'s `overflow-x: auto` would clip the shifted tail
+  near the right edge of the deck instead of it scrolling into view.
+  **Hit-testing still resolves against REST positions only** (not the
+  live shifted positions) — a deliberate simplification to keep this
+  first cut small; watch for a visual/hit mismatch once shifted blocks
+  are actually felt against real data; that's the natural next tuning
+  conversation if it feels off, not a bug to silently work around.
+- **Model rebuilt a third time, same day, on Scott's third feel-test
+  catch — the block-shift fix above was itself still wrong.** Symptom
+  report: "the gap is not 192 pixels... extremely small" AND "the
+  animation is constantly animating the cards to the right" when it
+  should only ever move once per handoff. Root cause: the block-shift fix
+  re-shifted the ENTIRE right pile by the live `gapOffsetPx` every single
+  `pointermove` — i.e. the right pile was moving IN LOCKSTEP with the
+  traveling card the whole time, so the visual distance between them
+  (the actual "gap") never grew past ~0 regardless of how large
+  `CARD_GAP_MAX_PX` was; the pile only ever looked like it does today
+  because it was always right behind the traveling card, not because the
+  gap was small. **Corrected model — "piles are fixed, only the
+  traveling card moves":** confirmed explicitly with Scott before
+  rebuilding. The right pile's offset (`rightPileOffsetPx`, a value now
+  SEPARATE from the traveling card's own `gapOffsetPx`) is a constant —
+  always exactly `CARD_GAP_MAX_PX` for the entire duration a gap is
+  active, REGARDLESS of cursor position within the gap. It only changes
+  value at all during `relaxCardGap`'s exit tween, or when it steps
+  (not eases) to match a NEW gapKey at handoff (one card transferring
+  from the right pile to become the traveling card, or vice versa — the
+  pile's MEMBERSHIP changes, not its per-member offset). The left pile
+  stays identity (0) throughout, unchanged from before. The traveling
+  card (`gapOffsetPx`) remains the only continuously cursor-driven value
+  in the whole mechanism, lerping between the two now-fixed boundaries
+  (0 and `CARD_GAP_MAX_PX`) exactly as before — only the pile's own
+  behavior changed. `toggleCardExpand`'s gap-clearing (added for the
+  first cut) was widened at the same time: it now clears the whole gap
+  state (both piles, not just the specific clicked card) whenever ANY
+  card expands, and explicitly snaps stray right-pile cards back to
+  identity rather than leaving them stuck until the next `pointermove`
+  — a related staleness bug the original narrower clear didn't cover.
+
+- **Gap halved + label now travels with the card, same day (2026-08-15),
+  once the piles-are-fixed rebuild made the effect legible enough to
+  tune:** `CARD_GAP_MAX_PX` 192 → 96 (Scott: now that it's visibly
+  working, the previous "make it bigger" correction had overshot).
+  Separately, `cardHoverText` (the below-deck site name/meta/title label)
+  now rides along with the traveling card instead of sitting fixed at its
+  rest X the whole time it travels — Scott: "have the label... move with
+  the card... reinforce the fact that the card we're focusing on has the
+  same label." Mechanism: `cardHoverTextKey` (new) records which card's
+  key the currently-visible label belongs to, set where the `#ribbon`
+  `pointerover` delegate first shows it; `applyCardTransform`'s
+  `key === gapKey` branch — already the single place that repositions the
+  traveling card every frame — now also repositions the label in the same
+  branch, reading the same live `gapOffsetPx`, whenever
+  `cardHoverTextKey` matches. Free side effect: since `relaxCardGap`'s
+  per-tick loop already calls `applyCardTransform(el, key, false)` with
+  `key === gapKey` unchanged until `settle()`, the label eases back down
+  together with the card on exit with no separate wiring.
+- **Hover/click hit-testing bug, caught immediately after the label change
+  shipped — real, distinct from every fix above.** Scott's report: the
+  label shown (and the card that actually opened on click) was the
+  STATIC neighbor immediately left of the gap, not the visibly-traveling
+  card — confirmed by discussion that the traveling-card ASSIGNMENT
+  (`gapKey = segs[i]`, the left-of-gap card peeling off and animating
+  right) was correct and matched what Scott saw moving; the bug was that
+  hover/click were landing on a DIFFERENT element than the one moving.
+  Root cause: cards carry no z-index at rest — Stage 1's "no z-index
+  needed" design (index.html's `.card` comment) relies entirely on later
+  DOM siblings painting over earlier ones, which only holds as long as
+  every card stays at its own natural chronological x. The traveling
+  card breaks that the instant it moves RIGHT via `translateX`: it slides
+  into its later (and so higher-DOM-stacked) right-pile neighbor's
+  territory, which keeps painting on top of it regardless of the
+  transform — so the pixels the cursor was actually over there belonged
+  to the static neighbor the whole time, not the card that visually
+  appeared to occupy that space.
+  **First fix attempt — z-index — REVERTED same day, Scott: "there
+  should be no z-index changes at all... this breaks the animation. The
+  only animation that should be happening is that the X locations of the
+  cards change."** `applyCardTransform` briefly set `el.style.zIndex = "1"`
+  on the traveling card; reverted in full (code and this file's
+  description of it) without a replacement fix yet. Root-cause diagnosis
+  above (no z-index at rest, later DOM siblings painting over an
+  out-of-chronological-order traveling card) is believed still correct
+  and is NOT what got rejected — only z-index as the mechanism was.
+  **Second fix — SHIPPED, 2026-08-15: stop DOM-hit-testing for cards
+  entirely; make gapKey itself the authority.** Rather than fix WHICH
+  element sits visually on top (z-index, DOM reorder — both change
+  something other than X position, which Scott ruled out), this fix
+  accepts that raw pointer/click hit-testing against overlapping absolute-
+  positioned cards can't be trusted once any card leaves its natural
+  chronological screen slot, and routes hover-label and click through
+  `gapKey` directly instead — the mechanism ALREADY tracks "the card in
+  the gap" continuously; it just wasn't being consulted for either
+  concern yet. Scott's framing, adopted verbatim: "there should always be
+  a concept of a card in the gap... as long as there's a gap opened, only
+  the card in the gap should open on click. And only a card in a gap
+  should be the label that is shown, and that label should animate across
+  the gap with the card." Two changes, same shape:
+    - **Label:** `fillCardHoverText` (content) pulled out of the
+      `pointerover` closure to module scope; new `showCardHoverTextFor(el,
+      key, offsetPx)` fills + positions + shows it for one specific card.
+      `updateCardGap` now calls this for `gapKey`'s own card at the end of
+      every `pointermove`, unconditionally, using the live `gapOffsetPx` —
+      so the label is driven by the SAME authority that positions the
+      card, continuously, not by a one-shot `pointerover` DOM-enter event.
+      The old `pointerover` card branch is suppressed outright whenever
+      `gapKey != null` (comment there explains why: it would only ever
+      fight the new authority, showing the static neighbor it's actually
+      sitting over).
+    - **Click:** new capture-phase `click` listener on `#ribbon` (added
+      alongside the existing `pointermove`/`pointerleave` pair) — whenever
+      `gapKey` is set and the click landed on ANY `.card` (regardless of
+      which one), it stops the event and calls `toggleCardExpand(gapKey,
+      …)` directly instead of letting the clicked element's own
+      `el.onclick` fire. Capture phase specifically so this runs and can
+      `stopPropagation` BEFORE the per-card bubble-phase handler.
+  Both changes touch zero geometry/paint properties — `transform` remains
+  the only thing that ever moves a card, per Scott's constraint.
+
+**Not yet done / still open:**
+- Perf at real on-screen card counts — implemented straightforwardly (one
+  card's transform touched per `pointermove`), not load-tested.
+- `CARD_GAP_MAX_PX`/`CARD_GAP_LIFT_PX`/`GAP_EXIT_MS` are first-guess
+  constants, not derived or felt yet.
+- The whole effect hasn't been felt against a full real busy day yet —
+  everything above is confirmed only against the specific bugs Scott hit
+  while testing, not a general "this works well" verdict.
+
+**Resolved, kept here only so it isn't re-litigated:** `cardHoverText`'s
+dual hover-detection path — `updateCardGap` is the sole authority
+whenever `gapKey != null`; raw `pointerover` only still drives it when NO
+gap is active (unchanged pre-Stage-5 behavior in that case). Click is
+unified the same way. Not revisited further unless the two are ever seen
+to disagree.
+
+**Original design discussion (kept as the record of why), 2026-08-14/15
+with Scott — no code existed yet when this was written:**
+
+**Trigger for revisiting this at all:** cards today are cramped
+(`CARD_STEP = 20`, `CARD_STEP_LOW = 10`) and Scott wants to go tighter
+still — make ALL tiers use the current LOW pitch (uniform, more cramped
+than today) — while adding a hover effect that opens breathing room
+around whichever card has focus, so density and browsability aren't in
+tension.
+
+**Why the obvious version (move the hovered card, or push both
+neighbors) doesn't work — read this before re-proposing either:**
+1. Moving the hovered card itself, or widening a symmetric gap by pushing
+   the left AND right neighbor apart, both risk **hover retrigger
+   thrash**: shifting a neighbor's hitbox can sweep it toward/away from
+   the cursor, re-firing hover state, which moves things again.
+2. The specific failure mode found by walking through it step by step:
+   if only the hovered card is treated as the fixed anchor and a neighbor
+   "opens" toward it, crossing from card X to card X−1 means the cursor
+   has to physically cross the gap region **while that same region is
+   being animated by the handoff**, and the animated motion runs opposite
+   the cursor's travel direction. That mismatch is what produces flicker,
+   not z-order or hitbox ambiguity.
+
+**The mechanism actually agreed on** (full reasoning trail is the
+conversation itself; this is the settled shape):
+- **Rest state** (cursor not over `#ribbon`): all cards at one uniform
+  tight pitch (today's `CARD_STEP_LOW` value), no tier-based stagger, no
+  animation running, no listener doing per-frame work.
+- **Open state** (cursor over `#ribbon`): exactly **one card is ever
+  offset from rest** — the "traveling" card — everything else stays put.
+  Which card is traveling is determined purely by which gap (between two
+  rest-position boundaries) the cursor's X currently falls in — no other
+  state needed.
+- **Position is a pure function of cursor X, not a chase/velocity/spring
+  model:** within its gap, the traveling card's X = `lerp` between the
+  two flanking rest slots, driven by the cursor's position between those
+  same two boundaries — cursor at the gap's near edge → card fully at the
+  departing side; cursor at the gap's far edge → card fully at the
+  approaching side; centered cursor → centered card. Directly reversible:
+  jittering the cursor back and forth just re-evaluates the same formula,
+  no separate state to unwind.
+- **Cursor and card move toward each other (Scott's Mac-Dock-genie
+  reference, adapted):** as the cursor moves in one direction, the
+  traveling card moves in the OTHER direction — that's what the lerp
+  above produces. This is what keeps the physical mouse-travel needed to
+  hand focus to the next card small: the card is closing part of the
+  distance too, not sitting still waiting to be reached. It also removes
+  the crossing problem in (2) above, since the card is always positioned
+  exactly where the current cursor X implies — there's no independently-
+  animated region for the cursor to cross through.
+- **Handoff is a hard swap, not a crossfade:** the instant the cursor
+  crosses a gap boundary, the just-traveling card snaps back to its own
+  rest slot and the next card begins its own journey from ITS rest slot.
+  Only one card is ever in motion. Deliberately NOT eased/blended at the
+  boundary — a shared transition window would reintroduce two cards
+  moving at once, which is the cascade/thrash risk this design avoids
+  everywhere else.
+- **Entry is instant, not a fade/expand-in:** because position is a pure
+  function of cursor X with no separate "gap opening" state, the first
+  frame after the cursor enters `#ribbon` already evaluates the formula
+  correctly for wherever it entered — no special-cased entry animation.
+- **Exit is the one place actual easing applies:** cursor leaving
+  `#ribbon` has no cursor X to evaluate against, so the traveling card
+  eases back to rest — the only genuinely time-based (not position-driven)
+  animation in the whole mechanism.
+- **All JS, no CSS transitions in the mechanism itself:** confirmed
+  explicitly with Scott — CSS's role stays exactly what it already is for
+  cards (the static per-card `rotateY` swivel/perspective presentation,
+  set once at layout time); it does not grow a new role for this effect.
+  The gap offset is pure continuous mouse-tracking math (current gap
+  lookup + lerp) computed in JS on `pointermove` over `#ribbon`, written
+  directly into the same per-card inline `transform` string that already
+  carries the swivel (i.e. one more translateX term composed alongside
+  the existing rotateY, not a separate property). The exit relax is ALSO
+  JS-driven (e.g. a rAF tween toward offset 0), not a CSS `transition` —
+  a CSS transition racing a live JS-driven value was flagged explicitly
+  as its own stutter/flicker risk, separate from the crossing problem
+  above, and rejected for that reason.
+
+**Open items an implementer still needs to pick (not discussed to a
+conclusion — defaults noted, confirm with Scott before/while building
+rather than assuming):**
+- Exact gap boundaries: derived from `cardLayout()`'s existing rest `x`
+  values per card (tier width already known via `CARD_TIER_W`) — should
+  be a direct reuse, not a new coordinate system, but hasn't been
+  wired through.
+- Whether the existing `.card:not(.expanded):hover` Y-lift and
+  `cardHoverText` below-deck label continue to key off real CSS `:hover`
+  as today, or need to be driven by the same "which card is current"
+  computation this mechanism already derives each `pointermove` (keeping
+  two separate hover-detection paths in sync could drift).
+- Interaction with the expanded-card state (`toggleCardExpand`) — almost
+  certainly needs the same suppression `.card.expanded` already gets
+  elsewhere (Y-lift, hover text), but not yet decided explicitly for this
+  mechanism.
+- Perf of a `pointermove`-driven per-frame write at real on-screen card
+  counts — untested; likely fine (only one card's transform is touched
+  per frame) but worth confirming, not assumed.
+- Uniform-pitch rest state removes `CARD_STEP` vs. `CARD_STEP_LOW`'s
+  distinction — needs an explicit decision on what happens to the
+  now-unused constant (delete vs. repurpose as the new uniform pitch).
+
 ## Non-goals / things this rewrite does NOT change
 
 - Capture-side code (`background.js`, `content.js`, `spec/capture.md`) —

@@ -1981,3 +1981,147 @@ itself evidence this matters: a log-only check (no visual cross-check)
 would have shipped the broken version. Acceptable for a small,
 narrowly-scoped guard once caught; a larger container-logic change
 would warrant building the harness first.
+
+## Single-traveling-card hover-gap effect (2026-08-15)
+
+Designed via discussion with Scott, then implemented and iterated
+through several real-usage bug fixes the same day (`dashboard/
+timeline.js`, `dashboard/index.html`) — the initial design below, THEN
+what changed once it was actually tried against a real ribbon (see
+"Rejected: promoting the traveling card with z-index" and the two real
+bugs further down). Full build-facing detail and as-built summary lives
+in `plans/stack-ribbon.md` Stage 5 — this entry is the durable why, per
+the doc map (plan doc tracks staging status/open items; this file is the
+permanent reasoning archive with the rejected alternatives). Not yet
+folded into `spec/display.md` — awaiting Scott browsing real data in it,
+same gate every other card-deck stage in the plan doc has gone through.
+
+**Problem:** cards' current stagger (`CARD_STEP` vs. `CARD_STEP_LOW`,
+plans/stack-ribbon.md Stage 1) still reads as cramped. Scott wants ALL
+tiers packed at the tighter LOW pitch — more cramped at rest, not less —
+offset by a hover effect that opens room around the focused card. This
+picks back up the "dock-style magnify-on-hover" idea Stage 2 explicitly
+deferred (superseding it with a different mechanic, not the originally-
+deferred one).
+
+**Rejected: moving the hovered card, or symmetric neighbor-push.** Both
+risk hover retrigger thrash (a shifted neighbor's hitbox sweeps toward/
+away from the cursor, re-firing hover, moving things again). Walked
+through step by step: if the hovered card is a fixed anchor and a
+neighbor animates open toward it, moving the cursor to the NEXT card
+means crossing a region that is simultaneously being animated by the
+handoff, in the direction opposite the cursor's travel — that mismatch,
+not z-order, is what produces flicker. This was the load-bearing insight
+that ruled out the "obvious" versions of the effect.
+
+**Rejected: continuous falloff across the whole row (fisheye/lens
+model).** An earlier candidate — every card's offset a continuous
+function of `cardCenter − cursorX`, tapering with distance — does avoid
+the crossing problem (no discrete per-card state to hand off) but was
+superseded once the single-traveling-card model below turned out to
+solve the same problem with less motion (only one card ever animates,
+not the whole visible row).
+
+**Adopted: single traveling card, position = pure function of cursor X
+within its current gap, cursor and card move toward each other (Scott's
+Mac-Dock-genie reference).** Exactly one card is ever offset from rest —
+whichever gap (between two rest-position boundaries) the cursor
+currently falls in owns the one "traveling" card, lerped between the two
+flanking rest slots by cursor position within that span. Not a chase/
+velocity/spring model — directly reversible, no state to unwind on
+cursor reversal. Handoff at a gap boundary is a hard snap (traveling
+card returns to rest, next card begins its own journey from ITS rest
+slot) — deliberately not eased/blended, since a shared transition window
+at the boundary reintroduces the two-cards-moving-at-once risk this
+design otherwise avoids everywhere.
+
+**All JS, no CSS transitions in the mechanism.** Confirmed explicitly
+with Scott after an initial wrong turn (proposing a CSS `transition` for
+the exit-relax case): CSS's role stays exactly what it already is for
+cards (static per-card swivel/perspective, composed once into the
+inline `transform` string) — it does not grow a role for this effect,
+since the effect is pure continuous mouse-tracking in one dimension, and
+a CSS transition racing a live JS-driven value is its own stutter risk,
+separate from the crossing problem above.
+
+**Rejected: promoting the traveling card with z-index once it visually
+overlaps a neighbor (2026-08-15).** Once built, hover/click hit-testing
+was landing on the STATIC neighbor instead of the traveling card (cards
+carry no z-index at rest — Stage 1's "later DOM sibling paints over
+earlier" design only holds as long as every card stays at its own
+chronological screen position, which the traveling card violates by
+definition). The obvious fix — set `z-index` on the traveling card so it
+paints on top — was built, then explicitly reverted same day: "there
+should be no z-index changes at all... this breaks the animation. The
+only animation that should be happening is that the X locations of the
+cards change." Scott's constraint, taken as a hard rule going forward:
+`transform` (specifically translateX) is the ONLY property this
+mechanism is allowed to touch on a card — not z-index, not DOM order, not
+any other paint/stacking property, even to fix a real bug.
+
+**Adopted instead: stop trusting DOM hit-testing for cards under the gap
+effect at all; route through `gapKey` directly.** Rather than fix WHICH
+element paints on top, accept that raw pointer/click hit-testing against
+overlapping absolute-positioned cards can't be trusted once any card
+leaves its natural chronological slot, and make `gapKey` — which the
+mechanism already computes continuously and correctly — the sole
+authority for both hover-label and click, superseding the DOM entirely
+for those two concerns while a gap is active. Concretely: the below-deck
+label is repositioned/refilled for `gapKey`'s own card at the end of
+every `pointermove` (not left to whatever element a `pointerover` DOM
+sweep happened to land on), and a capture-phase click listener on
+`#ribbon` redirects any click landing on any `.card` to `gapKey`'s own
+card whenever a gap is active, before the physically-clicked element's
+own handler can fire. Scott's framing, adopted verbatim: "there should
+always be a concept of a card in the gap... only the card in the gap
+should open on click... and that label should animate across the gap
+with the card." Both fixes touch zero geometry — same "transform is the
+only thing that moves" constraint, satisfied by routing intent
+differently instead of changing what's drawn.
+
+**Two real bugs along the way, both corrected same day — worth recording
+since they reflect on how to verify this class of effect, not just what
+the final formula is:**
+- **Direction inversion:** the first cut moved the traveling card WITH
+  the cursor instead of against it (a sign error in the lerp — `frac`
+  instead of `1 - frac`). Caught by Scott physically testing it, not by
+  re-deriving the formula on paper; the lesson carried into the plan doc
+  is to re-verify against the exact right-to-left walkthrough from this
+  entry before ever touching that formula again, not by eyeballing the
+  running effect.
+- **Piles moving in lockstep, making the gap look tiny regardless of its
+  configured size:** the fix that made the right-hand pile shift to open
+  visible space (necessary — see "Rejected: moving only the traveling
+  card" below) initially re-shifted the WHOLE pile by the SAME live,
+  continuously-updating offset as the traveling card, every
+  `pointermove` — so the pile was always moving in lockstep right behind
+  the traveling card, and the visual gap between them never actually
+  opened past ~0 no matter how large the configured max was. Diagnosed
+  from Scott's report ("gap is not 96/192 pixels... extremely small" +
+  "cards to the right are constantly animating" when they should move
+  once per handoff) rather than from re-reading the code cold — the
+  symptom described the mechanism precisely enough to localize it.
+  Corrected model: the pile's own offset is a SEPARATE value from the
+  traveling card's, held constant at the configured max for the entire
+  time a gap is active, only ever stepping (not easing) at a handoff.
+
+**Rejected: moving only the traveling card, leaving neighbors
+untouched.** The model as first specified (see "Adopted" above) doesn't
+by itself produce a visible gap: cards overlap heavily at rest
+(`CARD_STEP` ≪ card width, by design — see Stage 1), so a lone traveling
+card sliding right just disappears further under its still-stationary,
+later-painted right neighbor. Fix (see the lockstep bug above for the
+history of getting this right): the entire block of cards to the right
+of the gap rigidly shifts by a fixed offset — always the same configured
+constant while any gap is active — so real empty space opens between the
+traveling card and the pile. The left-hand pile stays fixed. Explicitly
+provisional (Scott: "let's take small steps") — shifting both directions
+Mac-Dock-genie-style was discussed and deferred, not rejected outright.
+
+**Status:** implemented and iterated through several real-usage
+corrections (see above); not yet felt against a full real day or folded
+into `spec/display.md`. Known still-open items — perf at real card
+counts, first-guess tuning constants (`CARD_GAP_MAX_PX`, `CARD_GAP_LIFT_PX`,
+`GAP_EXIT_MS`), and cardHoverText's dual code path outside an active gap
+— are tracked in `plans/stack-ribbon.md` Stage 5, which also carries the
+fuller build-facing (function-by-function) detail this entry summarizes.
