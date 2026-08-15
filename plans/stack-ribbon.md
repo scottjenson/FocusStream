@@ -420,50 +420,62 @@ here," not superseding corrections you also need to apply):
   pitch); `CARD_STEP_LOW` and its per-band branch in `cardLayout` are
   gone.
 - `CARD_GAP_MAX_PX = 96` (history: started 48 → 192 → 96, see fix entries
-  below for why each change happened) and `CARD_GAP_LIFT_PX = 6` are the
-  two tuning knobs, defined near `CARD_STEP`.
-- **Piles-are-fixed model** (near `cardEls`, just above click-to-expand
-  state): `lastCardSegs` (cardLayout's last rest-position output),
-  `gapKey` (the ONE traveling card's key), `gapOffsetPx` (that card's
-  live offset, a pure function of cursor X within its gap — the only
-  continuously-animated value), `rightPileOffsetPx` (the right pile's
-  offset — a SEPARATE value from `gapOffsetPx`, held constant at
-  `CARD_GAP_MAX_PX` for the whole time any gap is active, only ever
-  stepping — not easing — at a handoff), `gapRafId` (in-flight exit
-  tween). `applyCardTransform(el, key, isRightPile)` writes one card's
-  transform per its role (traveling / right-pile / neither); `update-
-  CardGap(cursorX)` is the per-`pointermove` entry point that resolves
-  which gap the cursor is in, sets `gapKey`/`gapOffsetPx`/
-  `rightPileOffsetPx`, and does a full pass over `lastCardSegs` calling
+  below for why each change happened) and derived `CARD_GAP_HALF_PX = 48`
+  are the tuning knobs, defined near `CARD_STEP`. `CARD_GAP_LIFT_PX` is
+  gone (2026-08-15 follow-up, see below) — the riffle lift is retired
+  outright, not folded into the gap-offset write.
+- **Piles-are-fixed model, now centered (2026-08-15 follow-up — see that
+  entry below for the full "why")** (near `cardEls`, just above
+  click-to-expand state): `lastCardSegs` (cardLayout's last rest-position
+  output), `gapKey` (the ONE traveling card's key), `gapOffsetPx` (that
+  card's live offset, a pure function of cursor X within its gap — the
+  only continuously cursor-driven value, lerping between
+  `-CARD_GAP_HALF_PX` and `+CARD_GAP_HALF_PX`, not `0`/`CARD_GAP_MAX_PX`
+  as originally built), `leftPileOffsetPx`/`rightPileOffsetPx` (BOTH
+  piles now shift — `∓CARD_GAP_HALF_PX` — fixed constants for the whole
+  time any gap is active, only ever stepping, not easing, at a handoff;
+  originally only the right pile moved), `gapRafId` (in-flight exit-relax
+  OR entry-ease tween — the same slot now serves both, see the entry-ease
+  entry below), `gapEnterT0` (non-null while an entry-ease is in flight).
+  `applyCardTransform(el, key, side)` writes one card's transform per its
+  role (traveling / `"left"` pile / `"right"` pile / neither — `side`
+  replaced the original `isRightPile` boolean once the left pile started
+  moving too); `updateCardGap(cursorX)` is the per-`pointermove` entry
+  point that resolves which gap the cursor is in, computes the three
+  cursor-driven TARGET offsets, hands them to `applyGapOffsets` (direct
+  write in steady state, eased toward the target during entry — see
+  below), and does a full pass over `lastCardSegs` calling
   `applyCardTransform`; `relaxCardGap()` is the JS rAF exit-tween,
-  shrinking both offsets to 0 together on `pointerleave`. All-JS, no CSS
+  easing all three offsets to 0 together on `pointerleave`. All-JS, no CSS
   transition anywhere in the mechanism (a `pointermove`/`pointerleave`
   pair on `#ribbon`).
-- **Label tracking:** `showCardHoverTextFor(el, key, offsetPx)` (module
+- **Label tracking, decoupled from the card (2026-08-15 follow-up — see
+  that entry below):** `showCardHoverTextFor(el, key, leftPx)` (module
   scope, near `cardHoverText`) fills + positions + shows the label for
-  one card; `fillCardHoverText(d)` is the shared content-only builder.
-  `updateCardGap` calls `showCardHoverTextFor` for `gapKey`'s own card at
-  the end of every call, unconditionally — this is the sole authority for
-  the label whenever a gap is active. The `#ribbon` `pointerover` delegate
-  still drives it when NO gap is active (unchanged pre-Stage-5 behavior).
+  one card at an explicit left X; `fillCardHoverText(d)` is the shared
+  content-only builder. `updateCardGap` calls `showCardHoverTextFor` for
+  `gapKey`'s own card at the end of every call, unconditionally, passing
+  `labelGapCenterPx` — NOT `gapOffsetPx` (the original design; reverted,
+  see below) — this is the sole authority for the label whenever a gap is
+  active. The `#ribbon` `pointerover` delegate still drives it when NO gap
+  is active (unchanged pre-Stage-5 behavior).
 - **Click routing:** a capture-phase `click` listener on `#ribbon`
   redirects any click on any `.card` to `toggleCardExpand(gapKey, …)`
   whenever a gap is active, before the physically-clicked element's own
   (bubble-phase, per-card) `onclick` can fire.
 - The old CSS `.card:not(.expanded):hover { transform: translateY(-6px) }`
-  riffle rule is retired (index.html) — `applyCardTransform` now folds
-  that same lift into the same inline `transform` write as the gap
-  offset, since an inline write wins over the CSS rule outright and the
-  two can't coexist as separate mechanisms.
+  riffle rule is retired (index.html). Originally (first cut) the lift was
+  folded into the gap-offset's own inline `transform` write instead;
+  2026-08-15 follow-up dropped it outright — see below.
 - Expanded-card interaction: the gap effect is fully suppressed while
   `cardExpandedKey` is set (`updateCardGap` early-returns), and
-  `toggleCardExpand` explicitly clears any live gap offset (both
-  `gapOffsetPx` AND `rightPileOffsetPx`, plus every right-pile card's own
-  transform) on whichever card is being expanded before handing it to
-  `animateCardTo` — that WAAPI animation only ever writes `left/top/
-  width/height/perspective` + `rotateY`, never `.card`'s own `transform`,
-  so a stale `translateX` would otherwise silently ride along into the
-  expanded position.
+  `toggleCardExpand` explicitly clears any live gap state (`gapOffsetPx`,
+  `leftPileOffsetPx`, `rightPileOffsetPx`, `gapEnterT0`, plus every
+  pile card's own transform, both sides) on whichever card is being
+  expanded before handing it to `animateCardTo` — that WAAPI animation
+  only ever writes `left/top/width/height/perspective` + `rotateY`, never
+  `.card`'s own `transform`, so a stale `translateX` would otherwise
+  silently ride along into the expanded position.
 - **Hard constraint, established after a reverted z-index attempt (see
   fix history below) — treat as a rule, not a preference:** this
   mechanism may ONLY ever write `transform` (translateX/translateY) on a
@@ -619,6 +631,85 @@ here," not superseding corrections you also need to apply):
       `stopPropagation` BEFORE the per-card bubble-phase handler.
   Both changes touch zero geometry/paint properties — `transform` remains
   the only thing that ever moves a card, per Scott's constraint.
+
+- **Riffle lift removed outright, gap centered on the cursor, same-day
+  follow-up session (2026-08-15).** Two requests: (1) the pre-Stage-5
+  translateY hover lift, already folded into the gap-offset's inline
+  write, was now redundant with the gap effect itself — deleted, not kept
+  as a separate mechanism. `CARD_GAP_LIFT_PX` removed. (2) Scott's
+  diagnosis, confirmed against the code before any change: because only
+  the RIGHT pile ever moved (fixed at `CARD_GAP_MAX_PX`) while the left
+  pile stayed at identity, the visible gap's left edge was pinned to the
+  left pile's untouched rest position — so the cursor, which the user
+  feels as centered in the gap, always read as sitting on the gap's LEFT
+  side. Rejected fix: just open the gap further right of the cursor (would
+  create a visual discontinuity, gap appearing outside where the cursor
+  currently is). Adopted fix, confirmed with Scott before building: BOTH
+  piles now shift, by half the total gap width each, in opposite
+  directions (`CARD_GAP_HALF_PX = CARD_GAP_MAX_PX / 2`) — traveling card's
+  lerp range becomes `-CARD_GAP_HALF_PX..+CARD_GAP_HALF_PX` (was
+  `0..CARD_GAP_MAX_PX`). `applyCardTransform`'s `isRightPile` boolean
+  became a three-way `side` param (`"left" | "right" | null`).
+  Viewport-edge concern (left pile now moves toward the screen edge,
+  could clip at `scrollLeft: 0`): a permanent `margin-left:
+  CARD_GAP_HALF_PX` on `#ribbon`, mirroring the existing unconditional
+  right-side `ribbon.style.width` pad for the same "no rest-state jump"
+  reason. Explicitly confirmed with Scott this is NOT the same mechanism
+  as the lead-spacer tried and reverted for zoom (2026-08-08, `index.html`
+  `#ribbon-wrap` comment) — that was a large empty anchor div that made
+  `scrollLeft: 0` show blank space and read as the ribbon drifting/
+  centering; this is a small fixed margin sized to a real, permanent,
+  constant shift the gap effect performs, unrelated to zoom-anchoring.
+
+- **Animated open + label decoupled from the card, same follow-up session
+  (2026-08-15), two more requests.** (1) *Animated open:* the exit relax
+  (`relaxCardGap`) already eased back to rest on `pointerleave`; entry was
+  still instant (deliberate per the original design — "position is a pure
+  function of cursor X... no special-cased entry animation"). Scott asked
+  for the reverse animation on open too. Harder than exit because the
+  cursor is still actively moving during entry (exit has no live cursor
+  input to fight, so it tweens toward a fixed end value, 0). Mechanism:
+  `updateCardGap` now always computes the three cursor-driven TARGET
+  offsets first (unchanged math); a new `applyGapOffsets(targetGap,
+  targetLeft, targetRight)` either writes them straight through (steady
+  state) or — while `gapEnterT0` is set (started the moment a gap opens
+  from inactive) — eases the painted offsets toward the target, re-reading
+  the target fresh every call rather than a captured snapshot, so a
+  still-moving cursor doesn't fight the ease. `GAP_ENTER_MS = 180`, same
+  as `GAP_EXIT_MS`, for symmetry. A small self-driven `requestAnimationFrame`
+  re-tick (sharing the `gapRafId` slot with exit-relax — the two are
+  mutually exclusive) keeps the ease progressing even if the cursor stops
+  moving mid-entry. `relaxCardGap` and `toggleCardExpand`'s gap-clear both
+  reset `gapEnterT0`, covering exit/expand interrupting an in-flight
+  entry.
+  (2) *Label decoupled from the card:* the ORIGINAL Stage 5 label design
+  (see the "Gap halved + label now travels with the card" entry above)
+  had the label ride pixel-for-pixel with `gapOffsetPx`, same as the
+  traveling card — Scott's framing at the time: "reinforce the fact that
+  the card we're focusing on has the same label." Same-day feel-test,
+  Scott: "the speed is so fast that it actually fights that too much" —
+  "nearly impossible to read." Fix, confirmed with Scott before building:
+  the label now sits at the GAP's stable center instead — a card's own
+  rest-left (`seg.x`), which is exactly the midpoint of `gapOffsetPx`'s
+  symmetric `±CARD_GAP_HALF_PX` lerp range, so no new geometry was needed
+  — and only moves when `gapKey` itself changes at a handoff, not on every
+  `pointermove` within the same gap. New state: `labelGapCenterPx`
+  (painted) / `labelGapCenterTargetKey` (which gap it reflects) in
+  `updateLabelGapCenter`, called from `updateCardGap` every frame but only
+  actually writing on a `gapKey` change. `applyCardTransform`'s old
+  per-frame "reposition the label to match the card" branch is deleted
+  entirely — the label is no longer touched by that function at all.
+  `showCardHoverTextFor`'s `offsetPx` param (added to a card's rest-left)
+  became `leftPx` (an explicit absolute X), since the two callers (gap vs.
+  plain `pointerover`) now have different semantics.
+  **First cut of the handoff move eased over `LABEL_EASE_MS = 150`ms —
+  REVERTED same day**, Scott's next feel-test: at real sweep speed across
+  several gaps, the ease itself read as flickery, "fighting what's
+  happening... trying to do too much in too little time," not smooth.
+  Simplified to a plain snap — `updateLabelGapCenter` just writes
+  `labelGapCenterPx = seg.x` directly on a `gapKey` change, no
+  `requestAnimationFrame` loop, no timing constant. The label moves
+  exactly once per handoff, instantly, same as the card's own handoff.
 
 **Not yet done / still open:**
 - Perf at real on-screen card counts — implemented straightforwardly (one

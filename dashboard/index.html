@@ -285,16 +285,15 @@
          timeline.js alongside the rotation — see CARD_PERSPECTIVE_RATIO
          there. */
     }
-    /* Riffle lift retired as a CSS :hover rule (Stage 5, 2026-08-15):
-       the hover-gap effect (timeline.js, CARD_GAP_* / #ribbon pointermove)
-       now writes .card's inline transform itself every frame (translateX
-       for the gap offset, translateY(-6px) folded in for whichever card is
-       current) — an inline style write wins over this rule outright, so a
-       separate :hover rule here would just silently stop applying once a
-       gap offset is live. Driving both off the SAME "which card is
-       current" computation the gap effect already does per pointermove
-       also avoids the two-hover-paths-can-drift risk flagged in
-       plans/stack-ribbon.md Stage 5's open items. See setCardTransform. */
+    /* Riffle lift retired outright (Stage 5, 2026-08-15 build, then fully
+       dropped rather than folded in — 2026-08-15 follow-up): the old CSS
+       `.card:not(.expanded):hover { transform: translateY(-6px) }` rule is
+       gone, and the hover-gap effect (timeline.js, CARD_GAP_* / #ribbon
+       pointermove) does NOT reintroduce it — the traveling card's X shift
+       alone is judged to carry the "focus" read now, the extra Y lift is
+       redundant on top of it. .card's inline transform still carries only
+       the gap-offset translateX, written every frame the gap is live. See
+       applyCardTransform. */
     .card-face {
       position: relative;
       box-sizing: border-box;

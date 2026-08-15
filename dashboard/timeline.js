@@ -250,12 +250,14 @@
   // changes at a handoff; see applyCardTransform/updateCardGap below for
   // the full "piles are fixed, only the traveling card moves" model.
   const CARD_GAP_MAX_PX = 96;
-  // Same translateY the old CSS `.card:not(.expanded):hover` riffle rule
-  // used to apply — folded into this mechanism's own inline transform
-  // write (see index.html's .card comment for why the CSS rule was
-  // retired: an inline transform write wins over it outright, so the two
-  // can't coexist as separate mechanisms without one silently losing).
-  const CARD_GAP_LIFT_PX = 6;
+  // Half of CARD_GAP_MAX_PX (2026-08-15, centering fix): the gap is now
+  // split evenly around the cursor instead of anchored to the left pile's
+  // rest position — see updateCardGap/applyCardTransform below for the
+  // "both piles shift, traveling card lerps between them" model this
+  // drives. Kept as its own named constant (not computed inline at each
+  // call site) so the "this is a half-distance, not the full gap" intent
+  // stays legible everywhere it's used.
+  const CARD_GAP_HALF_PX = CARD_GAP_MAX_PX / 2;
   // Reserved band below the card deck for cardHoverText (2026-08-11 follow-
   // up: on-face .card-label retired, site name/meta/top-page now show as
   // plain text under the hovered card instead). #ribbon-wrap sets
@@ -2101,9 +2103,41 @@
   // read broke once cards started actually traveling).
   let cardHoverTextKey = null;
 
+  // Label-center, no transition (2026-08-15, Scott: riding pixel-for-pixel
+  // with the fast-traveling card — the ORIGINAL Stage 5 label design — made
+  // the label "nearly impossible to read." First replacement eased the
+  // label's handoff move too — ALSO reverted same day, Scott's next
+  // feel-test: at real sweep speed the ease itself was "fighting what's
+  // happening... trying to do too much in too little time," flickery
+  // rather than smooth. Current, simplest version: the label sits at the
+  // GAP's stable center (a card's own rest-left — see updateLabelGapCenter)
+  // instead of the card's live gapOffsetPx, and moves ONLY when gapKey
+  // itself changes at a handoff — a hard snap then, same as the card's own
+  // handoff, no separate animated value at all.
+  let labelGapCenterPx = 0;
+  let labelGapCenterTargetKey = null; // which gap's center labelGapCenterPx currently reflects; null = inactive (label positioned some other way, e.g. plain pointerover)
+
+  // Re-targets the label's stable center for the CURRENT gap — a plain
+  // snap, no easing (see this block's comment above for why easing was
+  // tried and reverted). seg is lastCardSegs' entry for gapKey (its rest x
+  // IS the center — see gapOffsetPx's lerp range, symmetric around 0 added
+  // to restLeft). Called every updateCardGap, but only actually writes
+  // anything when gapKey changed since the last call — repeated calls with
+  // the same gapKey are no-ops.
+  function updateLabelGapCenter(seg) {
+    if (!seg) return;
+    if (labelGapCenterTargetKey === seg.key) return; // already at this gap's center
+    labelGapCenterTargetKey = seg.key;
+    labelGapCenterPx = seg.x;
+  }
+
   function hideCardHoverText() {
     cardHoverText.hidden = true;
     cardHoverTextKey = null;
+    // Label center also goes inactive (2026-08-15 follow-up) — the next
+    // gap opened after this must set its center fresh, not read as already
+    // matching a stale target key left over from before the hide.
+    labelGapCenterTargetKey = null;
   }
 
   // Shared fill (2026-08-15 — pulled out of the pointerover handler below
@@ -2123,21 +2157,24 @@
   }
 
   // Shows cardHoverText for a specific deck card, positioned at its
-  // CURRENT (gap-effect-aware) X — the single entry point updateCardGap
-  // uses to make gapKey authoritative for the label (2026-08-15, Scott's
-  // catch: the old pointerover-only path showed whatever DOM element the
-  // raw cursor happened to be over, which is the STATIC neighbor once a
-  // card is mid-travel, not the traveling card itself — see
+  // CURRENT authoritative X — the single entry point updateCardGap uses to
+  // make gapKey authoritative for the label (2026-08-15, Scott's catch: the
+  // old pointerover-only path showed whatever DOM element the raw cursor
+  // happened to be over, which is the STATIC neighbor once a card is
+  // mid-travel, not the traveling card itself — see
   // decisions/timeline_design.md and this file's Stage 5 section for the
-  // full bug). offsetPx defaults to 0 for non-traveling callers.
-  function showCardHoverTextFor(el, key, offsetPx) {
+  // full bug). leftPx defaults to the card's own rest-left for non-gap
+  // (pointerover) callers; the gap caller passes the eased
+  // labelGapCenterPx instead (2026-08-15 follow-up — see that variable's
+  // comment for why this is no longer offsetPx/gapOffsetPx-based).
+  function showCardHoverTextFor(el, key, leftPx) {
     if (!el || !el._tipData) return;
     fillCardHoverText(el._tipData);
     cardHoverTextKey = key;
     const restLeft = parseFloat(el.dataset.deckLeft) || 0;
     const top = parseFloat(el.style.top) || 0;
     const height = parseFloat(el.style.height) || 0;
-    cardHoverText.style.left = restLeft + (offsetPx || 0) + "px";
+    cardHoverText.style.left = (leftPx != null ? leftPx : restLeft) + "px";
     cardHoverText.style.top = top + height + LABEL_GAP + "px";
     cardHoverText.hidden = false;
   }
@@ -2180,7 +2217,7 @@
       // every pointermove and calls showCardHoverTextFor for gapKey's own
       // card), so this branch would only ever fight it, never help it.
       if (isCard && gapKey == null && el._tipData && el !== cardEls.get(cardExpandedKey)) {
-        showCardHoverTextFor(el, el._e ? el._e.id : null, 0);
+        showCardHoverTextFor(el, el._e ? el._e.id : null, null);
       }
       // Child carousel thumbnails (2026-08-12): same below-item label as
       // deck cards, but positioned off the thumbnail's own offset WITHIN
@@ -2764,59 +2801,118 @@
   // leave untouched" without a full pass over cardEls every pointermove.
   let gapKey = null;
   let gapOffsetPx = 0;
-  // The right pile's own offset — normally just CARD_GAP_MAX_PX (a fixed
-  // constant, per the "piles are fixed" model) whenever a gap is active,
-  // but relaxCardGap tweens it independently of gapOffsetPx on exit (both
-  // shrink to 0 together, but they're two separate values, not one shared
-  // one — the pile never has a "live" value while hovering, only while
-  // relaxing). 0 at rest/no-gap.
+  // The two piles' own offsets — normally fixed at ±CARD_GAP_HALF_PX (per
+  // the "piles are fixed" model) whenever a gap is active, but relaxCardGap
+  // tweens them independently of gapOffsetPx on exit (all three shrink to 0
+  // together, but they're separate values, not one shared one — a pile
+  // never has a "live" value while hovering, only while relaxing). Both 0
+  // at rest/no-gap.
+  //
+  // Centering fix (2026-08-15): previously only the right pile moved (to
+  // CARD_GAP_MAX_PX) while the left pile stayed at identity — that anchored
+  // the visible gap's LEFT edge to the left pile's rest position, so the
+  // cursor (tracking the gap's midpoint by feel) always read as sitting on
+  // the gap's left side, not centered. Now both piles shift by half the
+  // total gap width, in opposite directions, so the gap opens evenly
+  // around wherever the cursor actually is.
+  let leftPileOffsetPx = 0;
   let rightPileOffsetPx = 0;
-  let gapRafId = null; // in-flight exit-relax tween, if any
+  let gapRafId = null; // in-flight exit-relax OR enter-ease tween, if any
+  // Entry ease (2026-08-15 follow-up): mirrors the exit relax below, but for
+  // OPENING a gap instead of closing one. gapEnterT0 is the timestamp the
+  // current entry-ease run started, or null when no entry-ease is in flight
+  // (steady state: pointermove writes gap*/pile offsets directly, no easing
+  // lag). Unlike the exit relax — which has no live cursor input and so
+  // tweens toward a fixed end value (0) — entry has to keep tracking a
+  // MOVING cursor, so this can't capture one start/end pair up front. Model:
+  // updateCardGap always computes the raw cursor-driven TARGET offsets first
+  // (unchanged math); while gapEnterT0 is set, the three displayed offsets
+  // (gapOffsetPx/leftPileOffsetPx/rightPileOffsetPx) ease toward whatever
+  // that target currently is, re-read fresh every tick — not toward a
+  // snapshot — so a still-moving cursor during entry doesn't fight the ease.
+  // Once t reaches 1 (GAP_ENTER_MS elapsed), gapEnterT0 clears and later
+  // calls go back to writing the target directly, same as before this
+  // feature existed.
+  let gapEnterT0 = null;
+  let lastCursorX = 0; // most recent #ribbon-relative cursor X; entry-ease's self-tick re-invokes updateCardGap with this when the pointer itself hasn't moved
+
+  // Steady-state vs. entry-ease dispatch for the three cursor-driven
+  // offsets (2026-08-15, entry-ease follow-up). Called every updateCardGap
+  // with this call's freshly-computed targets. While gapEnterT0 is set,
+  // eases the painted values toward the targets over GAP_ENTER_MS,
+  // re-reading the target fresh each call (not a captured snapshot) so a
+  // still-moving cursor during entry doesn't fight the ease — once t
+  // reaches 1 the ease is done, gapEnterT0 clears, and later calls fall
+  // through to the direct-write branch, same as before entry-ease existed.
+  function applyGapOffsets(targetGap, targetLeft, targetRight) {
+    if (gapEnterT0 == null) {
+      gapOffsetPx = targetGap;
+      leftPileOffsetPx = targetLeft;
+      rightPileOffsetPx = targetRight;
+      return;
+    }
+    const t = Math.min(1, (performance.now() - gapEnterT0) / GAP_ENTER_MS);
+    gapOffsetPx = gapOffsetPx + (targetGap - gapOffsetPx) * t;
+    leftPileOffsetPx = leftPileOffsetPx + (targetLeft - leftPileOffsetPx) * t;
+    rightPileOffsetPx = rightPileOffsetPx + (targetRight - rightPileOffsetPx) * t;
+    if (t >= 1) {
+      gapEnterT0 = null;
+    } else {
+      // Keep ticking even if the cursor stops moving mid-entry — without a
+      // self-driven rAF loop here, the ease would stall at whatever t the
+      // last pointermove happened to land on, since nothing else calls
+      // updateCardGap on its own. gapRafId is shared with the exit-relax
+      // loop (mutually exclusive: entry only ever runs while the cursor is
+      // actively over #ribbon, exit only after it leaves).
+      if (gapRafId != null) cancelAnimationFrame(gapRafId);
+      const key = gapKey;
+      gapRafId = requestAnimationFrame(() => {
+        gapRafId = null;
+        if (gapKey === key) updateCardGap(lastCursorX);
+      });
+    }
+  }
 
   // Applies ONE card's full transform: base swivel (rotateY, unchanged) is
   // set separately in paintCards (it's on .card-face, not .card — see
   // index.html's splitting-rationale comment); THIS writes .card's own
-  // transform, composing the gap-effect translateX with the translateY
-  // lift the retired CSS :hover rule used to provide (index.html's .card
-  // comment explains why both must be written from the same place now).
+  // transform — just the gap-effect translateX (the old translateY riffle
+  // lift is gone, see CARD_GAP_MAX_PX-adjacent history — it's redundant
+  // with the gap effect itself now).
   //
   // Three roles a card can have, each a different translateX (2026-08-15,
-  // rebuilt after two rounds of feel-testing — see CARD_GAP_MAX_PX's
-  // comment for the full "piles are fixed, only the traveling card moves"
-  // model this now implements):
+  // rebuilt after two rounds of feel-testing, then widened again the same
+  // day to shift both piles for centering — see CARD_GAP_MAX_PX's comment
+  // for the full model this now implements):
   //   - key === gapKey: the traveling card, translateX(gapOffsetPx) —
   //     the ONLY continuously-animated value in the whole mechanism,
   //     lerping between the two pile boundaries below as cursor moves.
-  //   - key is to the RIGHT of gapKey in seg order (the "right pile"):
-  //     translateX(CARD_GAP_MAX_PX) — a FIXED constant, not gapOffsetPx.
+  //   - side === "right" (every card right of gapKey, the "right pile"):
+  //     translateX(CARD_GAP_HALF_PX) — a FIXED constant, not gapOffsetPx.
   //     Never varies while gapKey stays the same; only steps when gapKey
   //     itself changes (one card transferring piles at handoff).
-  //   - everything else (the fixed "left pile", or no gap active):
-  //     identity — translateX(0).
-  // key===gapKey gets the lift too; the right pile doesn't (only the
-  // focused card lifts). Every card's transform is written explicitly
-  // every call this fires from (not left alone), so a card that changed
-  // piles doesn't visibly stick at its previous role's value.
-  function applyCardTransform(el, key, isRightPile) {
+  //   - side === "left" (every card left of gapKey, the "left pile"):
+  //     translateX(-CARD_GAP_HALF_PX) — same fixed-constant treatment,
+  //     mirrored to the other side.
+  //   - side === null (no gap active): identity — translateX(0).
+  // Every card's transform is written explicitly every call this fires
+  // from (not left alone), so a card that changed piles doesn't visibly
+  // stick at its previous role's value.
+  function applyCardTransform(el, key, side) {
     if (key === gapKey) {
-      el.style.transform = `translateX(${gapOffsetPx}px) translateY(-${CARD_GAP_LIFT_PX}px)`;
-      // Label rides along with the card it names (2026-08-15, Scott: "have
-      // the label associated with each card move with the card as well...
-      // reinforce the fact that the card we're focusing on has the same
-      // label" — completes the illusion that the traveling card carries
-      // its identity with it, not just its geometry). cardHoverText only
-      // exists for whichever card the pointer literally entered last
-      // (cardHoverTextKey, set in the #ribbon pointerover delegate) — if
-      // that's THIS card, keep its horizontal offset locked to the same
-      // live gapOffsetPx every frame the card moves, exactly mirroring the
-      // card's own translateX above. No lift on the label (it sits below
-      // the deck, not on it) and no top change (only X travels).
-      if (cardHoverTextKey === key && !cardHoverText.hidden) {
-        const restLeft = parseFloat(el.dataset.deckLeft) || 0;
-        cardHoverText.style.left = restLeft + gapOffsetPx + "px";
-      }
-    } else if (isRightPile && rightPileOffsetPx !== 0) {
+      el.style.transform = `translateX(${gapOffsetPx}px)`;
+      // Label does NOT ride with the card (2026-08-15 follow-up — this WAS
+      // the original Stage 5 design, "have the label... move with the
+      // card... reinforce the fact that the card we're focusing on has the
+      // same label," but Scott's later feel-test: pixel-for-pixel tracking
+      // the fast traveling card made the label "nearly impossible to read."
+      // Replacement lives in updateLabelGapCenter/labelGapCenterPx — a
+      // separately-eased position stable while gapKey stays the same, only
+      // re-targeted at a handoff. Nothing to do here anymore.)
+    } else if (side === "right" && rightPileOffsetPx !== 0) {
       el.style.transform = `translateX(${rightPileOffsetPx}px)`;
+    } else if (side === "left" && leftPileOffsetPx !== 0) {
+      el.style.transform = `translateX(${leftPileOffsetPx}px)`;
     } else {
       el.style.transform = "";
     }
@@ -2830,11 +2926,14 @@
   // every frame in lockstep with the traveling card, which is why the gap
   // never read as visible — the two were moving together, so no
   // separation ever opened between them). The LEFT pile boundary is
-  // always 0 (rest) and the RIGHT pile boundary is always the FULL
-  // CARD_GAP_MAX_PX — both fixed constants, only ever stepping (not
+  // always -CARD_GAP_HALF_PX and the RIGHT pile boundary is always
+  // +CARD_GAP_HALF_PX — both fixed constants, only ever stepping (not
   // easing) when gapKey itself changes at a handoff. The traveling card
   // is the only thing that's a continuous function of cursorX, lerping
-  // between those same two fixed boundaries.
+  // between those same two fixed boundaries. (Centering fix, same day:
+  // both boundaries used to be 0 and CARD_GAP_MAX_PX — i.e. the gap's
+  // left edge was pinned to the left pile's untouched rest position — now
+  // split evenly so the cursor reads as sitting in the gap's middle.)
   function updateCardGap(cursorX) {
     // The expanded card (if any) has left the deck row entirely — it's
     // WAAPI-driven to its own expanded slot below the deck, so gap math
@@ -2844,6 +2943,7 @@
     if (cardExpandedKey != null) return;
     const segs = lastCardSegs;
     if (!segs.length) return;
+    const wasInactive = gapKey == null; // entry-ease trigger, see gapEnterT0's comment
     // Gap i is the span between segs[i]'s rest left edge and segs[i+1]'s —
     // segs[i] is the traveling card for that whole span (deliberately the
     // LEFT card of the pair, not the right: "the card currently hovered/
@@ -2874,28 +2974,43 @@
     // to right" — cursor and card close the distance from opposite ends).
     // At the gap's near (left) edge — cursor just arrived from the left,
     // card is furthest right, i.e. still reaching TOWARD where the cursor
-    // came from — offset is at its max (full CARD_GAP_MAX_PX, matching the
-    // right pile's own fixed position); it eases back to 0 (matching the
-    // left pile's fixed position) as the cursor advances toward the right
-    // boundary, where handoff to the next card happens. (1 - frac), not
-    // frac.
-    gapOffsetPx = (1 - frac) * CARD_GAP_MAX_PX;
-    // Right pile is fixed at the full constant the whole time a gap is
-    // live (see applyCardTransform/CARD_GAP_MAX_PX's comments) — only
-    // relaxCardGap ever moves this value, on exit.
-    rightPileOffsetPx = CARD_GAP_MAX_PX;
+    // came from — offset is at its max (+CARD_GAP_HALF_PX, matching the
+    // right pile's own fixed position); it eases down to -CARD_GAP_HALF_PX
+    // (matching the left pile's fixed position) as the cursor advances
+    // toward the right boundary, where handoff to the next card happens.
+    // (1 - frac), not frac, for the direction; the -CARD_GAP_HALF_PX offset
+    // recenters the whole lerp range around 0 instead of 0..CARD_GAP_MAX_PX.
+    //
+    // These three are the cursor-driven TARGETs, not necessarily what gets
+    // painted this frame (2026-08-15, entry-ease follow-up) — see
+    // applyGapOffsets below, which either writes them straight through
+    // (steady state) or eases the painted values toward them (entry, first
+    // GAP_ENTER_MS after a gap opens).
+    const targetGapOffsetPx = (1 - frac) * CARD_GAP_MAX_PX - CARD_GAP_HALF_PX;
+    const targetLeftPileOffsetPx = -CARD_GAP_HALF_PX;
+    const targetRightPileOffsetPx = CARD_GAP_HALF_PX;
+    if (wasInactive) {
+      // Fresh entry: start painted offsets at identity (0) and let
+      // applyGapOffsets ease them toward the target below, instead of
+      // snapping straight to it — the open mirrors the existing close.
+      gapOffsetPx = 0;
+      leftPileOffsetPx = 0;
+      rightPileOffsetPx = 0;
+      gapEnterT0 = performance.now();
+    }
+    applyGapOffsets(targetGapOffsetPx, targetLeftPileOffsetPx, targetRightPileOffsetPx);
     // Full pass every call, not just the traveling card (the SET of cards
-    // in the right pile changes as gapKey itself moves from gap to gap, so
-    // a card that was in the right pile last call but has now changed
-    // piles needs its transform explicitly reset, not just left at its
-    // last value). segs is already in chronological/left-to-right rest-x
-    // order, so "index > gapKey's own index" is exactly the right-pile set.
+    // in each pile changes as gapKey itself moves from gap to gap, so a
+    // card that changed piles since the last call needs its transform
+    // explicitly reset, not just left at its last value). segs is already
+    // in chronological/left-to-right rest-x order, so index vs. gapKey's
+    // own index is exactly the left/right pile split.
     const gapIdx = segs.findIndex((s) => s.key === gapKey);
     for (let j = 0; j < segs.length; j++) {
       const s = segs[j];
       const el = cardEls.get(s.key);
       if (!el) continue;
-      applyCardTransform(el, s.key, j > gapIdx);
+      applyCardTransform(el, s.key, j === gapIdx ? null : j > gapIdx ? "right" : "left");
     }
     // The card IN THE GAP is the sole hover/label target while a gap is
     // active (2026-08-15, Scott's catch): "there should always be a
@@ -2907,9 +3022,16 @@
     // STATIC neighbor the cursor happens to be physically over). Runs
     // every pointermove, so this stays correct continuously, not just at
     // the moment of a DOM element-enter.
+    //
+    // Label X itself is NOT gapOffsetPx (2026-08-15 follow-up, Scott: the
+    // label riding pixel-for-pixel with the fast-traveling card made it
+    // "nearly impossible to read") — updateLabelGapCenter (below) tracks a
+    // separately-eased position, stable while gapKey stays the same and
+    // only re-targeted (then eased, not snapped) at a handoff.
+    updateLabelGapCenter(segs[gapIdx]);
     const gapEl = cardEls.get(gapKey);
     if (gapEl !== cardEls.get(cardExpandedKey)) {
-      showCardHoverTextFor(gapEl, gapKey, gapOffsetPx);
+      showCardHoverTextFor(gapEl, gapKey, labelGapCenterPx);
     }
   }
 
@@ -2919,43 +3041,61 @@
   // .card comment explains why: a CSS transition would also fight the
   // live per-pointermove writes above while the pointer is still moving).
   const GAP_EXIT_MS = 180;
+  // Entry ease (2026-08-15 follow-up, Scott: "can we add an animated open
+  // as well? just the reverse"): same duration as exit, for symmetry — see
+  // applyGapOffsets/gapEnterT0's own comments for how entry differs
+  // mechanically (has to keep tracking a live cursor, exit doesn't).
+  const GAP_ENTER_MS = 180;
   function relaxCardGap() {
     if (gapRafId != null) cancelAnimationFrame(gapRafId);
-    // Right-pile keys: snapshotted once at the start of the relax, not
+    // Pile keys: snapshotted once at the start of the relax, not
     // recomputed per tick — the SET doesn't change mid-relax (no cursor
-    // input driving it anymore), only the two offset magnitudes do.
+    // input driving it anymore), only the offset magnitudes do.
     const gapIdx = lastCardSegs.findIndex((s) => s.key === gapKey);
-    const pileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+    const rightPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+    const leftPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(0, gapIdx).map((s) => s.key);
     const settle = () => {
       gapRafId = null;
+      gapEnterT0 = null; // in case exit interrupted a still-in-flight entry ease
       const key = gapKey;
       gapKey = null;
       gapOffsetPx = 0;
+      leftPileOffsetPx = 0;
       rightPileOffsetPx = 0;
       const el = key != null ? cardEls.get(key) : null;
-      if (el) applyCardTransform(el, null, false);
-      for (const k of pileKeys) {
+      if (el) applyCardTransform(el, null, null);
+      for (const k of rightPileKeys) {
         const pEl = cardEls.get(k);
-        if (pEl) applyCardTransform(pEl, null, false);
+        if (pEl) applyCardTransform(pEl, null, null);
+      }
+      for (const k of leftPileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) applyCardTransform(pEl, null, null);
       }
     };
-    if (gapKey == null || (gapOffsetPx === 0 && rightPileOffsetPx === 0)) {
+    if (gapKey == null || (gapOffsetPx === 0 && leftPileOffsetPx === 0 && rightPileOffsetPx === 0)) {
       settle();
       return;
     }
     const key = gapKey;
     const startCard = gapOffsetPx;
-    const startPile = rightPileOffsetPx;
+    const startLeftPile = leftPileOffsetPx;
+    const startRightPile = rightPileOffsetPx;
     const t0 = performance.now();
     const step = (now) => {
       const t = Math.min(1, (now - t0) / GAP_EXIT_MS);
       gapOffsetPx = startCard * (1 - t);
-      rightPileOffsetPx = startPile * (1 - t);
+      leftPileOffsetPx = startLeftPile * (1 - t);
+      rightPileOffsetPx = startRightPile * (1 - t);
       const el = cardEls.get(key);
-      if (el) applyCardTransform(el, key, false);
-      for (const k of pileKeys) {
+      if (el) applyCardTransform(el, key, null);
+      for (const k of rightPileKeys) {
         const pEl = cardEls.get(k);
-        if (pEl) applyCardTransform(pEl, null, true);
+        if (pEl) applyCardTransform(pEl, null, "right");
+      }
+      for (const k of leftPileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) applyCardTransform(pEl, null, "left");
       }
       if (t < 1) {
         gapRafId = requestAnimationFrame(step);
@@ -2970,11 +3110,12 @@
     const ribbon = document.getElementById("ribbon");
     ribbon.addEventListener("pointermove", (ev) => {
       if (gapRafId != null) {
-        cancelAnimationFrame(gapRafId); // live cursor input pre-empts any in-flight exit relax
+        cancelAnimationFrame(gapRafId); // live cursor input pre-empts any in-flight exit relax or entry-ease self-tick
         gapRafId = null;
       }
       const rect = ribbon.getBoundingClientRect();
-      updateCardGap(ev.clientX - rect.left);
+      lastCursorX = ev.clientX - rect.left; // entry-ease's self-driven rAF re-tick (applyGapOffsets) needs this when the cursor itself hasn't moved
+      updateCardGap(lastCursorX);
     });
     ribbon.addEventListener("pointerleave", relaxCardGap);
     // Click redirect (2026-08-15, Scott's catch — same root cause as the
@@ -3240,19 +3381,27 @@
       cancelAnimationFrame(gapRafId);
       gapRafId = null;
     }
+    gapEnterT0 = null; // in case expand interrupted a still-in-flight entry ease
     if (gapKey != null) {
-      // Same reasoning extends to the right pile (2026-08-15 follow-up):
-      // those cards are also sitting at a live translateX(CARD_GAP_MAX_PX)
-      // that nothing will clear until the next pointermove — snap them
-      // back to identity right now instead of leaving a visible stale
-      // shift between this click and whenever the cursor next moves.
+      // Same reasoning extends to both piles (2026-08-15 follow-up, widened
+      // for the centering fix): those cards are also sitting at a live
+      // translateX(±CARD_GAP_HALF_PX) that nothing will clear until the
+      // next pointermove — snap them back to identity right now instead of
+      // leaving a visible stale shift between this click and whenever the
+      // cursor next moves.
       const gapIdx = lastCardSegs.findIndex((s) => s.key === gapKey);
-      const pileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+      const rightPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(gapIdx + 1).map((s) => s.key);
+      const leftPileKeys = gapIdx === -1 ? [] : lastCardSegs.slice(0, gapIdx).map((s) => s.key);
       gapKey = null;
       gapOffsetPx = 0;
+      leftPileOffsetPx = 0;
       rightPileOffsetPx = 0;
       el.style.transform = "";
-      for (const k of pileKeys) {
+      for (const k of rightPileKeys) {
+        const pEl = cardEls.get(k);
+        if (pEl) pEl.style.transform = "";
+      }
+      for (const k of leftPileKeys) {
         const pEl = cardEls.get(k);
         if (pEl) pEl.style.transform = "";
       }
@@ -3473,8 +3622,25 @@
     // scrollable into view whenever the gap is live near the right edge of
     // the deck. Reserved unconditionally (not just while a gap is active)
     // so #ribbon's width never jumps between hovered/idle, which would
-    // itself shift scroll position underfoot.
+    // itself shift scroll position underfoot. Kept as the full
+    // CARD_GAP_MAX_PX (not just CARD_GAP_HALF_PX, even though the right
+    // pile itself now only ever shifts by the half distance) — cheap slack,
+    // no harm in reserving more than currently needed on this side.
     ribbon.style.width = total + CARD_GAP_MAX_PX + "px";
+    // Left-side counterpart (2026-08-15, centering fix): the left pile now
+    // also shifts — by -CARD_GAP_HALF_PX — while a gap is active, which
+    // would otherwise carry the leftmost cards left of #ribbon-wrap's own
+    // left edge (clipped, since scrollLeft can't go negative — #ribbon is
+    // left-justified at rest by design, see index.html's #ribbon-wrap
+    // comment). A permanent CARD_GAP_HALF_PX left margin reserves exactly
+    // enough room for that shift without ever clipping. NOT the same
+    // mechanism as the lead-spacer that was tried and reverted for zoom
+    // (2026-08-08, index.html's #ribbon-wrap comment) — that was a large
+    // spacer div that made scrollLeft:0 show blank space and read as
+    // drifting; this is a small fixed margin sized to a real, permanent
+    // shift the gap effect performs, not a zoom-anchoring device, and
+    // (being constant) never itself moves under panning.
+    ribbon.style.marginLeft = CARD_GAP_HALF_PX + "px";
     // + CARD_HOVER_TEXT_H reserves room for cardHoverText below the deck —
     // see that constant's comment: #ribbon-wrap clips anything positioned
     // below #ribbon's own height, so the hover-text band must be counted
@@ -3562,13 +3728,17 @@
         el.style.perspective = deckPerspective + "px";
         face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
         // Stage 5: reapply this card's current gap-effect transform (its
-        // own live offset if it's the traveling card, a block-shift if
-        // it's right of the gap, identity otherwise) — a freshly-created
+        // own live offset if it's the traveling card, a pile shift if it's
+        // left/right of the gap, identity otherwise) — a freshly-created
         // card, or one whose transform predates this paint, must not sit
         // at a stale value. Expanded cards are exempt (see the `s.key !==
         // cardExpandedKey` guard this sits inside): they're WAAPI-driven
         // and never participate in the gap effect.
-        applyCardTransform(el, s.key === gapKey ? gapKey : null, j > gapBlockIdx);
+        applyCardTransform(
+          el,
+          s.key === gapKey ? gapKey : null,
+          s.key === gapKey ? null : j > gapBlockIdx ? "right" : "left"
+        );
       }
       el.style.perspectiveOrigin = "left center";
       face.style.background = TIER_FILL[s.band];
