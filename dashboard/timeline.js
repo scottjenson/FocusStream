@@ -473,6 +473,14 @@
   // rather than a helpful one (2026-08-08).
   const TIER_FILL = { low: LOW_FILL, medium: MEDIUM_FILL, high: HIGH_FILL };
   const TIER_RIM = { low: LOW_RIM, medium: MEDIUM_RIM, high: HIGH_RIM };
+  // Gap-card highlight (2026-08-15, handoff-disambiguation): card content
+  // (page screenshots) can be near-white or near-black, so a plain border
+  // color alone can vanish against either extreme. Dark navy border reads
+  // against light pages; the bright blue box-shadow glow (CSS, see
+  // .card.gap-active in index.html) is what carries it against dark pages.
+  // Started as pure red for a visibility smoke-test (2026-08-15); this is
+  // the follow-up "make it professional" pass.
+  const GAP_ACTIVE_BORDER = "#0B2E6B";
   // Collapsed fence sticks: solid, borderless, darker than LOW_FILL — a 3px
   // stick is nearly all rim if it keeps the 1px outline, and the fence
   // should whisper (visible but very subtle).
@@ -2929,6 +2937,31 @@
   // from (not left alone), so a card that changed piles doesn't visibly
   // stick at its previous role's value.
   function applyCardTransform(el, key, side) {
+    // gap-active (2026-08-15, handoff-disambiguation): border highlight on
+    // whichever card is currently key === gapKey. Handled here (not a
+    // separate pass, not a CSS class) because this function already runs
+    // every frame for every card off the exact key === gapKey condition
+    // the highlight needs, AND face.style.borderColor is already
+    // inline-set every full repaint (paintCards, TIER_RIM/EARNED_RIM) — an
+    // inline write always beats a CSS class selector regardless of
+    // specificity, so a CSS-only .gap-active rule silently never won
+    // (index.html's original attempt). `key != null` guard: relaxCardGap's
+    // settle() calls this with key/gapKey BOTH null (gapKey is cleared
+    // just before), which would otherwise read as a false match and strand
+    // the highlight on. Falls back to el.dataset.restBorderColor (stashed
+    // by paintCards alongside its own borderColor write) rather than "" —
+    // clearing to empty would drop back to .card-face's unstyled default
+    // border, not this card's real tier/earned color.
+    // Excludes the expanded card outright (2026-08-15 bug fix) — the
+    // highlight is a ribbon-deck concept ("which card would a click act
+    // on"), meaningless once a card has actually expanded below the deck;
+    // without this, the highlight rode down with the expanding card's own
+    // animateCardTo transition (border/glow visibly traveling to the
+    // enlarged slot) since nothing had ever cleared gap-active on expand.
+    const isGapActive = key != null && key === gapKey && key !== cardExpandedKey;
+    el.classList.toggle("gap-active", isGapActive);
+    const faceEl = el.firstChild;
+    if (faceEl) faceEl.style.borderColor = isGapActive ? GAP_ACTIVE_BORDER : el.dataset.restBorderColor || "";
     if (key === gapKey) {
       el.style.transform = `translateX(${gapOffsetPx}px)`;
       // Label does NOT ride with the card (2026-08-15 follow-up — this WAS
@@ -3180,6 +3213,17 @@
         if (gapKey == null || gapKey === cardExpandedKey) return;
         const target = ev.target.closest(".card");
         if (!target) return; // clicks outside any card (e.g. empty ribbon space) pass through unchanged
+        // Bug fix (2026-08-15): a click on the ALREADY-EXPANDED card (its
+        // close button, its body, anywhere inside it) must never be
+        // redirected — the expanded card lives below the deck row, still
+        // inside #ribbon's DOM, and gapKey keeps tracking whatever the
+        // cursor last scanned over up in the deck; those two can easily
+        // disagree while the user reaches down to close the open card.
+        // Without this guard, closing re-triggered toggleCardExpand(gapKey,
+        // ...) on a DIFFERENT card before closeBtn's own bubble-phase
+        // handler ever ran (this listener is capture-phase, so it always
+        // goes first) — closing looked like "a previous card reopens."
+        if (target === cardEls.get(cardExpandedKey)) return;
         ev.stopPropagation();
         ev.preventDefault();
         toggleCardExpand(gapKey, Math.max(CARD_TIER_H.high, 1));
@@ -3460,6 +3504,19 @@
     fillCardInfo(el);
     el._info.hidden = false;
     el.classList.add("expanded"); // set immediately, not on next repaint (matches _closeBtn/_info above)
+    // Strip the gap highlight explicitly (2026-08-15 bug fix): paintCards'
+    // deck-repaint loop skips applyCardTransform entirely for whichever
+    // card is cardExpandedKey (see its own "expanded cards are exempt"
+    // comment) — so once a card expands, NOTHING ever calls
+    // applyCardTransform for it again to clear gap-active, no matter what
+    // gapKey does afterward. The card almost always WAS gap-active at the
+    // instant of the click (that's the card the click redirect targets),
+    // so without this it expands still carrying the blue highlight
+    // forever. Restore the plain rest color directly, same fallback
+    // applyCardTransform itself uses.
+    el.classList.remove("gap-active");
+    const faceEl = el.firstChild;
+    if (faceEl) faceEl.style.borderColor = el.dataset.restBorderColor || "";
     if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), swivelDegFor(prevEl._e && prevEl._e.band), maxH);
     const items = carouselItemsOf(el._e);
     const hasChildren = items.length > 1;
@@ -3768,6 +3825,13 @@
           el.style.perspectiveOrigin = `0px ${pivotPx}px`;
         }
         face.style.transform = `rotateY(${swivelDegFor(s.band)}deg)`;
+        // Rest border color, stashed BEFORE applyCardTransform (below) so
+        // its gap-active branch can restore exactly this value when the
+        // card is NOT the gap card, instead of guessing/clearing to an
+        // unstyled default. See applyCardTransform's own comment for why
+        // this can't just be a CSS rule.
+        el.dataset.restBorderColor =
+          s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
         // Stage 5: reapply this card's current gap-effect transform (its
         // own live offset if it's the traveling card, a pile shift if it's
         // left/right of the gap, identity otherwise) — a freshly-created
@@ -3782,7 +3846,6 @@
         );
       }
       face.style.background = TIER_FILL[s.band];
-      face.style.borderColor = s.band === "high" && hasEarnedHigh(s.e) ? EARNED_RIM : TIER_RIM[s.band];
       el.classList.toggle("earned-high", s.band === "high" && hasEarnedHigh(s.e));
       el.classList.toggle("tier-low", s.band === "low");
 

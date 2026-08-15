@@ -312,6 +312,31 @@
       box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
     }
     .card.earned-high .card-face { border-width: 2px; }
+    /* Gap-card highlight (2026-08-15, handoff-disambiguation): the card
+       currently in the gap (key === gapKey, see applyCardTransform) is the
+       one a click acts on, but at rest it looked identical to piled cards —
+       only its X position differed. Two-part treatment because page
+       content (screenshots) can be near-white or near-black: a dark navy
+       border (GAP_ACTIVE_BORDER, timeline.js) reads against light pages,
+       a bright blue glow carries it against dark ones — either alone can
+       vanish depending on the page.
+       border-WIDTH + box-shadow are safe as a plain CSS class rule (never
+       JS-inline-written). border-COLOR is NOT set here — face.style.
+       borderColor IS inline-written every repaint (TIER_RIM/EARNED_RIM)
+       and every per-frame gap update, and an inline style always beats a
+       class selector regardless of specificity, so a CSS color rule here
+       would silently never win (this is why the first cut, plain red,
+       never showed up) — applyCardTransform sets GAP_ACTIVE_BORDER inline
+       instead. No transition on either: must read correctly even
+       mid-riffle, when gapKey can step every ~10px of cursor travel —
+       instant swap, no ease. */
+    .card.gap-active .card-face {
+      border-width: 2px;
+      /* Blur radius added to the inner layer (was 0 0 0 3px, a hard-edged
+         ring with no feather) so the glow reads as diffuse light around the
+         card rather than a second stacked border line. */
+      box-shadow: 0 0 10px 2px rgba(64, 145, 255, 0.85), 0 4px 26px 4px rgba(64, 145, 255, 0.5);
+    }
     /* .tier-low is still toggled in paintCards but unstyled — the
        demotion scrim it used to drive was removed 2026-08-15. */
     .card-img {
