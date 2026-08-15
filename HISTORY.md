@@ -111,6 +111,13 @@ terse — write the entry there, then come back and add the one-line pointer.
   `translateX`'d by resumed scanning (root cause: `lastCardSegs` must
   exclude the expanded card, kept in sync immediately at click time, not
   just at the next repaint) — `decisions/timeline_design.md`.
+- **2026-08-15:** card-deck ribbon bug fix — closing an expanded container
+  while parked on a child carousel item left that child's screenshot/tipData
+  stranded on the deck face. Fixed by snapping back to the container (index
+  0) via `selectCarouselItem` before collapsing; that call's own async
+  snapshot fetch needed its staleness guard rewritten from a
+  `cardExpandedKey` re-check (wrong: legitimately null by the time the fetch
+  resolves) to a per-call token stamped on the element.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

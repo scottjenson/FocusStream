@@ -3489,6 +3489,12 @@
 
     if (prevKey === key) {
       // Collapse the currently-expanded card back to its deck spot.
+      // Bug fix (2026-08-15): closing while parked on a child carousel item
+      // used to leave that child's screenshot/tipData/onclick on the deck
+      // face — toggleCardExpand never repaints (see comment below), so
+      // nothing else would restore the container's own view. Snap back to
+      // the container (index 0) BEFORE collapsing, same as reopening does.
+      if (cardCarouselIndex !== 0) selectCarouselItem(el, 0);
       cardExpandedKey = null;
       // Bug fix (2026-08-15): lastCardSegs' expanded-card exclusion (see
       // paintCards) is only as fresh as the last REPAINT (~every 10s / on
@@ -3614,12 +3620,19 @@
     el._img.removeAttribute("src");
     if (ids.length) {
       const keys = ids.map((id) => "snap:" + id);
+      // Own token, not a re-check against cardExpandedKey: collapse
+      // (2026-08-15 fix) legitimately calls this for index 0 and THEN nulls
+      // cardExpandedKey in the same tick, which would make the old
+      // cardEls.get(cardExpandedKey) !== el guard always look stale and
+      // silently drop the fetch, leaving the face blank. A fetch is only
+      // truly stale once a DIFFERENT call (child click or another
+      // selectCarouselItem) has superseded it on this same el.
+      const token = Symbol();
+      el._carouselFetchToken = token;
       chrome.storage.local
         .get(keys)
         .then((r) => {
-          // Stale by the time this resolved: either a different card is now
-          // expanded, or this same card moved to a different carousel item.
-          if (cardEls.get(cardExpandedKey) !== el || cardCarouselIndex !== index) return;
+          if (el._carouselFetchToken !== token) return;
           const stored = ids.map((id) => r["snap:" + id]).find(Boolean);
           if (!stored) return;
           el._img.src = stored;
