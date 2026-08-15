@@ -107,6 +107,17 @@ terse — write the entry there, then come back and add the one-line pointer.
   decoupled from the traveling card and simplified to a plain snap at
   handoff after an eased version read as flickery — `plans/stack-ribbon.md`
   (same status note as above).
+- **2026-08-15 (same day, second follow-up session):** card-deck gap-label
+  flicker fixed — the raw `#ribbon` `pointerover`/`pointerout` delegate was
+  blanking the gap-authoritative label on every stale-hit-box crossing
+  mid-sweep; now skipped whenever a gap is active. Per-tier
+  `CARD_SWIVEL_DEG` (`{ high: 65, medium: 52, low: 32 }`, via new
+  `swivelForHeight(h)`) replaces the single shared angle — LOW's small
+  post-rotation width was reading as "over-rotated" even though its top
+  edge is provably parallel to HIGH's (hand-derived AND pixel-measured in
+  an isolated Chrome render); the fix is a perceptual tuning knob, not a
+  geometry correction — `plans/stack-ribbon.md` (same status note as
+  above).
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

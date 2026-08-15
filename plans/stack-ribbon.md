@@ -711,6 +711,60 @@ here," not superseding corrections you also need to apply):
   `requestAnimationFrame` loop, no timing constant. The label moves
   exactly once per handoff, instantly, same as the card's own handoff.
 
+- **Label flicker during travel, follow-up session (2026-08-15): the
+  gap-authoritative label above (`showCardHoverTextFor`/
+  `updateLabelGapCenter`) still blanked/re-snapped once or twice per
+  sweep.** Root cause was NOT in the gap mechanism itself — it was two
+  unconditional `hideCardHoverText()` calls in the plain `#ribbon`
+  `pointerover`/`pointerout` delegate (the pre-Stage-5 hover path, still
+  live for the no-gap case). Raw `pointerover`/`pointerout` fire on
+  whatever DOM element the cursor's REAL screen position is physically
+  over/leaving — which is a STATIC card's real (unmoved) hit-box, since a
+  traveling card's box never actually moves, only its paint does via
+  `transform`. Every time the cursor's real position crossed one of those
+  stale hit-box boundaries mid-sweep, `pointerover`/`pointerout` fired and
+  blindly hid the label `updateCardGap` had just shown, which then
+  re-snapped on the next `pointermove` — same DOM-hit-testing mismatch
+  already solved for click routing and for label positioning itself, just
+  not yet closed for the hide path. Fix: both handlers now skip
+  `hideCardHoverText()` whenever `gapKey != null` — `updateCardGap` is
+  already the sole per-`pointermove` authority for this label while a gap
+  is active, so the raw delegate has nothing correct left to contribute
+  during that window and must stay out of the way entirely, not just
+  avoid fighting the position.
+
+- **"Over-rotated" LOW cards, same follow-up session (2026-08-15):**
+  Scott's screenshot-with-drawn-reference-lines catch, but the actual
+  finding inverted the initial read. First hypothesis (top edges kink at
+  tier seams because bottom-flush stacking puts each tier's local
+  rotation/perspective origin — `left center`, 50% of that card's OWN
+  height — at a different absolute Y) was checked by hand-deriving the
+  rotateY+perspective projection matrix per tier: the top-edge angle came
+  out mathematically IDENTICAL (17.2°) regardless of tier, given
+  `CARD_PERSPECTIVE_RATIO`'s existing height-scaled perspective. Confirmed
+  a second way, not just algebra: an isolated headless-Chrome render,
+  pixel-measured, matched the formula (17.04°/17.10°/17.28° across
+  high/medium/low — noise-level variance only). Scott's own re-measured
+  screenshot (two straight reference lines drawn precisely over the real
+  ribbon) confirmed the same thing: the lines WERE parallel. So the
+  rotation math was correct all along — the "over-rotated" read is a
+  genuine optical illusion, not a geometry bug: a fixed `CARD_SWIVEL_DEG`
+  forces every tier through the same `cos(θ)` width-foreshortening
+  factor, but LOW's pre-rotation width is already small
+  (height × `CARD_ASPECT` at LOW's own short height), so its POST-rotation
+  visible sliver shrinks to just a few px — thin enough that the eye reads
+  "sliver" as "rotated harder" even though the angle provably matches
+  HIGH. Fix is perceptual, not mathematical: `CARD_SWIVEL_DEG` is now a
+  per-tier map (`{ high: 65, medium: 52, low: 32 }`, tuned by eye against
+  a side-by-side render, same as the original single value) instead of
+  one shared constant, so smaller tiers rotate less and keep more visible
+  width. A new `swivelForHeight(h)` helper looks the right angle up from a
+  card's own DECK height (not a band string), since some call sites —
+  `animateCardTo` in particular — only ever see a plain geometry object,
+  never the assembled event. `high: 65` is unchanged from Stage 1 (the
+  original, un-second-guessed look); `medium`/`low` are the only new
+  values and remain feel-tunable.
+
 **Not yet done / still open:**
 - Perf at real on-screen card counts — implemented straightforwardly (one
   card's transform touched per `pointermove`), not load-tested.

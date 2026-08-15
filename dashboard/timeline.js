@@ -171,7 +171,37 @@
   // one) is deliberately narrower than the foreshortened width, so a card
   // visually overlaps/obscures the start of its neighbor (magnify-on-hover,
   // Stage 2, is what un-hides it). Both tuned by eye, not derived.
-  const CARD_SWIVEL_DEG = 65;
+  //
+  // Per-tier, not one shared angle (2026-08-15, Scott's catch: LOW cards
+  // "feel over-rotated" next to HIGH even though their top edges are
+  // provably parallel — hand-derived AND pixel-measured in an isolated
+  // render, both confirmed identical angles across tiers at a single
+  // shared CARD_SWIVEL_DEG). The illusion is real despite the geometry
+  // being correct: a fixed rotation angle forces EVERY tier through the
+  // same cos(θ) width-foreshortening factor, but LOW's pre-rotation width
+  // is already much smaller (CARD_ASPECT × its own short height), so its
+  // POST-rotation visible sliver shrinks to just a few px — thin enough
+  // that the eye reads "sliver" as "rotated harder," even though the
+  // angle matches HIGH exactly. Fix is perceptual, not mathematical:
+  // rotate smaller tiers by a shallower angle so their visible width
+  // doesn't collapse as aggressively, which is what reads as "matching"
+  // rotation to the eye. Values tuned by eye against a side-by-side
+  // render (same "tuned by eye, not derived" spirit as the original
+  // single angle) — retune freely, HIGH's value is the anchor others are
+  // judged against since it was the original, unchanged look.
+  const CARD_SWIVEL_DEG = { high: 65, medium: 52, low: 32 };
+  // Looks up a card's own swivel angle from its DECK height (not a band
+  // string) so every call site — including animateCardTo, which only ever
+  // sees a plain geometry object, never the assembled event — can derive
+  // the right angle from data it already has (el.dataset.deckHeight is
+  // always exactly one of CARD_TIER_H's three values). Falls back to
+  // HIGH's angle for any height that doesn't match a known tier (should
+  // not happen in practice, but a silent fallback beats a NaN rotation).
+  function swivelForHeight(h) {
+    if (h === CARD_TIER_H.medium) return CARD_SWIVEL_DEG.medium;
+    if (h === CARD_TIER_H.low) return CARD_SWIVEL_DEG.low;
+    return CARD_SWIVEL_DEG.high;
+  }
   // Perspective depth, RATIO not a fixed px value (2026-08-11, corrected
   // AGAIN — see index.html .card comment for the fix history; this was
   // fix #4 for rotation-consistency, not #3). A large fixed perspective
@@ -2184,7 +2214,17 @@
     ribbonEl.addEventListener("pointerover", (ev) => {
       hideTip();
       hideQuickLabel();
-      hideCardHoverText();
+      // Skipped while a gap is active (2026-08-15, label-flicker fix):
+      // raw pointerover fires on whatever DOM element the cursor is
+      // LITERALLY over, which is a stale/static card's real hit-box once
+      // the traveling card has painted itself elsewhere via transform —
+      // same DOM-hit-testing mismatch already called out below and in the
+      // click-redirect handler. Hiding cardHoverText here blanked and
+      // re-snapped the gap's label once or twice per sweep as the cursor
+      // crossed each real card boundary underneath, which was the flicker.
+      // updateCardGap (pointermove) is the sole authority for this label
+      // whenever a gap is active, so this handler must leave it alone.
+      if (gapKey == null) hideCardHoverText();
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
       const isCard = el.classList.contains("card");
@@ -2282,7 +2322,13 @@
     ribbonEl.addEventListener("pointerout", () => {
       hideTip();
       hideQuickLabel();
-      hideCardHoverText();
+      // Same guard as pointerover above, same reason: pointerout fires
+      // whenever the cursor's real screen position exits a child's actual
+      // (unpainted) hit-box — which happens repeatedly mid-sweep, since a
+      // traveling card's box never moves, only its paint does. This was
+      // the other half of the flicker: pointerover's hide was guarded but
+      // this twin wasn't, so the label still blanked on the matching exit.
+      if (gapKey == null) hideCardHoverText();
     });
     ribbonEl.addEventListener("pointerdown", () => {
       hideTip();
@@ -3290,7 +3336,7 @@
     };
     const face = el.firstChild;
     const fromRotate = /rotateY\(([-\d.]+)deg\)/.exec(face.style.transform);
-    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : CARD_SWIVEL_DEG;
+    const startDeg = fromRotate ? parseFloat(fromRotate[1]) : swivelForHeight(from.height);
 
     // Scaling (left/width/height/perspective) finishes at CARD_EXPAND_SIZE_
     // DONE_AT (Scott, 2026-08-11: "scaling be done in roughly 70-80%... of
@@ -3365,7 +3411,10 @@
       el._info.hidden = true;
       el.classList.remove("expanded"); // restores the tier-low dim scrim (CSS), same direct-set-on-click reasoning as _closeBtn/_info above
       hideCardChildRow();
-      animateCardTo(el, cardDeckGeom(el), CARD_SWIVEL_DEG, maxH);
+      {
+        const deckGeom = cardDeckGeom(el);
+        animateCardTo(el, deckGeom, swivelForHeight(deckGeom.height), maxH);
+      }
       setRibbonExpandedHeight(maxH, null);
       return;
     }
@@ -3427,7 +3476,10 @@
     fillCardInfo(el);
     el._info.hidden = false;
     el.classList.add("expanded"); // suppresses the tier-low dim scrim (CSS) immediately, not on next repaint
-    if (prevEl) animateCardTo(prevEl, cardDeckGeom(prevEl), CARD_SWIVEL_DEG, maxH);
+    if (prevEl) {
+      const prevDeckGeom = cardDeckGeom(prevEl);
+      animateCardTo(prevEl, prevDeckGeom, swivelForHeight(prevDeckGeom.height), maxH);
+    }
     const items = carouselItemsOf(el._e);
     const hasChildren = items.length > 1;
     const target = cardExpandGeom(el, maxH, hasChildren);
@@ -3726,7 +3778,7 @@
         // projected width — reads the same regardless of tier; origin pinned
         // to the same left edge the rotation itself is anchored to.
         el.style.perspective = deckPerspective + "px";
-        face.style.transform = `rotateY(${CARD_SWIVEL_DEG}deg)`;
+        face.style.transform = `rotateY(${swivelForHeight(s.h)}deg)`;
         // Stage 5: reapply this card's current gap-effect transform (its
         // own live offset if it's the traveling card, a pile shift if it's
         // left/right of the gap, identity otherwise) — a freshly-created
