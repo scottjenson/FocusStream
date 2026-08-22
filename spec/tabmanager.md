@@ -20,11 +20,21 @@ does not evict, close, or otherwise act on any tab.
   (`window === window.top` — a strip rendered inside an iframe would be a
   bug) via the existing `content_scripts` entry (`content.js`'s injection
   point, not a new one). One tile per open tab (favicon + title).
-* **Placement:** always-visible, top of the page, reserving real vertical
-  space — the page's own content is pushed down, not overlaid. Chosen over
-  a fixed overlay so it never covers a site's own header/nav (2026-08-21;
-  known trade-off with sites carrying their own `position: sticky`/`fixed`
-  top elements — see `WATCHLIST.md`).
+* **Placement (revised 2026-08-21, same day):** always-visible, fixed to the
+  top of the viewport (`position: fixed`, high z-index), with a companion
+  `html { margin-top: 34px !important }` override on the page's own root —
+  not plain push-down. Plain push-down (a normal in-flow first child) was
+  the original design but fails silently on any site whose own app root is
+  `position: fixed`/`absolute` over the full viewport (Google Voice
+  confirmed as a specimen: strip mounted correctly, zero errors, entirely
+  invisible, painted under Voice's own fixed shell). Fixed-overlay +
+  margin-top compensation is visible unconditionally and reproduces the old
+  push-down behavior pixel-for-pixel on every `position: static` site
+  (confirmed: Gmail, Calendar). **Residual, deliberately accepted:** on a
+  fixed-root site, `margin-top` cannot move that site's own `position:
+  fixed` elements, so its own top ~34px still sits under the strip — known
+  countermeasure (nudge same-shape elements at mount) deferred, not built
+  — see `WATCHLIST.md` "switcher-fixed-root-overlap".
 * **Data flow:** `background.js` already receives `tabs.onCreated` /
   `onRemoved` / `onUpdated` / `onActivated` for session-lifecycle purposes;
   Phase 1 broadcasts that same event stream to the injected strip via

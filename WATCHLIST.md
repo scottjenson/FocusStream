@@ -207,6 +207,22 @@ labels"; the watch no longer describes current behavior.)
   blocks + a long gap) where proportional and wall-clock position diverge
   more than on a typical day.
 
+## Tab Manager (§7)
+
+- **switcher-fixed-root-overlap (2026-08-21):** the live tab strip is
+  `position: fixed` with a companion `html { margin-top }` override on the
+  page's own root (spec §7 placement) — correct on every `position:
+  static` site, but a site whose OWN top-level container is `position:
+  fixed`/`absolute` over the full viewport (specimen: Google Voice) can't
+  be pushed down by a margin change, so that site's own top ~34px sits
+  under the strip. Known countermeasure (detect and nudge same-shape
+  fixed/sticky elements at mount) deferred, not built — first move in a
+  CSS arms race with no evidence yet of how many real sites it bites.
+  Watch for: real specimens beyond Voice (Meet is presumed same-shaped,
+  untested) and whether the overlap is annoying enough in practice to
+  justify the countermeasure. Story: `decisions/tabmanager.md`, "Voice
+  fixed-root specimen".
+
 ## Cross-cutting (capture/display seams)
 
 - **admission-rung2-promotion:** admission rung 2 is display-time — audit

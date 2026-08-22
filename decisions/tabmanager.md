@@ -82,3 +82,62 @@ separate go/no-go decision rather than one committed build:
   — rejected in favor of one growing `spec/tabmanager.md` spanning all
   phases, matching how `capture.md`/`display.md` are themselves
   append-only rule sets rather than phase-numbered files.
+
+## Voice fixed-root specimen (2026-08-21, same day) — placement reversed
+
+Phase 1 built and initially verified working (Gmail, Calendar) with the
+push-down layout above. User-reported bug, reproduced by cycling real open
+tabs: the strip was completely invisible on Google Voice
+(`voice.google.com`) — no console error, `switcher.js`'s own "mounted" log
+fired normally, the host element was confirmed present in the DOM at the
+correct size and position (`getBoundingClientRect()`: `top:0, height:34`,
+first child of `body`).
+
+**Root cause, confirmed by direct DOM inspection on both sites:** Gmail's
+own top-level app container is `position: static` (normal document flow)
+— it correctly lands below our host, `top: 34px`. Voice's own top-level
+container is `position: fixed; top: 0` spanning the full viewport height
+— it ignores document flow entirely and paints over our host regardless
+of the host's reserved space. This is not a Voice-specific bug to route
+around; it's a common pattern for app-shell/SPA sites that want exact
+`100vh` control (messaging apps, call apps — Meet is presumed same-shaped,
+untested). Plain push-down therefore doesn't have a *partial* failure
+mode on such sites — it fails completely and silently, which is worse
+than the header-overlap risk push-down was originally chosen to avoid.
+
+**Options considered (discussed across a provider comparison — Sonnet,
+then Fable, then back to Sonnet for the decision):**
+1. Fixed overlay everywhere — visible unconditionally, but permanently
+   overlaps real header controls on nearly every site with its own
+   header, not just fixed-root ones (quantified against real open tabs:
+   Gmail's hamburger/search, Voice's search/dropdown/icon row all sit in
+   the top ~34-40px band a bare overlay would cover). Rejected as the
+   pure form — too costly on the sites push-down already handled
+   correctly.
+2. `chrome.sidePanel` — considered and rejected: width is user-draggable,
+   not programmatically controllable, so it can't support the two-size
+   (small strip / full card view) requirement from the original design
+   discussion. Also loses the "looks like Chrome's own tab bar" visual
+   goal entirely (vertical panel, not a horizontal strip).
+3. **Adopted: fixed overlay + `html { margin-top: 34px !important }`
+   compensation.** Strip is `position: fixed`, always visible. The
+   margin-top override reproduces push-down's exact behavior on every
+   `position: static` site (confirmed pixel-identical on Gmail/Calendar).
+   On a fixed-root site, `margin-top` can't move that site's own `position:
+   fixed` elements, so the residual cost is narrower than either pure
+   alternative: only fixed-root sites are affected, and only their own
+   top ~34px, not their whole header.
+4. **Known countermeasure, deliberately deferred:** on mount, detect
+   same-shape `position: fixed`/`sticky` elements anchored at `top: 0`
+   among the page's own top-level children and nudge their `top` down by
+   the strip's height — the technique classic toolbar-injecting
+   extensions used. Not built for Phase 1: it's the first move in a CSS
+   arms race (SPAs can recreate such elements post-mount, sites can fight
+   back with their own `!important`), and there's no evidence yet of how
+   many real sites the residual case actually bites. Watched, not
+   patched — `WATCHLIST.md` "switcher-fixed-root-overlap".
+
+This also reverses this file's own "Rejected alternatives" entry above
+(overlay rejected in favor of push-down) — recorded there as the original
+decision with its original reasoning, not rewritten, per this file's own
+append-only convention; this entry is the supersession.
