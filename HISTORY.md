@@ -123,6 +123,11 @@ terse — write the entry there, then come back and add the one-line pointer.
   (full view integration, auto-close eviction, active→historical
   reconciliation) roadmapped but not yet designed — spec §7;
   `decisions/tabmanager.md`.
+- **2026-08-21:** Native Messaging debug bridge (dual-write to the
+  native-capture project's SQLite store, 2026-08-13) paused — web-only
+  pivot, native-capture not being validated against right now. Code kept
+  in place behind `NATIVE_BRIDGE_ENABLED = false`, not deleted —
+  `decisions/capture_design.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

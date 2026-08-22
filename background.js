@@ -275,8 +275,11 @@ async function finalizeCurrent(endReason) {
   // Debug dual-write to the native app's SQLite store (2026-08-13,
   // temporary — see decisions/capture_design.md, "Native Messaging debug
   // bridge"). chrome.storage.local above is still the real, load-bearing
-  // write; this is best-effort and never blocks or reshapes it.
-  relayToNativeHost(session);
+  // write; this was best-effort and never blocked or reshaped it.
+  // Paused 2026-08-21 (NATIVE_BRIDGE_ENABLED, below) — web-only pivot,
+  // native-capture project not being validated against right now. Code
+  // kept in place, not deleted, in case that project resumes.
+  if (NATIVE_BRIDGE_ENABLED) relayToNativeHost(session);
 }
 
 // On browser launch or extension reload storage.session is empty; adopt the
@@ -348,6 +351,11 @@ async function captureSnapshot(sessionId, windowId) {
 // Entirely best-effort/soft-fail, same contract as snapshot capture: any
 // failure here must never affect the extension's own behavior.
 // ---------------------------------------------------------------------------
+
+// Paused 2026-08-21 — see decisions/capture_design.md, "Native Messaging
+// debug bridge" pause entry. Flip back to true to resume the dual-write;
+// nothing else in this section changes.
+const NATIVE_BRIDGE_ENABLED = false;
 
 const NATIVE_HOST_NAME = "com.jenson.focusstream2.nativemessaging";
 

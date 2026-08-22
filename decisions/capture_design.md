@@ -824,3 +824,18 @@ through SPEC.md and kept, or (b) get removed if the native-capture
 approach doesn't pan out. Don't build further capture-side features on top
 of this relay call without first closing that loop — a debug bridge is not
 a foundation.
+
+**Paused, not removed (2026-08-21).** Outcome (b) above, but softer:
+the project isn't judged to have failed, it's been set aside — focus
+shifted to a web-only direction (the Active Tab Manager, `spec/tabmanager.md`
+§7), and native-capture isn't being validated against right now. Rather
+than delete this section's code, `background.js` gates the one call site
+behind `const NATIVE_BRIDGE_ENABLED = false`— everything else (the Swift
+host, `relayToNativeHost`, the manifest's `nativeMessaging` permission)
+stays in place untouched, so the bridge can be flipped back on with a
+one-line change if native-capture resumes. `chrome.storage.local` was
+always the real store regardless of this flag's value, so disabling it
+changes nothing else about the extension's behavior. SPEC.md still
+correctly has no mention of this bridge, paused or not — it was
+deliberately never added there (see this entry's opening note), and
+pausing it doesn't change that.
