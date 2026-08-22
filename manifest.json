@@ -18,6 +18,19 @@
       "match_about_blank": true
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dashboard/timeline.js",
+        "dashboard/scoring.js",
+        "dashboard/assembly.js",
+        "dashboard/timeline.css",
+        "shared/utility.js",
+        "shared/transit.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

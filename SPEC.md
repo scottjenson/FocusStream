@@ -48,5 +48,6 @@ the UI/UX directives — **`spec/display.md`**.
 Live, on-page tab-switcher UI — a third pillar alongside capture and the
 historical ribbon, covering live display, interactivity, and (as later
 phases land) how an active tab's state folds into the historical container
-view — **`spec/tabmanager.md`**. Phase roadmap and reasoning:
-`decisions/tabmanager.md`.
+view — **`spec/tabmanager.md`**. Terms: **strip** (collapsed, Chrome-tab-
+bar-like), **ribbon** (expanded, full-history), **block** (one item in the
+list, either state). Phase roadmap and reasoning: `decisions/tabmanager.md`.

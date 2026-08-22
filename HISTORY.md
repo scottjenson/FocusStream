@@ -145,6 +145,52 @@ terse — write the entry there, then come back and add the one-line pointer.
   `shared/utility.js` and converting `background.js` to a module worker
   (`"type": "module"`) so it can import from `shared/` directly — spec §7;
   `decisions/tabmanager.md`.
+- **2026-08-21:** Active Tab Manager Phase 2 (ribbon overlay) designed —
+  in-page shadow-DOM overlay reusing the existing ribbon renderer
+  unmodified (DOM-root parameterization + dynamic-import module loading +
+  shared-CSS-file delivery into the shadow root), new right-anchor zoom
+  mode pinned to "now," open-tabs data filter, always-on clipped block
+  label, day-paging retired from the UI (code kept, dormant). Retargeted
+  mid-build same day from the screenshot card deck (`paintCards()`/
+  `.card`, confirmed zoom-inert) to the classic block ribbon (`paint()`/
+  `.blk`, confirmed genuinely zoom-reactive) once the mismatch was found —
+  `decisions/tabmanager.md`. Snap open/closed only — tile→ribbon morph
+  animation deferred as the confirmed next goal. Spec §7b.
+- **2026-08-22:** Active Tab Manager Phase 2 rebuilt from the ground up
+  around real animation (the 2026-08-21 snap-open/closed overlay's two
+  separate hosts/DOM trees/color systems couldn't animate into each
+  other — user review caught it live). New model: ONE shadow host, one
+  shared `.blk` element per open tab (keyed `"tab:"+tabId`, not the
+  historical `assembleThreads()` scheme, which isn't stable across this
+  transition), two pure layout functions (`layoutStripGeom`/
+  `layoutRibbonGeom`) over the identical element set — `.blk`'s
+  pre-existing CSS transition then animates each element for free between
+  states, no animation code written. Introduces the "incomplete
+  container" placeholder for tabs with no finalized session yet (forced
+  LOW, unstyled). Right-anchor zoom mode and the day-paging-omission
+  design from 2026-08-21 are retired — this view never calls the
+  historical render()/zoom pipeline at all. Spec §7b (rewritten);
+  `decisions/tabmanager.md` "Animation architecture rework."
+- **2026-08-22 (same day, later):** Active Tab Manager Phase 2 unified with
+  real history — the hyperlocal `tabId`-keyed side-pipeline above is
+  retired in favor of routing every open tab through the ONE real
+  `render()`/`assembleThreads()`/`paint()` pipeline (why mouse-wheel zoom
+  had been completely dead: it repaints from `lastAssembly`, which that
+  side-pipeline never populated). Open tabs are now genuine session-shaped
+  records (`syntheticSessionsForOpenTabs`) spliced in alongside real
+  finalized sessions — real container/thread/tier treatment, right-
+  anchored to "now" (`__fsTimelineAnchor: "right"`), with real closed
+  history revealed to the left on zoom/pan. Collapsed vs. expanded becomes
+  a HEIGHT-ONLY toggle (`heightMode: "uniform"|"tiered"`, inside `paint()`
+  itself) — zoom/horizontal geometry is untouched by expand/collapse and
+  only responds to the wheel once expanded. New per-open-tab exemptions
+  needed once real data flowed through real assembly: no fence-collapse,
+  a wider width floor (`OPEN_TAB_MIN_W`) than closed history's sliver
+  floor, `isOpenTab`/`openTabId` propagated through `assembleThreads()`'s
+  merge/container construction so click-to-switch survives merging. Also
+  resolves `WATCHLIST.md`'s former `overlay-shows-only-finalized-visits`
+  entry (deleted, resolved). Spec §7b (rewritten again); `decisions/
+  tabmanager.md` "Open-tabs/history unification."
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

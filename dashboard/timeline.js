@@ -11,6 +11,12 @@
 //
 // Wrapped in an IIFE so nothing leaks into dashboard.js's global scope;
 // dashboard.js hands us the session list via window.renderTimeline().
+// Also dynamically imported by switcher.js's card-view overlay (Active Tab
+// Manager Phase 2, spec §7b) — same render pipeline, different DOM root
+// (window.__fsTimelineRoot, read at module-init, see the qs()/rootContainer
+// comment below). Each import() gets its own fresh module instance/closure
+// (dynamic import isn't cached across distinct content-script/page realms),
+// so the overlay and a standalone dashboard tab never share state.
 //
 // Scoring (session -> score/band) and assembly (sessions -> parsed/merged/
 // containerized threads) split out to scoring.js/assembly.js (2026-08-15,
@@ -46,6 +52,46 @@ import {
 (() => {
   const log = (...args) => console.log("[FS timeline]", ...args);
 
+  // DOM-root indirection (Active Tab Manager Phase 2, spec §7b, 2026-08-21):
+  // every DOM lookup in this file goes through qs()/rootContainer() instead
+  // of calling document.getElementById/document.body directly, so the exact
+  // same render()/setRibbonMode() pipeline can paint into either the
+  // standalone dashboard page (root = document, the default — nothing about
+  // the historical view changes) or the tab-strip's card-view overlay (root
+  // = that overlay's shadow root). Read from window.__fsTimelineRoot at
+  // MODULE-INIT time, not via a post-load setter call: several elements
+  // below (tip, quickLabel, cardHoverText, cardChildRow) are created and
+  // appended to their root at top-level IIFE execution, before render() is
+  // ever called — a setter invoked after import() resolves would be too
+  // late for those. switcher.js sets window.__fsTimelineRoot synchronously,
+  // immediately before calling import() on this module, so it's already in
+  // place the instant this line runs.
+  let root = (typeof window !== "undefined" && window.__fsTimelineRoot) || document;
+  function qs(id) {
+    return root.getElementById(id);
+  }
+  // document.body has no shadow-root equivalent — callers that used to
+  // append to document.body now append to root itself (the shadow root's
+  // top-level append target) when root isn't `document`.
+  function rootContainer() {
+    // Mirrors document.body: the overlay's shadow root carries a real
+    // <body>-tagged element as its one child (switcher.js) specifically so
+    // timeline.css's `body { ... }` base rule (font-family, background,
+    // color, color-scheme) applies inside the shadow tree exactly as it
+    // does on the real dashboard page — appending straight to the shadow
+    // root itself would put the tooltip outside that inheritance chain.
+    return root === document ? document.body : root.querySelector("body");
+  }
+  // Zoom anchor edge (Active Tab Manager Phase 2, spec §7b): the standalone
+  // dashboard always left-anchors (unchanged historical behavior — the
+  // day's first event flush against the viewport's left edge). The
+  // open-tabs overlay right-anchors instead, pinned to "now" — zooming out
+  // reveals earlier time leftward. Same __fsTimelineRoot-style module-init
+  // read; switcher.js sets window.__fsTimelineAnchor = "right" before
+  // import()-ing this module for the overlay.
+  const anchorMode =
+    (typeof window !== "undefined" && window.__fsTimelineAnchor) || "left";
+
   const HOUR = 3600 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
@@ -65,6 +111,15 @@ import {
   const ZOOM_MAX = 8;
   let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
+  // Open-tab width floor (Active Tab Manager Phase 2, 2026-08-22
+  // unification): MIN_W (8px) is fine for a closed history sliver — a
+  // freshly-opened tab (durMs near 0, still growing) hitting the SAME
+  // floor is the old "tabs too narrow to read" problem this whole rework
+  // exists to avoid. isOpenTab segs get this larger floor instead, plenty
+  // of room for a favicon+label, while still growing past it once real
+  // duration earns more (Scott's call: a per-seg floor, not a special
+  // zoom level — see widthOf below).
+  const OPEN_TAB_MIN_W = 96;
   const GAP = 2;
   const BAND_H = 144;
   // Bottom-flush; top edge = importance contour. MEDIUM/LOW dropped to 75%
@@ -438,7 +493,14 @@ import {
       run = [];
     };
     for (const event of events) {
-      if (event.band === "low") {
+      // Open tabs never fence-collapse (Active Tab Manager Phase 2,
+      // 2026-08-22 unification, Scott's call): fencing is a closed-history
+      // space-saving device for what's already over — a tab the user can
+      // still switch to right now shouldn't disappear into a tiny
+      // non-clickable stick just because it currently scores LOW. Same
+      // precedent as the card view (plans/stack-ribbon.md), which dropped
+      // fences outright; here it's scoped to isOpenTab only, not global.
+      if (event.band === "low" && !event.isOpenTab) {
         // Departures split fences, breaks don't (spec §6, 2026-07-28): a
         // scattered grazing stretch is one expand target. Bridged gaps that
         // are still wide enough to hover keep their away plate on top of the
@@ -495,7 +557,8 @@ import {
         cursor += w;
       }
     };
-    const widthOf = (e) => Math.max(MIN_W, (e.durMs / 1000) * PX_PER_SEC);
+    const widthOf = (e) =>
+      Math.max(e.isOpenTab ? OPEN_TAB_MIN_W : MIN_W, (e.durMs / 1000) * PX_PER_SEC);
     for (const item of items) {
       if (item.kind === "cluster" && item.key !== expandedKey) {
         let left = null;
@@ -838,9 +901,9 @@ import {
   // ownership bookkeeping — expandedBox IS the fence's footprint, computed
   // once per paint from the same geometry the (now-removed) underline bar
   // used to draw.
-  document.getElementById("ribbon").addEventListener("mousemove", (e) => {
+  qs("ribbon").addEventListener("mousemove", (e) => {
     if (expandedKey === null || !expandedBox) return;
-    const ribbon = document.getElementById("ribbon");
+    const ribbon = qs("ribbon");
     const r = ribbon.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
@@ -903,7 +966,7 @@ import {
   // All cells share one hour-aligned window, so hours align VERTICALLY
   // across days — the cross-day comparison the two-scale ribbon can't give.
   function renderWeekStrip(dayThreads) {
-    const strip = document.getElementById("week-strip");
+    const strip = qs("week-strip");
     strip.replaceChildren();
     const all = [...dayThreads.values()].flat();
     strip.hidden = !all.length;
@@ -1020,7 +1083,7 @@ import {
   tipText.id = "tip-text";
   tip.appendChild(tipImg);
   tip.appendChild(tipText);
-  document.body.appendChild(tip);
+  rootContainer().appendChild(tip);
   let tipTimer = null;
   // Bumped on every hide: async continuations below (storage fetch, image
   // decode) compare against it, so a stale hover can never resurrect a
@@ -1122,7 +1185,7 @@ import {
   quickLabel.hidden = true;
   quickLabel.style.top = TITLE_AREA - 16 - LABEL_GAP + "px";
   quickLabel.style.color = HIGH_RIM;
-  document.getElementById("ribbon").appendChild(quickLabel);
+  qs("ribbon").appendChild(quickLabel);
 
   function hideQuickLabel() {
     quickLabel.hidden = true;
@@ -1137,7 +1200,7 @@ import {
   const cardHoverText = document.createElement("div");
   cardHoverText.id = "card-hover-text";
   cardHoverText.hidden = true;
-  document.getElementById("ribbon").appendChild(cardHoverText);
+  qs("ribbon").appendChild(cardHoverText);
 
   // Which card's key the currently-visible cardHoverText belongs to, if
   // any (2026-08-15, Stage 5 label-tracking follow-up) — set whenever the
@@ -1226,7 +1289,7 @@ import {
   }
 
   {
-    const ribbonEl = document.getElementById("ribbon");
+    const ribbonEl = qs("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
       hideTip();
       hideQuickLabel();
@@ -1245,9 +1308,21 @@ import {
       if (!el) return;
       const isCard = el.classList.contains("card");
       const isChildThumb = el.classList.contains("card-child-thumb");
+      const isOpenTab = el.classList.contains("open-tab");
+      // No separate "collapsed tiles get no hover chrome" check needed
+      // here (Active Tab Manager Phase 2, 2026-08-22 unification): paint()
+      // already deletes dataset.tip on every block while heightMode is
+      // "uniform" (Scott's call — flat click-to-switch symbols, no hover
+      // at all) — those elements simply don't match this handler's own
+      // `[data-tip]` selector above, so they never reach this line at all
+      // while collapsed. Expanded (tiered) tiles fall through normally
+      // below (real #tip snapshot), just with the floating quickLabel
+      // duplicate suppressed (next check) since the site name is already
+      // painted inline (.blk-label).
       // Stage 1 cards show their own below-card text instead of the
-      // floating quick label (which would duplicate it).
-      if (el._tipData && el.dataset.runLabeled !== "1" && !isCard) {
+      // floating quick label (which would duplicate it). Open-tab tiles
+      // (2026-08-22) never need it either — same reason, inline label.
+      if (el._tipData && el.dataset.runLabeled !== "1" && !isCard && !isOpenTab) {
         quickLabel.textContent = el._tipData.siteName;
         const left = parseFloat(el.style.left) || 0;
         quickLabel.style.left = left + "px";
@@ -1361,8 +1436,8 @@ import {
   // scroll through to the page: the dashboard is a single-view page with
   // nothing below the ribbon to scroll to (spec §6 Layout).
   {
-    const wrap = document.getElementById("ribbon-wrap");
-    const ribbonEl = document.getElementById("ribbon");
+    const wrap = qs("ribbon-wrap");
+    const ribbonEl = qs("ribbon");
     const ZOOM_SENSITIVITY = 0.0018; // wheel-delta-to-zoom-factor curve; retune to taste
     const ZOOM_IDLE_MS = 150; // quiet period after the last tick before .zooming lifts (re-arms .blk's transition)
     let pendingDy = 0;
@@ -1400,6 +1475,13 @@ import {
     wrap.addEventListener(
       "wheel",
       (ev) => {
+        // Zoom only while expanded/tiered (Active Tab Manager Phase 2,
+        // 2026-08-22, Scott's call: "zoom only works once expanded" — the
+        // collapsed strip stays a clean, static Chrome-tab bar). This
+        // naturally does nothing on the standalone dashboard page, which
+        // never sets __fsHeightMode and so is always "tiered" — the
+        // historical always-zoomable behavior there is unchanged.
+        if (heightMode === "uniform") return;
         ev.preventDefault();
         wrap.scrollLeft += ev.deltaX;
         if (ev.deltaY) {
@@ -1432,7 +1514,55 @@ import {
   // the currently-shipped experience — on any missing or invalid stored
   // value (fresh install, cleared storage, or a corrupted value all fall
   // back the same way).
-  let ribbonMode = localStorage.getItem("fs_ribbon_mode") === "blocks" ? "blocks" : "cards";
+  //
+  // Overlay override (spec §7b, 2026-08-21): the overlay always wants
+  // "blocks" (Classic view/.blk — the genuinely zoom-reactive, time-
+  // proportional path; paintCards()/.card is fixed-tier-width and
+  // confirmed zoom-inert, wrong for this view) regardless of any stored
+  // preference. localStorage is scoped to the HOST PAGE's own origin
+  // inside the overlay's shadow root, not the dashboard extension page's
+  // origin — so it can never see a "blocks" value saved via the dashboard's
+  // own toggle button anyway; reading it here would silently fall back to
+  // "cards" every time. window.__fsTimelineMode is read at module-init,
+  // same pattern as __fsTimelineRoot/__fsTimelineAnchor above.
+  let ribbonMode =
+    (typeof window !== "undefined" && window.__fsTimelineMode) ||
+    (localStorage.getItem("fs_ribbon_mode") === "blocks" ? "blocks" : "cards");
+
+  // Collapsed/expanded height mode (Active Tab Manager Phase 2, spec §7b,
+  // 2026-08-22 unification): the open-tabs overlay used to be a second,
+  // parallel geometry pipeline (layoutStripGeom/layoutRibbonGeom,
+  // retired) whose whole reason to exist was showing every tile at one
+  // uniform height, tier-blind, like a real Chrome tab strip. That's now
+  // just a height-calculation MODE inside paint() itself (see TIER_H read
+  // below) — "uniform" forces every top-level block to STRIP_TILE_H
+  // regardless of band and skips contained children entirely (no room,
+  // no need, at rest); "tiered" is the historical three-height behavior,
+  // unchanged. Horizontal geometry (x/w, PX_PER_SEC/zoom) is NOT part of
+  // this flag on purpose (Scott, 2026-08-22): collapse/expand only ever
+  // changes vertical reveal — zoom is an independent, wheel-driven axis.
+  let heightMode = (typeof window !== "undefined" && window.__fsHeightMode) || "tiered";
+  const STRIP_TILE_H = 30;
+  function setHeightMode(mode) {
+    if (mode !== "uniform" && mode !== "tiered") return;
+    if (mode === heightMode) return;
+    heightMode = mode;
+    if (!lastAssembly) return;
+    paint(lastAssembly.events, lastAssembly.hostNames);
+    // Collapsing snaps back to "now" (2026-08-22, Scott's call): if the
+    // user zoomed/panned into history while expanded, collapsing should
+    // reliably show today's open tabs again, not whatever scroll position
+    // history-browsing left behind — collapsed is meant to read as a
+    // clean, predictable Chrome-tab bar. Zoom LEVEL itself is untouched
+    // (only scrollLeft) — collapsed doesn't visibly depend on it (wheel-
+    // zoom is gated off while collapsed, see the wheel listener below),
+    // and resuming the same zoom on re-expand is the more useful default.
+    if (mode === "uniform" && anchorMode === "right") {
+      const wrap = qs("ribbon-wrap");
+      const ribbonEl = qs("ribbon");
+      if (wrap && ribbonEl) wrap.scrollLeft = ribbonEl.scrollWidth - wrap.clientWidth;
+    }
+  }
 
   // Mode switch (not just a re-render): closes whichever expand state the
   // outgoing mode has open, tears down its persistent DOM elements (blockEls
@@ -1482,13 +1612,20 @@ import {
     if (ribbonMode === "cards") paintCards(events, hostNames);
     else paint(events, hostNames);
     // A real render (new data, day paging, fence toggle — never a zoom
-    // relayout, which calls paint() directly) always resets to left-
-    // justified (spec §6, 2026-08-08): the day's first event flush against
-    // the viewport's left edge, regardless of wherever zoom/pan left the
-    // scroll position on the previous day — visual stability across day
-    // paging, not a preserved viewport.
-    const wrap = document.getElementById("ribbon-wrap");
-    if (wrap) wrap.scrollLeft = 0;
+    // relayout, which calls paint() directly) always resets to the resting
+    // edge (spec §6, 2026-08-08; anchorMode split spec §7b, 2026-08-21):
+    // left-justified for the standalone dashboard (the day's first event
+    // flush against the viewport's left edge, regardless of wherever
+    // zoom/pan left the scroll position on the previous day — visual
+    // stability across day paging, not a preserved viewport) or
+    // right-justified for the overlay (the ribbon's rightmost content —
+    // "now" — flush against the viewport's right edge instead).
+    const wrap = qs("ribbon-wrap");
+    if (wrap) {
+      const ribbonEl = qs("ribbon");
+      wrap.scrollLeft =
+        anchorMode === "right" ? (ribbonEl ? ribbonEl.scrollWidth - wrap.clientWidth : 0) : 0;
+    }
   }
 
   // The paint-only path (spec §6, 2026-08-08 zoom): layout + DOM diff on an
@@ -1509,16 +1646,37 @@ import {
     const items = clusterEvents(events, lastLockIntervals);
     const { segs, plates, bars, gaps, total } = layout(items, expandedKey);
 
-    const ribbon = document.getElementById("ribbon");
-    const bandBottom = TITLE_AREA + BAND_H;
+    const ribbon = qs("ribbon");
+    // #ribbon.uniform-height (2026-08-22): lets timeline.css key hover/
+    // other visual effects off strip vs. tiered state without a per-tile
+    // class — see .blk:hover's :not(#ribbon.uniform-height) guard.
+    ribbon.classList.toggle("uniform-height", heightMode === "uniform");
+    // heightMode "uniform" (2026-08-22): the ribbon's own frame collapses
+    // to exactly STRIP_TILE_H, no title/axis reservation — the collapsed
+    // strip needs none of that, and it's what makes the strip genuinely
+    // short (not just its tiles). "tiered" keeps the historical frame.
+    const bandBottom = heightMode === "uniform" ? STRIP_TILE_H : TITLE_AREA + BAND_H;
     ribbon.style.width = total + "px";
-    ribbon.style.height = TITLE_AREA + BAND_H + AXIS_AREA + "px";
-    document.getElementById("ribbon-empty").hidden = segs.length > 0;
+    ribbon.style.height = (heightMode === "uniform" ? bandBottom : bandBottom + AXIS_AREA) + "px";
+    qs("ribbon-empty").hidden = segs.length > 0;
 
     ribbon.querySelectorAll(".transient").forEach((el) => el.remove());
 
     const seen = new Set();
     for (const s of segs) {
+      // heightMode "uniform" (2026-08-22, Active Tab Manager collapsed
+      // strip): every top-level block forces STRIP_TILE_H regardless of
+      // band — tier is shown by fill/border color only, matching a real
+      // Chrome tab strip. Contained children have no room and no need at
+      // rest, so they're left OUT of `seen` entirely while uniform — the
+      // ordinary end-of-loop sweep (unseen keys get their element removed)
+      // cleans up any child el a previous "tiered" paint created, exactly
+      // like a real exit. "tiered" (the historical default, unchanged)
+      // keeps contained children at one uniform height regardless of band
+      // (spec §6, 2026-08-07) — containment frames, never confers stature;
+      // standalone blocks, collapsed sticks, and expanded fence members
+      // keep the three-way tier heights.
+      if (heightMode === "uniform" && s.contained) continue;
       seen.add(s.key);
       let el = blockEls.get(s.key);
       if (!el) {
@@ -1527,11 +1685,8 @@ import {
         ribbon.appendChild(el);
         blockEls.set(s.key, el);
       }
-      // Contained children render at one uniform height regardless of band
-      // (spec §6, 2026-08-07) — containment frames, never confers stature;
-      // standalone blocks, collapsed sticks, and expanded fence members
-      // keep the three-way tier heights.
-      const h = s.contained ? CONTAIN_CHILD_H : TIER_H[s.band];
+      const h =
+        heightMode === "uniform" ? STRIP_TILE_H : s.contained ? CONTAIN_CHILD_H : TIER_H[s.band];
       // Importance, not identity, drives fill/border now (spec §6,
       // 2026-08-07; three-step ladder restored 2026-08-08): each tier gets
       // its own luminance step (TIER_FILL/TIER_RIM) — MEDIUM and LOW no
@@ -1558,6 +1713,12 @@ import {
       // page-background seam (.cut CSS carries the width) and inset off the
       // container's top/bottom edges (spec §6, 2026-08-02).
       el.classList.toggle("cut", !!s.contained);
+      // .open-tab (2026-08-22 unification): a real, always-current class —
+      // NOT the retired open-tabs-only pipeline's own element set, just a
+      // CSS/hover hook so the pointerover handler (below) and timeline.css
+      // can identify "this block represents a tab the user has open right
+      // now" the same way .earned-high/.incomplete/.cut already work.
+      el.classList.toggle("open-tab", !!s.e.isOpenTab);
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
       // outline IS the stick, so "borderless" means border = fill. Dormant
@@ -1582,7 +1743,12 @@ import {
             : earned
               ? EARNED_RIM
               : TIER_RIM[s.band];
-      if (s.collapsed) {
+      // heightMode "uniform" (2026-08-22): the whole strip reads as flat,
+      // static Chrome-tab symbols — click to switch, no hover chrome at
+      // all (Scott's call, Active Tab Manager Phase 2). Same no-tooltip
+      // treatment as a fence-collapsed stick (s.collapsed, below), just
+      // gated by strip mode instead of fence state.
+      if (s.collapsed || heightMode === "uniform") {
         // Collapsed sticks carry neither text nor snapshot (spec §6: the
         // expand toggle doubles as the snapshot gate).
         delete el.dataset.tip;
@@ -1615,9 +1781,18 @@ import {
       // Collapsed sticks are inert; their cluster's plate is the one target.
       // Every visible block navigates — expanded fence members included
       // (spec §6: click means "open this page" everywhere; collapse is the
-      // expand bar or Escape).
+      // expand bar or Escape). A synthesized open-tab session (2026-08-22
+      // unification, s.e.isOpenTab — see syntheticSessionsForOpenTabs)
+      // represents a tab the user ALREADY HAS open: switching to it, never
+      // chrome.tabs.create, which would open a duplicate. Same
+      // never-calls-chrome.tabs.*-directly-except-switch rule the retired
+      // open-tabs-only pipeline followed (spec §7).
       el.style.pointerEvents = s.collapsed ? "none" : "auto";
-      el.onclick = s.collapsed ? null : () => chrome.tabs.create({ url: s.e.url });
+      el.onclick = s.collapsed
+        ? null
+        : s.e.isOpenTab
+          ? () => chrome.runtime.sendMessage({ type: "FS_SWITCH_TAB", tabId: s.e.openTabId ?? s.e.tabId })
+          : () => chrome.tabs.create({ url: s.e.url });
     }
     for (const [key, el] of blockEls) {
       if (!seen.has(key)) {
@@ -1829,7 +2004,113 @@ import {
       if (el._favEl.src !== src) el._favEl.src = src;
     }
 
+    // Block label (Active Tab Manager Phase 2, spec §7b, 2026-08-21):
+    // always-on, clipped domain/site-name label on every real block — the
+    // same short name the strip/tooltip already show (hostNames +
+    // labelKeyOf, computeHostNames' established idiom throughout this
+    // file), not the raw host. Sticks (collapsed or fenced) stay
+    // label-free, matching the favicon rule just above — a 3px sliver has
+    // no room for either.
+    for (const s of segs) {
+      const el = blockEls.get(s.key);
+      if (!el) continue;
+      const text = !s.collapsed && !s.stick ? hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host : null;
+      if (!text) {
+        if (el._labelEl) {
+          el._labelEl.remove();
+          el._labelEl = null;
+        }
+        continue;
+      }
+      if (!el._labelEl) {
+        const label = document.createElement("span");
+        label.className = "blk-label";
+        el.appendChild(label);
+        el._labelEl = label;
+      }
+      if (el._labelEl.textContent !== text) el._labelEl.textContent = text;
+    }
+
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
+  }
+
+  // --- Open tabs as real sessions (Active Tab Manager Phase 2, spec §7b,
+  // UNIFIED 2026-08-22: "one classic ribbon list... that just happens to
+  // show the currently open tabs on the far right hand side"). Replaces
+  // the earlier separate open-tabs pipeline (openTabSegsBase/
+  // layoutStripGeom/layoutRibbonGeom/drawOpenTabSegs, retired) — that
+  // pipeline deliberately never touched assembleThreads()/layout(),
+  // which is exactly why zoom (wired only to the historical pipeline)
+  // never revealed real history through it. Every open tab is now a
+  // genuine, session-SHAPED entry spliced into the same array render()
+  // assembles — same container/thread/tier treatment as any closed
+  // visit, keyed by assembleThreads()'s own scheme once it runs, not a
+  // synthetic "tab:"+tabId placeholder. The only thing special about an
+  // open tab is that it's still accumulating: no real endTime yet, so
+  // `incomplete` records that as a flag on otherwise-ordinary data,
+  // rather than a parallel code path.
+  //
+  // background.js's capture-side finalize-only contract for `sessions`
+  // (chrome.storage.local) is untouched (Scott's call, 2026-08-22) — this
+  // synthesizes a DISPLAY-ONLY record per open tab rather than writing
+  // one to storage, so the "sessions is written exactly once, at visit
+  // end" invariant elsewhere in the codebase still holds.
+  function syntheticSessionsForOpenTabs(openTabs, sessions) {
+    // Most recent finalized session per open tabId — chrome.storage.local's
+    // `sessions` is finalize-only (no write happens before a visit ends,
+    // confirmed via background.js), so an open tab's CURRENT visit is
+    // never in here; this is "best prior evidence for this tab," not
+    // "what's happening right now" (WATCHLIST.md
+    // "overlay-shows-only-finalized-visits" — still an open gap: a
+    // synthetic record's startTime/activity are approximated from this
+    // prior evidence when present, not read from live heartbeat state).
+    const latestByTab = new Map();
+    for (const s of sessions) {
+      if (s.tabId == null) continue;
+      const prev = latestByTab.get(s.tabId);
+      if (!prev || s.endTime > prev.endTime) latestByTab.set(s.tabId, s);
+    }
+    // One `now` read for the whole call, reused as every synthetic
+    // record's endTime — parseSessions() filters strictly by endTime
+    // falling inside the viewed day, and durMs is always `endTime -
+    // startTime`, so this single timestamp is what makes an in-progress
+    // tab pass that filter AND grow its duration naturally on every
+    // repaint, with no special-casing downstream.
+    const now = Date.now();
+    return openTabs.map((t) => {
+      const prior = latestByTab.get(t.id);
+      // startTime: the prior finalized visit's own start when one exists
+      // (the tab's real activity, not just its current page, has been
+      // running that long) — otherwise `now`, for a genuinely brand-new
+      // tab with no history at all yet.
+      const startTime = prior ? prior.startTime : now;
+      return {
+        id: "open:" + t.id,
+        tabId: t.id,
+        url: t.url || (prior ? prior.url : ""),
+        startTime,
+        endTime: now,
+        durMs: now - startTime,
+        heartbeats: prior ? prior.heartbeats : 0,
+        audibleMs: prior ? prior.audibleMs : 0,
+        activity: prior ? prior.activity : {},
+        endReason: null,
+        favIconUrl: t.favIconUrl || "",
+        title: t.title || (prior ? prior.title : ""),
+        // isOpenTab (paint()'s click-handler branch): switch to the real
+        // tab instead of chrome.tabs.create — this session represents a
+        // tab the user ALREADY has open, opening a fresh one would
+        // duplicate it (spec §7's never-calls-chrome.tabs.*-directly rule
+        // still holds: only the background script switches tabs).
+        isOpenTab: true,
+        // incomplete (2026-08-21/22 "incomplete container" concept):
+        // true only for a genuinely new tab with no prior evidence at
+        // all — a tab WITH prior history is treated as ordinary data
+        // (real score/band), not forced LOW, since assembleThreads()/
+        // scoreSession() can now judge it on its own real merits.
+        incomplete: !prior,
+      };
+    });
   }
 
   // --- Card paint (plans/stack-ribbon.md Stage 1, 2026-08-11): the live
@@ -2246,7 +2527,7 @@ import {
   }
 
   {
-    const ribbon = document.getElementById("ribbon");
+    const ribbon = qs("ribbon");
     ribbon.addEventListener("pointermove", (ev) => {
       if (gapRafId != null) {
         cancelAnimationFrame(gapRafId); // live cursor input pre-empts any in-flight exit relax or entry-ease self-tick
@@ -2326,7 +2607,7 @@ import {
   cardChildRow.id = "card-child-row";
   cardChildRow.className = "card-child-row";
   cardChildRow.hidden = true;
-  document.getElementById("ribbon").appendChild(cardChildRow);
+  qs("ribbon").appendChild(cardChildRow);
 
   function hideCardChildRow() {
     cardChildRow.hidden = true;
@@ -2374,7 +2655,7 @@ import {
   // containers.
   function cardExpandGeom(el, maxH, hasChildren) {
     const deck = cardDeckGeom(el);
-    const wrapEl = document.getElementById("ribbon-wrap");
+    const wrapEl = qs("ribbon-wrap");
     const viewportW = Math.max(wrapEl.clientWidth - CARD_EXPAND_VIEWPORT_MARGIN, CARD_TIER_W.low);
     const deckBottom = maxH + CARD_HOVER_TEXT_H;
     // + CARD_HOVER_TEXT_H when there's a child row: budgets room for that
@@ -2777,7 +3058,7 @@ import {
   // see CARD_EXPAND_GAP comment: this is what makes "no overlap" true by
   // construction rather than needing any neighbor-shifting logic.
   function setRibbonExpandedHeight(maxH, target, hasChildren) {
-    const ribbon = document.getElementById("ribbon");
+    const ribbon = qs("ribbon");
     const base = maxH + CARD_HOVER_TEXT_H;
     if (!target) {
       ribbon.style.height = base + "px";
@@ -2836,7 +3117,7 @@ import {
     }
     const gapBlockIdx = segs.findIndex((s) => s.key === gapKey);
 
-    const ribbon = document.getElementById("ribbon");
+    const ribbon = qs("ribbon");
     const maxH = Math.max(CARD_TIER_H.high, 1);
     // + CARD_GAP_MAX_PX (2026-08-15 follow-up): the block-shift fix above
     // moves the right-hand block up to CARD_GAP_MAX_PX past its rest
@@ -2873,7 +3154,7 @@ import {
     // this to fit the expanded card, and a repaint (e.g. live data
     // refresh) shouldn't yank that back out from under an open card.
     if (!cardExpandedKey) ribbon.style.height = maxH + CARD_HOVER_TEXT_H + "px";
-    document.getElementById("ribbon-empty").hidden = segs.length > 0;
+    qs("ribbon-empty").hidden = segs.length > 0;
 
     // No hour axis, no gap plates, no fences in Stage 1 — the .transient
     // sweep still clears any leftover nodes from the old paint() path in
@@ -3091,6 +3372,21 @@ import {
   window.renderTimeline = render;
   window.setRibbonMode = setRibbonMode;
   window.FS_getRibbonMode = () => ribbonMode;
+  window.setHeightMode = setHeightMode;
+  window.FS_getHeightMode = () => heightMode;
+  // Open-tabs entry point (Active Tab Manager Phase 2, spec §7b, UNIFIED
+  // 2026-08-22): the overlay's own driver (switcher.js) calls this instead
+  // of renderTimeline() directly — it's a thin wrapper that splices
+  // syntheticSessionsForOpenTabs()' records in alongside the real
+  // finalized sessions and calls the ONE real render() pipeline
+  // (render/assembleThreads/parseSessions/layout/paint), right-anchored.
+  // No separate open-tabs pipeline exists anymore — an open tab is just
+  // ordinary data with one synthetic field (isOpenTab) and a live-growing
+  // endTime, same assembly/tier/container treatment as any closed visit.
+  window.FS_renderOpenTabs = (openTabs, sessions) => {
+    const synthetic = syntheticSessionsForOpenTabs(openTabs, sessions);
+    render([...sessions, ...synthetic]);
+  };
   // Single source of truth for scoring — the Score-table button in
   // dashboard.js uses these so diagnostics can never drift from the render.
   window.FS_SCORING = { scoreSession, attendedSeconds, bandFor, hostOf };

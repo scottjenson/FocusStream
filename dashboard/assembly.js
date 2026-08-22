@@ -313,6 +313,17 @@ export function mergeVisits(events) {
         // OR of members: the merged score must keep the scroll premium a
         // member earned (the gate would otherwise silently drop it).
         scrollable: run.some((m) => m.scrollable),
+        // isOpenTab (Active Tab Manager Phase 2, 2026-08-22 unification):
+        // OR of members, same convention as scrollable above — if ANY
+        // member is a live open-tab record (timeline.js
+        // syntheticSessionsForOpenTabs), the merged visit as a whole
+        // represents a tab the user currently has open, so paint()'s
+        // click handler should switch to it rather than open a duplicate.
+        // Not spread from run[0]/top — this object is built field-by-field
+        // on purpose, so a flag this consequential needs its own explicit
+        // line rather than relying on which member happened to be picked.
+        isOpenTab: run.some((m) => m.isOpenTab),
+        openTabId: (run.find((m) => m.isOpenTab) || {}).tabId,
         // The FIRST member is the one that resumed after any preceding
         // gap — its gap-audio testimony is the visit's (spec §6).
         ...(run[0].audibleSinceTs != null ? { audibleSinceTs: run[0].audibleSinceTs } : {}),
@@ -703,6 +714,15 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       audibleMs,
       activity,
       scrollable: c.frags.some((f) => f.scrollable),
+      // isOpenTab (Active Tab Manager Phase 2, 2026-08-22 unification):
+      // same OR-of-members convention as mergeVisits' merged object above
+      // — a container containing a currently-open tab (directly or via an
+      // already-merged fragment) should switch to it on click, not open a
+      // duplicate. children (contained excursions) checked too: an
+      // excursion INTO a currently-open tab is a real, if narrower, case.
+      isOpenTab: c.frags.some((f) => f.isOpenTab) || children.some((ch) => ch.isOpenTab),
+      openTabId: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
+        .tabId,
       score: c.score, // summed fragment scores + returns traversal term: add up, then judge
       band: bandFor(c.score),
       // The LAST fragment's exit is the container's exit (2026-08-02,
