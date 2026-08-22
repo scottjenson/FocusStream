@@ -118,6 +118,11 @@ terse — write the entry there, then come back and add the one-line pointer.
   snapshot fetch needed its staleness guard rewritten from a
   `cardExpandedKey` re-check (wrong: legitimately null by the time the fetch
   resolves) to a per-call token stamped on the element.
+- **2026-08-21:** Active Tab Manager adopted as a third spec pillar — Phase 1
+  (live, on-page tab-switcher strip; capture unchanged) designed, Phases 2–4
+  (full view integration, auto-close eviction, active→historical
+  reconciliation) roadmapped but not yet designed — spec §7;
+  `decisions/tabmanager.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.
@@ -130,6 +135,9 @@ terse — write the entry there, then come back and add the one-line pointer.
   filter, continuation merge + MEDIUM containers.
 - `decisions/capture_design.md` — capture-side decision log: session model, heartbeat
   hybrid counting, filters, audible, SPA debounce, injection hardening, retention.
+- `decisions/tabmanager.md` — active tab manager decision log: origin (the
+  source doc's full agentic proposal), why it was scoped down to a phased
+  build, the four-phase roadmap, rejected alternatives.
 - `decisions/snapshot_implementation.md` — the whole tooltip + snapshot story:
   original reasoning and knobs (plan doc folded in 2026-07-18), the five file
   changes, the review fixes (flush-on-hidden trap, `getKeys()`, decode-then-position,

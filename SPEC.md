@@ -43,3 +43,10 @@ Session Block data structure, admission filter, session lifecycle, the
 Design philosophy, the boundary/thread taxonomy, atomicity guards, Score v1,
 tiers, containers, fences, the horizontal timeline, tooltips/snapshots, and
 the UI/UX directives — **`spec/display.md`**.
+
+## 7. Active Tab Manager
+Live, on-page tab-switcher UI — a third pillar alongside capture and the
+historical ribbon, covering live display, interactivity, and (as later
+phases land) how an active tab's state folds into the historical container
+view — **`spec/tabmanager.md`**. Phase roadmap and reasoning:
+`decisions/tabmanager.md`.
