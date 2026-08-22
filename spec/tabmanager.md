@@ -14,12 +14,26 @@ phasing live in `decisions/tabmanager.md`. Open doubts: `WATCHLIST.md`.
 lifecycle, heartbeats, Score v1, snapshots — unchanged. This is a second,
 parallel *view* of tab state the background script already observes for
 session-lifecycle purposes; it does not create a shadow tab system, and it
-does not evict, close, or otherwise act on any tab.
+does not evict tabs by score (that's Phase 3, still undesigned). A tile
+close box (below) closes exactly the tab the user clicked — a direct,
+user-initiated action, not scored eviction.
 
 * **Surface:** a shadow-DOM strip injected top-frame only
   (`window === window.top` — a strip rendered inside an iframe would be a
   bug) via the existing `content_scripts` entry (`content.js`'s injection
-  point, not a new one). One tile per open tab (favicon + title).
+  point, not a new one). One tile per open tab (favicon + short site-name
+  label).
+* **Tile label:** the same short site name the historical dashboard shows
+  ("Gmail", "Google Voice") — `shared/utility.js`'s `computeHostNames`,
+  reused live rather than forked, keyed by `labelKeyOf(host, url)`. Falls
+  back to the bare hostname when no confident name exists yet (fresh host,
+  no admitted history). Computed from `chrome.storage.local`'s `sessions`
+  (up to 7 days retained, spec §3 `RETENTION_MS`) and cached in the
+  background worker, invalidated on any write to that key — not
+  recomputed per tab event. The tile's full `document.title`/URL remains
+  available as the hover tooltip. `shared/utility.js`: `decisions/
+  tabmanager.md`, "Live labels: promoting siteNameOf out of the
+  dashboard".
 * **Placement (revised 2026-08-21, same day):** always-visible, fixed to the
   top of the viewport (`position: fixed`, high z-index), with a companion
   `html { margin-top: 34px !important }` override on the page's own root —
@@ -45,9 +59,19 @@ does not evict, close, or otherwise act on any tab.
   (+ `windows.update` if the tab is in a different window). The strip never
   calls `chrome.tabs.*` itself — only the service worker holds that
   permission's actual capability from a content-script trigger.
+* **Closing:** each tile shows a hover-revealed `×` (matches Chrome's own
+  tab close box). Clicking it posts `{type:'FS_CLOSE_TAB', tabId}` to the
+  background, which calls `chrome.tabs.remove(tabId)` — same
+  never-calls-`chrome.tabs.*`-from-the-strip rule as switching. No new
+  synchronization mechanism needed: `chrome.tabs.onRemoved` already fires
+  for a close from *any* source (this close box, Cmd-W, Chrome's own `×`,
+  another extension) and the existing per-window broadcast
+  (`broadcastTabsForWindow`) already re-syncs every other strip in that
+  window on every such event. `decisions/tabmanager.md`, "Close box +
+  cross-window sync".
 
 ### Deferred
-Scoring/band on tiles, eviction, closing tabs, the full ribbon/card view
-(Phase 2), and how a closed tab folds into an existing historical container
-(Phase 3–4). None of this is built or assumed by Phase 1 — full roadmap and
-reasoning: `decisions/tabmanager.md`.
+Scoring/band on tiles, scored auto-eviction (Phase 3), the full ribbon/card
+view (Phase 2), and how a closed tab folds into an existing historical
+container (Phase 4). None of this is built or assumed by Phase 1 — full
+roadmap and reasoning: `decisions/tabmanager.md`.

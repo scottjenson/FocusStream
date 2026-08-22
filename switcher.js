@@ -116,7 +116,22 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      flex: 1 1 auto;
     }
+    .fs-close {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      color: #3c4043;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .fs-close:hover { background: rgba(0, 0, 0, 0.12); }
+    .fs-tab:hover .fs-close { display: flex; }
   `;
   const strip = document.createElement("div");
   strip.className = "fs-strip";
@@ -143,10 +158,29 @@
         tile.append(placeholder);
       }
 
+      // Short site-name label (background.js: shared/utility.js's
+      // computeHostNames, same logic the dashboard timeline uses) rather
+      // than the raw document.title — a tile is ~72-180px wide and can't
+      // fit a full page title anyway. Full title/url stays on tile.title
+      // above as the hover tooltip.
       const title = document.createElement("span");
       title.className = "fs-title";
-      title.textContent = t.title || t.url || "(untitled)";
+      title.textContent = t.label || t.title || t.url || "(untitled)";
       tile.append(title);
+
+      const closeBox = document.createElement("span");
+      closeBox.className = "fs-close";
+      closeBox.textContent = "×";
+      closeBox.title = "Close tab";
+      closeBox.addEventListener("click", (e) => {
+        // Close box is inside the tile — stop the click from also
+        // triggering the tile's own switch-tab handler below.
+        e.stopPropagation();
+        chrome.runtime.sendMessage({ type: "FS_CLOSE_TAB", tabId: t.id }).catch((err) => {
+          log("close request failed:", err.message);
+        });
+      });
+      tile.append(closeBox);
 
       tile.addEventListener("click", () => {
         chrome.runtime.sendMessage({ type: "FS_SWITCH_TAB", tabId: t.id }).catch((e) => {

@@ -128,6 +128,23 @@ terse — write the entry there, then come back and add the one-line pointer.
   pivot, native-capture not being validated against right now. Code kept
   in place behind `NATIVE_BRIDGE_ENABLED = false`, not deleted —
   `decisions/capture_design.md`.
+- **2026-08-21:** Active Tab Manager Phase 1 built and verified — live
+  tab-switcher strip (`switcher.js`, top-frame shadow DOM), per-window
+  broadcast/switch protocol in `background.js`. Placement bug found and
+  fixed same day: plain push-down rendered invisibly on any
+  position:fixed-rooted site (specimen: Google Voice) — switched to fixed
+  overlay + `html margin-top` compensation, verified against real open
+  tabs (Gmail, Calendar, Voice) — spec §7; `decisions/tabmanager.md`.
+- **2026-08-21:** Tile close box added to the live tab strip (`×`,
+  hover-revealed, `FS_CLOSE_TAB` message → `chrome.tabs.remove`) — reuses
+  the existing per-window broadcast, no new sync mechanism needed since
+  `onRemoved` already fires for any close regardless of source. Tiles also
+  gained a short site-name label (reusing the dashboard's `siteNameOf`
+  logic) in place of the raw, truncated `document.title`. Required
+  promoting that logic out of `dashboard/assembly.js` into a new
+  `shared/utility.js` and converting `background.js` to a module worker
+  (`"type": "module"`) so it can import from `shared/` directly — spec §7;
+  `decisions/tabmanager.md`.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

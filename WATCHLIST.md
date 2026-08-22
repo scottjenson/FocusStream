@@ -222,6 +222,27 @@ labels"; the watch no longer describes current behavior.)
   untested) and whether the overlap is annoying enough in practice to
   justify the countermeasure. Story: `decisions/tabmanager.md`, "Voice
   fixed-root specimen".
+- **switcher-navigation-flash (2026-08-21):** a real page navigation (any
+  link click, not just tab-switching) destroys and rebuilds the entire
+  document, including the strip — it re-injects and re-mounts from
+  scratch every time, unlike a genuine browser-chrome tab bar, which
+  never rebuilds on page navigation. Structural, not a bug: a
+  content-script-injected surface cannot live outside the page it's
+  injected into. Mitigation identified, not built: inject at
+  `document_start` with a synchronous placeholder (reserve the strip's
+  space/shell before first paint) instead of `document_idle`, then
+  hydrate with real tab data once the background responds — reduces the
+  visible jank without eliminating the rebuild. Deferred pending judgment
+  on whether the flash is bothersome enough in real use to justify it.
+  Story: `decisions/tabmanager.md`, "Navigation-flash structural limit".
+- **switcher-phase1-rough-edges (2026-08-21):** two small gaps noted
+  during Phase 1 verification, neither blocking: (1) no auto-scroll to
+  the active tile if it's off-screen in the strip — a many-tab window
+  needs manual horizontal scroll to find the highlighted tab; (2)
+  per-window scoping is implemented (`broadcastTabsForWindow`) but only
+  ever verified against a single window — a second-window scenario
+  (does each window's strip correctly show only its own tabs, does
+  switching windows behave sanely) is untested.
 
 ## Cross-cutting (capture/display seams)
 

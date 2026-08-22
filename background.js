@@ -7,11 +7,15 @@
 
 const log = (...args) => console.log("[FS bg]", ...args);
 
-// Loaded early: shared/transit.js is the single source of truth for the
-// admission predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one
-// heartbeat window" constant reused below instead of a second local copy
-// (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl").
-importScripts("shared/transit.js");
+// shared/transit.js is the single source of truth for the admission
+// predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one heartbeat window"
+// constant reused below instead of a second local copy (rules audit,
+// 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"). background.js is a
+// module worker ("type": "module", manifest.json, 2026-08-21 — needed to
+// import shared/utility.js for the live tab strip's site-name reuse), so
+// this is a real static import, not importScripts().
+import { isTransit, TRANSIT_MS } from "./shared/transit.js";
+import { computeHostNames, labelKeyOf, hostOf } from "./shared/utility.js";
 
 // SPA URL changes arriving faster than this are view-state churn (map pans,
 // filter tweaks), not navigation — absorbed into the current session.
@@ -44,11 +48,11 @@ const RETENTION_MS = 7 * 24 * 3600 * 1000;
 // worker wakes on the heartbeat anyway). Provisional per the one-knob rule.
 const IDLE_SPLIT_MS = 5 * 60_000;
 // One heartbeat window: the idle clamp honors the last window's trailing
-// edge. Reuses FS_TRANSIT.TRANSIT_MS (shared/transit.js) rather than a
+// edge. Reuses TRANSIT_MS (shared/transit.js) rather than a
 // second local 10s constant (rules audit, 2026-08-06) — same concept, one
 // definition. (content.js's own HEARTBEAT_MS stays separate: it runs in an
 // isolated content-script world with no access to shared/transit.js.)
-const HB_WINDOW_MS = FS_TRANSIT.TRANSIT_MS;
+const HB_WINDOW_MS = TRANSIT_MS;
 
 // Lock intervals (spec §3, 2026-08-08): the one signal outside browser
 // activity this extension captures — deliberately narrow to chrome.idle's
@@ -188,7 +192,7 @@ async function startSession(tab) {
       const agedTab = await chrome.tabs.get(current.tabId).catch(() => null);
       if (agedTab) await captureSnapshot(current.id, agedTab.windowId);
     });
-  }, FS_TRANSIT.TRANSIT_MS);
+  }, TRANSIT_MS);
 }
 
 async function finalizeCurrent(endReason) {
@@ -220,7 +224,7 @@ async function finalizeCurrent(endReason) {
   // first qualifying signal, so judge NOW with full evidence (final duration,
   // lastKeyGapMs) — a session the dashboard will reject keeps no picture.
   // The session itself stays stored for audit; only its snapshot artifacts go.
-  if (session.snapped && FS_TRANSIT.isTransit(session)) {
+  if (session.snapped && isTransit(session)) {
     await chrome.storage.local.remove(["snap:" + session.id, "snapErr:" + session.id]);
     log("transit session, snapshot deleted", session.url);
   }
@@ -228,7 +232,7 @@ async function finalizeCurrent(endReason) {
   // Page text (stage 1, 2026-08-07): stored inline on the session (unlike
   // snapshots, no separate key/tooltip-avoidance reason to segregate it), so
   // a transit-rejected session just drops the field before it's ever stored.
-  if (session.pageText && FS_TRANSIT.isTransit(session)) {
+  if (session.pageText && isTransit(session)) {
     delete session.pageText;
     log("transit session, page text discarded", session.url);
   }
@@ -983,8 +987,41 @@ chrome.action.onClicked.addListener(() => {
 // only ever shows its own window's tabs.
 // ---------------------------------------------------------------------------
 
-function toStripTab(tab) {
-  return { id: tab.id, title: tab.title || "", favIconUrl: tab.favIconUrl || "", url: tab.url || "", active: !!tab.active };
+// Tile label = the same short site name the dashboard's timeline shows
+// (shared/utility.js computeHostNames, reused live rather than forked —
+// spec §7, 2026-08-21). Falls back to the bare hostname for a tab with no
+// admitted history yet (freshly opened site, or a host computeHostNames
+// found no confident name for). Cached rather than recomputed per broadcast
+// — ~1700+ stored sessions is real work, and every tab event in a window
+// would otherwise redo it. Invalidated on any write to storage.local's
+// "sessions" key (chrome.storage.onChanged) and lazily rebuilt on next use.
+let hostNamesCache = null;
+async function getHostNames() {
+  if (hostNamesCache) return hostNamesCache;
+  const { sessions = [] } = await chrome.storage.local.get("sessions");
+  hostNamesCache = computeHostNames(sessions, isTransit);
+  return hostNamesCache;
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && "sessions" in changes) hostNamesCache = null;
+});
+
+function labelFor(tab, hostNames) {
+  const host = hostOf({ url: tab.url || "" });
+  if (!host) return tab.title || tab.url || "";
+  const name = hostNames.get(labelKeyOf(host, tab.url || ""));
+  return name || host;
+}
+
+function toStripTab(tab, hostNames) {
+  return {
+    id: tab.id,
+    title: tab.title || "",
+    label: labelFor(tab, hostNames),
+    favIconUrl: tab.favIconUrl || "",
+    url: tab.url || "",
+    active: !!tab.active,
+  };
 }
 
 // Event-driven, no polling (spec §7 data-flow rule) — every trigger below
@@ -995,8 +1032,8 @@ function toStripTab(tab) {
 // that tab has no strip to update anyway.
 async function broadcastTabsForWindow(windowId) {
   if (windowId == null || windowId === chrome.windows.WINDOW_ID_NONE) return;
-  const tabs = await chrome.tabs.query({ windowId });
-  const payload = { type: "FS_TABS_UPDATE", tabs: tabs.map(toStripTab) };
+  const [tabs, hostNames] = await Promise.all([chrome.tabs.query({ windowId }), getHostNames()]);
+  const payload = { type: "FS_TABS_UPDATE", tabs: tabs.map((t) => toStripTab(t, hostNames)) };
   await Promise.all(
     tabs.map((t) => (t.id == null ? null : chrome.tabs.sendMessage(t.id, payload).catch(() => {})))
   );
@@ -1029,8 +1066,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // event. sender.tab is set because switcher.js only ever runs in a real
   // tab's top frame.
   if (sender.tab?.windowId == null) return;
-  chrome.tabs.query({ windowId: sender.tab.windowId }).then((tabs) => {
-    sendResponse({ type: "FS_TABS_UPDATE", tabs: tabs.map(toStripTab) });
+  Promise.all([chrome.tabs.query({ windowId: sender.tab.windowId }), getHostNames()]).then(([tabs, hostNames]) => {
+    sendResponse({ type: "FS_TABS_UPDATE", tabs: tabs.map((t) => toStripTab(t, hostNames)) });
   });
   return true; // keep the message channel open for the async sendResponse
 });
@@ -1047,5 +1084,23 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
     await chrome.tabs.update(msg.tabId, { active: true });
     await chrome.windows.update(tab.windowId, { focused: true });
+  });
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type !== "FS_CLOSE_TAB" || typeof msg.tabId !== "number") return;
+  // Same pattern as FS_SWITCH_TAB above — the strip never calls chrome.tabs.*
+  // itself. chrome.tabs.onRemoved (already wired below) does the rest: it
+  // fires for this close exactly as it would for a native Chrome tab close,
+  // and broadcastTabsForWindow re-syncs every other strip in the window.
+  enqueue("switcher: FS_CLOSE_TAB", async () => {
+    const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
+    if (!tab) {
+      log("close requested for already-gone tab", msg.tabId);
+      return;
+    }
+    await chrome.tabs.remove(msg.tabId).catch((e) => {
+      log("close failed for tab", msg.tabId, e.message);
+    });
   });
 });

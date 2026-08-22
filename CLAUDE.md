@@ -45,7 +45,10 @@ checklist at the top of `HISTORY.md` before appending there.
 - Files: `manifest.json`, `background.js` (service worker), `content.js`,
   `dashboard/` (full-tab UI; `timeline.js` is the primary view's pipeline),
   `shared/` (code loaded by both worker and dashboard — `transit.js` holds
-  `FS_TRANSIT`, the transit predicate + knobs).
+  `FS_TRANSIT`, the transit predicate + knobs; `utility.js` holds other
+  cross-boundary pure functions, e.g. site-name derivation). `background.js`
+  is a module worker (`"type": "module"`, manifest.json) so it can import
+  `shared/` directly.
 - **Logging convention (keep it):** liberal `console.log` with prefixes — `[FS bg]`,
   `[FS content]`, `[FS dash]`, `[FS timeline]` — so consoles are filterable. Log every
   lifecycle transition, heartbeat, and quiet window.

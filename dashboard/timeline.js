@@ -1475,7 +1475,7 @@ import {
     // On-block labels are retired in favor of favicons (spec §6,
     // 2026-08-07) — computeHostNames now serves the tooltip's site name
     // only; the label-rendering pass itself is gone.
-    const hostNames = computeHostNames(sessions);
+    const hostNames = computeHostNames(sessions, isTransit);
     renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions, viewDayStart));
     lastAssembly = { sessions, dayThreads, hostNames, events };

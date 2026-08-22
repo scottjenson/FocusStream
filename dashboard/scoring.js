@@ -90,13 +90,10 @@ export const bandFor = (score) =>
 
 // "www." is scan noise — stripped BEFORE hashing/grouping, so www and
 // naked variants share one identity (color, runs, labels).
-export function hostOf(s) {
-  try {
-    return new URL(s.url).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
+// Moved to shared/utility.js (2026-08-21, live tab-strip label reuse) —
+// re-exported here so every existing `import { hostOf } from "./scoring.js"`
+// site keeps working unchanged.
+export { hostOf } from "../shared/utility.js";
 
 export function fmtDuration(ms) {
   const secs = Math.round(ms / 1000);

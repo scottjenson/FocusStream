@@ -141,3 +141,152 @@ This also reverses this file's own "Rejected alternatives" entry above
 (overlay rejected in favor of push-down) — recorded there as the original
 decision with its original reasoning, not rewritten, per this file's own
 append-only convention; this entry is the supersession.
+
+## Navigation-flash structural limit (2026-08-21, discussed before the build)
+
+Before writing any code, discussed whether Phase 1 could plausibly "feel
+native" — the explicit goal going in. Conclusion: **not fully, and that's
+worth stating plainly rather than discovering later.**
+
+A real browser tab bar lives in browser chrome, outside the page,
+persistent no matter what the page does. `switcher.js` is a content-script
+injection into the page's own DOM. Chrome does a full document
+reload/replace on any real navigation — the old document, including our
+shadow-DOM strip, is destroyed; the new document gets a fresh injection
+and mount from scratch. This isn't limited to using the strip to switch
+tabs (which doesn't reload anything — `chrome.tabs.update` just changes
+which already-rendered tab is frontmost, confirmed working). It applies to
+**ordinary browsing** — clicking any normal link on the current page
+rebuilds the strip too, something a real tab bar never does.
+
+**What's achievable vs. not, broken down at the time:**
+* Tile-click tab switching (already-open tab, already has a mounted
+  strip): genuinely instant, no redraw — this part fully works.
+* Two real exceptions even there: a Chrome-discarded/backgrounded tab
+  forces a real reload on activation (Chrome's own memory-management
+  behavior, not something we can prevent); a tab with no content script
+  (`chrome://`, Web Store, PDFs in some configs, tabs older than the
+  extension's load) shows no strip at all.
+* Ordinary navigation (link clicks): structural flash/rebuild, not fixable
+  from a content script. Mitigation identified but not built for Phase 1:
+  inject at `document_start` with a synchronous placeholder shell
+  (reserve the space before first paint) rather than `document_idle`,
+  then hydrate with real data once the background responds — makes the
+  rebuild look closer to invisible without eliminating it. Tracked,
+  deferred: `WATCHLIST.md` "switcher-navigation-flash".
+
+Considered and rejected as an alternative that would avoid this
+altogether: `chrome.sidePanel` (browser-chrome-level, no page injection,
+so no rebuild-on-navigation at all). Rejected the same day, separately,
+for the fixed-root placement bug (see above) — its width is
+user-draggable, not programmatically controllable, which independently
+rules it out for the two-size (strip / full card view) requirement from
+the original design discussion, regardless of this flash question.
+
+## Close box + cross-window sync (2026-08-21)
+
+User asked for a real close box on each tile (matching Chrome's own tab
+`×`) and specifically wanted to confirm closing wouldn't desync the strips
+in other tabs. Discussed before coding, per the standing discuss-first
+rule (spec-first was explicitly waived for this one — see "spec-before-code
+scope" below).
+
+**Finding: no new synchronization problem exists.** `background.js`
+already listens to `chrome.tabs.onRemoved` for *every* close regardless of
+origin (Cmd-W, Chrome's own `×`, another extension, `chrome.tabs.remove`
+from anywhere) and re-broadcasts the window's tab list to every strip
+(`broadcastTabsForWindow`, pre-existing from Phase 1). Adding a close box
+is therefore symmetric to the already-built `FS_SWITCH_TAB` path: the tile
+posts `{type:'FS_CLOSE_TAB', tabId}`, the background calls
+`chrome.tabs.remove()`, and the existing `onRemoved` → broadcast path does
+the rest. Verified this reasoning applies to the native Cmd-W shortcut too
+— it's handled entirely by Chrome before any extension code runs, and
+converges on the same `onRemoved` event as every other close path.
+
+**Rejected:** optimistic local tile removal (having the clicked tile
+disappear immediately, before the broadcast round-trips). Would add
+per-tile local state and a reconciliation edge case (what if the broadcast
+disagrees) for no real latency win — a native Chrome tab close isn't
+instant either, and the round trip here is fast. Kept the strip a pure
+re-render off the one broadcast, no exceptions.
+
+**Built:** `FS_CLOSE_TAB` message handler in `background.js` (mirrors
+`FS_SWITCH_TAB`: validates the tab still exists before calling
+`chrome.tabs.remove`, since a double-click or already-gone tab must not
+throw). Hover-revealed `×` per tile in `switcher.js`, `stopPropagation`
+so the close click doesn't also fire the tile's switch-tab handler.
+
+## Live labels: promoting siteNameOf out of the dashboard (2026-08-21)
+
+User wanted tiles to show the same short site name (`Gmail`, `Google
+Voice`) the historical dashboard already derives via `dashboard/
+assembly.js`'s `siteNameOf`/`computeHostNames`, instead of the raw
+(long, truncated) `document.title`.
+
+**The real obstacle wasn't fetching the name — it was the wall between
+capture and display.** `computeHostNames` is a majority-vote algorithm
+over a *week* of stored titles per host; the live strip has one title,
+right now, no history — not a call-through, a genuine cross-boundary
+reuse question. And the function lived in `dashboard/assembly.js`, an ES
+module, while `background.js` was a classic `importScripts`-based service
+worker — the two module systems don't compose, so nothing in `dashboard/`
+was reachable from the worker at all before this.
+
+**Discussed as a standing pattern, not a one-off fix** (user's framing):
+now that the tab strip is a genuine third pillar living in the worker
+(spec §7) but wanting the same "given raw session data, derive a display
+fact" logic the dashboard already has, this class of function is expected
+to recur — score bands, transit filtering, site naming are all the same
+shape. Decided to promote such functions into `shared/` (already home to
+`transit.js`, the transit predicate) as real ES exports, rather than
+fork/duplicate per occurrence.
+
+**File shape, explicitly decided:** one `shared/utility.js` for all such
+functions (not one file per function, not a `naming.js`-style split by
+topic) — the traffic across this boundary is new and its eventual shape
+isn't known yet, so a single grab-bag file was chosen deliberately over
+guessing a taxonomy upfront. **Agreed split trigger:** not a line count —
+revisit (split into focused files) once the file holds **3+ genuinely
+unrelated concerns**. Today it holds exactly one (site naming), moved
+from `dashboard/assembly.js`: `hostOf`, `labelKeyOf`, `siteNameOf`,
+`computeHostNames`. `dashboard/assembly.js` and `dashboard/scoring.js`
+now re-export from `shared/utility.js` so every existing dashboard import
+site is unchanged.
+
+**Enabling change: `background.js` became a module worker**
+(`"type": "module"`, `manifest.json`), replacing `importScripts` with a
+real `import` — required for any `shared/` ES-module reuse, not just this
+one function. Checked first (per discuss-before-coding) for anything
+relying on classic-worker semantics: only one `importScripts` call
+existed (`shared/transit.js`) and no `self.`/global-scope tricks
+elsewhere in the file — clear to convert. `shared/transit.js` gained real
+`export`s alongside its existing `globalThis.FS_TRANSIT` assignment (kept
+for the dashboard's plain-`<script>` loading path, untouched).
+**Flagged, not yet independently verified:** module service workers can
+behave differently on wake-from-idle timing in some Chrome versions vs.
+classic workers — a real risk for an extension whose whole job is
+reliable event capture; noted as something to watch under real use rather
+than something this change proves safe.
+
+**Signature change:** `computeHostNames(sessions, isTransit)` now takes
+`isTransit` as an explicit parameter instead of closing over the
+`FS_TRANSIT` global — `shared/` code shouldn't assume either side's
+loading convention. `dashboard/timeline.js`'s one call site updated to
+pass its own `isTransit` through.
+
+**Perf:** the name map is real work over 1700+ stored sessions, so
+`background.js` caches it (`hostNamesCache`) rather than recomputing per
+broadcast, invalidated via `chrome.storage.onChanged` on the `sessions`
+key and rebuilt lazily on next use. A tab/host with no confident name
+(fresh host, no admitted history yet) falls back to the bare hostname in
+`switcher.js`'s tile.
+
+## Spec-before-code scope, clarified (2026-08-21)
+
+User revised the standing "spec before code" workflow rule mid-session:
+it's for early-stage/foundational design, not for small, scoped fixes —
+those go straight to code, since spec-first on a small change often
+surfaces problems that force re-specing anyway. Both changes in this
+entry (close box, live labels) were built directly, discussed inline
+rather than pre-specced, with this file and `spec/tabmanager.md` updated
+afterward once the shape was actually known.
