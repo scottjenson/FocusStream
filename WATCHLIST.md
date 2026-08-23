@@ -292,3 +292,23 @@ labels"; the watch no longer describes current behavior.)
   containers), that's the signal to stop patching with more passes and
   make assembly genuinely recursive with a threshold that scales with
   assembly depth, not add a third hardcoded pass.
+- **eviction-fallback-tedium (2026-08-23):** Phase 3's auto-close is
+  licensed by "lightweight opinion + fallback" — the system is *allowed* to
+  be wrong about importance because browsing the blocks is always the
+  recovery path (full reasoning: `decisions/tabmanager.md`, "Lightweight
+  opinion + fallback"). So the concern is NOT that score correlates poorly
+  with what you wanted back; that's expected and priced in. The concern is
+  that the recovery path is too tedious to actually use, which is the one
+  thing that would make being wrong expensive instead of cheap. Sharpened
+  by the fact that the opinion and the fallback share one surface: hunting
+  a demoted tab means searching a view that rendered it small *because* the
+  system was wrong about it. Watch for: wanting a closed tab back and
+  finding the hunt tedious — too much zooming/scrolling, or needing to
+  already know roughly when it happened to find it at all (Scott's
+  specimen: Google Keep, a thin sliver four hours back). The bar to hold
+  the design to is that a low-scored sliver stays findable *without*
+  knowing its time. Planned response if it fires: it's a browsing problem,
+  so the answer is in navigation (cross-day, overview/scan affordances,
+  possibly search as a second channel) — not in retuning the score, which
+  is not the thing that failed. Blocking: no `chrome.tabs.remove()` should
+  ship until retrieval has been exercised by hand on a real day's history.

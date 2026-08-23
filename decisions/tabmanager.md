@@ -59,6 +59,9 @@ separate go/no-go decision rather than one committed build:
    its capture). Undesigned in detail; when it's picked up, the question
    raised in Phase 1 planning — dry-run/log-only first vs. live from day
    one — needs a real answer before any `chrome.tabs.remove()` call ships.
+   **The load-bearing premise is stated under "What licenses aggressive
+   eviction" below** — the ribbon is not a nice-to-have visualization of
+   this phase, it is the precondition for it.
 4. **Active→historical reconciliation:** how a tab closed by eviction (or
    just closed normally) folds into the existing container/thread
    assembly in the historical ribbon (§6) — e.g. does closing an actively-
@@ -1336,3 +1339,67 @@ also means low zoom is *not* linear in time; zooming in makes the layout
 more honestly proportional, not just bigger, so there is little reason to
 cap it early. Left at 16 to watch rather than 24, per the project's
 one-knob-at-a-time rule.
+
+---
+
+## Lightweight opinion + fallback: what licenses aggressive eviction (stated 2026-08-23)
+
+Context captured mid-Phase-2, while working on ribbon zoom, because it is
+the reason the zoom/exploration work matters at all and it was not written
+down anywhere. Scott's framing, and it is the fundamental building block
+of the whole project, not just Phase 3.
+
+**The structure: a lightweight opinion with a fallback.** The system takes
+strongly opinionated positions — it closes tabs, promotes some things as
+important, demotes others — because "there is a good probability that most
+of the time it will be right." It is explicitly permitted to be wrong. What
+makes that acceptable is not accuracy; it is that **the fallback is always
+to let the user browse the blocks themselves.** Opinionated by default,
+recoverable by design.
+
+**This is why the correlation is NOT the load-bearing part.** An earlier
+draft of this section had it backwards: it treated "score/height predicts
+what you'll want back" as the thesis, with a poor correlation falsifying
+the design. That is the wrong bet, and a worse one — it would require a
+proxy to be accurate. The real bet is weaker and sturdier: attention time
+only has to be right often *enough* for the opinion to be useful, because
+browsing absorbs the rest. A closed tab that is genuinely wanted but
+renders as a narrow, low block is an *expected* outcome, priced in from
+the start, not a failure.
+
+**So the failure condition is tedium, not inaccuracy.** Scott: "if it is
+too difficult for the user to browse and too tedious to find a tab, well
+then we will have failed." That is a usability question, answerable only
+by browsing real history — which makes the exploration work (zoom,
+scrolling, cross-day) the actual risk-reduction for Phase 3, not polish
+alongside it. Ribbon quality gates eviction.
+
+**The sharp edge this framing exposes: the opinion and the fallback share
+one surface.** The ribbon both expresses the opinion (tall = important) and
+serves as the recovery path when the opinion is wrong. So when the user is
+hunting a tab the system demoted, they are searching a view whose visual
+hierarchy is working against them — the thing they want is small precisely
+*because* the system was wrong about it. This does not break the design,
+but it raises the bar for what "browsing works" has to mean. Not "the
+ribbon exists," but something closer to: **a low-scored sliver is findable
+without already knowing when it happened.** Treat that as a design
+constraint on strip overflow and cross-day navigation, not a later
+refinement. Scott's own specimen for it: Google Keep, closed for disuse,
+now a thin sliver four hours back.
+
+**Pinned tabs are exempt, and the exemption is principled.** Users pin
+precisely because they want a tab present regardless of how long since
+they used it. That is the user explicitly declaring importance through a
+channel telemetry cannot infer — elapsed attention says nothing about it.
+So pinned tabs are never evicted and never scored. Already reflected in
+the built strip (icon-only, Chrome-order-first, unscored, §7c); recorded
+here because the *reason* it is a permanent carve-out, rather than a
+display convention, was not written down.
+
+**Open question, cheap to note now and expensive later: system-closed vs.
+user-closed is not currently a distinguishable fact.** A tab the user
+deliberately dismissed and a tab the system evicted arguably deserve
+different retrieval guarantees — the system took the action, so it owes a
+stronger one back. The data model has no such flag today. Not to be solved
+now, but Phase 3's design should decide it deliberately rather than
+inherit "indistinguishable" by default.
