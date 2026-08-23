@@ -540,3 +540,68 @@ whatever it scored — but hold `MIN_W` while exempt, not more. Marking a
 block as open is a VISUAL job (the `.open-tab` class), not a geometric one;
 the visual treatment that replaces the width cue is not yet designed and is
 tied to the pending strip→ribbon animation rework.
+
+## 7f. Open-tab marking + score-based eviction (design 2026-08-23, NOT BUILT)
+
+Proposal, not current truth — nothing in this section is implemented. It
+resolves the gap left by `OPEN_TAB_MIN_W`'s retirement (§7e), which removed
+the width cue marking a block as open and deliberately left no replacement.
+
+**Open blocks are marked by SHAPE, not colour: rounded top corners, so they
+read as tabs.** The requirement it satisfies is persistence, not transition
+— Scott: "zoom all the way out for seven days and zoom back in again, you
+still have a representation of 'oh yeah, these are the tabs that are
+currently open'." A static mark survives zoom, scroll, and day loading; an
+animation fires once and is gone.
+
+Shape is chosen because the ribbon's other channels are already committed:
+fill and rim luminance carry importance (§6), and rim specifically has been
+burned once — earned-HIGH's muted gold (`EARNED_RIM`, 2026-08-08) was
+dropped because "the gold read as an unexplained extra difference rather
+than a helpful one," which is precisely the failure mode a second colour
+here would risk. Shape is unused, instantly legible as "tab," and composes
+with any fill or rim a block already carries, so a block can be important,
+earned-HIGH, and open at once with no channel collision.
+
+The same shape applies in both states: strip items look like tabs (which
+they are), and ribbon blocks for currently-open tabs carry it too. That
+shared mark is what ties the two views together.
+
+**The height animation stays; per-item motion is retired.** Expand/collapse
+still animates vertically — the strip grows into the ribbon ("it's simply a
+matter of height"). What is retired is any attempt to travel a strip tile to
+its corresponding ribbon block: strip order is Chrome's (categorical) and
+ribbon order is time, so tiles and blocks do not correspond positionally,
+and an open tab outside the ribbon's current window has no destination at
+all (§7b intersection-only). **The container animates, the items do not** —
+the height reveal carries the transition, the shape marking carries the
+identification. Not rejected on principle; revisit only if the ordering
+mismatch itself changes.
+
+**Eviction drops the LOWEST-SCORING open tab, not the rightmost.** Strip
+capacity as the policy ("anything that doesn't fit is dropped") was
+considered and rejected: Chrome places newly-opened tabs at the right end,
+so the strip's tail is the *newest* tab, making capacity-eviction close to
+backwards. Score is already computed for band/height, so this adds no new
+machinery — the same signal, used for a decision instead of a rendering.
+Accepted trade, in Scott's words: "it is not from the user's point of view
+visually deterministic... however, if we do our job correctly, it will feel
+like the right one." Pinned tabs stay exempt (§7c).
+
+**The strip keeps showing the last auto-closed tab — one grace slot.** The
+deliberate "right kind of lie": the most recently evicted tab remains listed
+even though it is closed, so the thing the system just took is the thing
+most easily recovered. It self-clears — ignore it and the next eviction
+replaces it — so there is no decay logic, no timer, and no third visual
+state.
+
+**A closed tab is ordinary history, everywhere else.** No "recently closed"
+styling, no resurrection state. It simply stops being open, loses the tab
+shape on the next paint, and is a normal historical block. This is what
+keeps the design from growing a third state: closing is not a transition to
+be represented, it is a return to the default.
+
+**Open question:** whether the grace-slot entry carries the tab shape like
+the rest of the strip. Same-as-others is simplest and consistent with "strip
+items look like tabs"; distinguishing it reintroduces the extra state this
+design is avoiding.

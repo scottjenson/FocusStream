@@ -317,6 +317,22 @@ terse — write the entry there, then come back and add the one-line pointer.
   replaced by zoom-back in the overlay, and flags the strip→ribbon animation
   rework, which now also owns the open-tab visual cue that
   `OPEN_TAB_MIN_W`'s retirement removed.
+- **2026-08-23 (design only, NOT BUILT): §7f open-tab marking + score-based
+  eviction** — spec §7f; `decisions/tabmanager.md` ("Marking open tabs:
+  shape, not colour"). Closes the cue gap left by `OPEN_TAB_MIN_W`'s
+  retirement. Open blocks get rounded top corners so they read as tabs —
+  shape rather than colour, because fill/rim already carry importance and
+  gold was tried for exactly this kind of second fact in earned-HIGH
+  (2026-08-08) and reverted as "an unexplained extra difference." The
+  requirement is persistence (survive a zoom out to 7 days and back), which
+  a static mark meets and an animation cannot. Height animation stays;
+  per-item strip→ribbon motion is retired as ill-defined (no positional
+  mapping between Chrome order and time order), revisitable only if that
+  changes. Eviction drops the lowest-scoring open tab, not the rightmost —
+  Chrome puts the newest tab at the right end, so capacity-as-policy would
+  have been backwards. The strip keeps one grace slot showing the last
+  auto-closed tab; a closed tab is otherwise just ordinary history, which is
+  what keeps a third visual state from being needed.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

@@ -1740,3 +1740,90 @@ legible as one object.
 
 Not designed, deliberately. Noting only that the two questions are one
 question, and that `.open-tab` (set in `paint()`) is the existing hook.
+
+---
+
+## Marking open tabs: shape, not colour; and eviction by score (2026-08-23, designed not built)
+
+Follows `OPEN_TAB_MIN_W`'s retirement, which removed the only cue marking a
+block as open and left the gap deliberately. Design session, no code. Spec
+§7f carries the resulting rules; this is the reasoning and the alternatives
+that lost.
+
+**The problem is a bridge between two genuinely different orderings.** The
+strip is ~10 items in Chrome order — for pinned tabs, an order the user
+chose for their own retrieval, with no relation to history. The ribbon is 12+
+items (many more zoomed out) in time order. Scott's example: a pinned Gmail
+at strip position 1 might not appear in the ribbon's first two days at all.
+Pinned tabs are acting as bookmarks, and "they may not be historically
+valid." No positional mapping exists between the two views, which is why
+per-item animation is not merely hard but ill-defined.
+
+**Colour was proposed first, as a replacement for the animation** ("it could
+be as dumb as just making them appear dark blue"), then reconsidered in
+favour of shape. The decisive evidence was already in the tree: earned-HIGH
+shipped a muted gold rim on 2026-08-08 for exactly this kind of second,
+orthogonal fact, and it was reverted — `EARNED_RIM` is now literally
+`HIGH_RIM`, with the note "the gold read as an unexplained extra difference
+rather than a helpful one." Scott remembered this and was right to be wary;
+I initially mis-read the code as still shipping gold and had to correct
+myself against line 506. A second colour here would have been the same
+experiment with the same likely result.
+
+**Shape is the free channel.** Fill and rim luminance encode importance (§6)
+and rim additionally carries earned-HIGH's thicker treatment. Rounded top
+corners are unused, read instantly as "tab," and compose with everything —
+a block can be important, earned-HIGH, and open simultaneously with no
+interference. Scott's framing of why the orthogonality is acceptable rather
+than a smell: "it is a bridge between these two worlds, and almost by
+definition, it is going to feel orthogonal. So I can live with that."
+
+**The requirement is persistence, not transition,** and this is what
+finally settles the animation question. Scott: "zoom all the way out for
+seven days and zoom back in again, you still have a representation of 'oh
+yeah, these are the tabs that are currently open'." An animation fires once
+at expand and is gone; a static mark survives zoom, scroll, and day loading.
+So the marking is not a consolation prize for a failed animation — it is
+strictly better for the actual need.
+
+**Height animation stays; per-item motion is retired.** Clarified by Scott
+directly: "the height animation should still be there... but there will be
+no animation to line up the strip view tabs to the ribbon view blocks."
+Splitting these was clarifying — previously one mechanism was implicitly
+responsible for both "something is happening" and "these are your tabs."
+Now the container animates and the items do not: height carries the
+transition, shape carries the identification. Explicitly revisitable, but
+only if the ordering mismatch changes.
+
+**Eviction: Scott corrected his own proposal mid-discussion.** The first
+idea was capacity-as-policy — whatever does not fit in the strip gets
+closed — which is appealingly simple and self-limiting, with no threshold to
+tune. The flaw he then identified himself: Chrome puts newly-opened tabs at
+the right end, so "the downside with getting rid of the strip on the end is
+that that is always the most recently used tab, so it is likely the tab that
+you really do not want to [close]." Score-based eviction fixes it and adds
+no machinery, since score already drives band/height. The accepted cost is
+predictability: "it is not from the user's point of view visually
+deterministic... however, if we do our job correctly, it will feel like the
+right one" — which is the product thesis (opinionated, usually right,
+recoverable) applied to a single decision.
+
+**The grace slot: "the right kind of lie."** The strip keeps listing the
+most recently auto-closed tab even though it is closed. Scott: "it sounds
+wrong on paper, but I feel like it might end up winning by keeping it much
+simpler. We're not inventing a new colour marking system. And if the user
+really doesn't care about it, they'll ignore it, and then the next time they
+open the ribbon, it'll just naturally go away." Its strongest property is
+self-clearing — no decay logic, no timer, no third visual state — and it
+puts the thing the system just took in the place it is most easily
+recovered, which is exactly where the eviction safety net is under most
+load.
+
+**What made the whole design collapse to something simple:** a closed tab is
+just history. Not a resurrection, not a "recently closed" state — it stops
+being open, loses the shape on the next paint, and is an ordinary
+historical block. An earlier draft of this discussion was heading toward a
+third visual state for recently-evicted tabs; Scott's clarification ("it
+really is exactly the same in every way, it just doesn't show up in the
+strip") removed the need entirely. Closing is not a transition to represent;
+it is a return to the default.
