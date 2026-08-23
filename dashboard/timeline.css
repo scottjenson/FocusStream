@@ -199,6 +199,62 @@
     /* Sub-MIN_W LOW blocks at low zoom (spec §7e): present so nothing ever
        silently vanishes, but too narrow to be a real hover target. */
     .blk.inert { pointer-events: none; }
+    /* Currently-open tabs (spec §7f, 2026-08-23): marked by SHAPE — rounded
+       top corners, square bottom, so the block reads as a tab. Shape because
+       the other channels are taken: fill/rim luminance carry importance (§6),
+       and a second COLOUR was tried for exactly this kind of orthogonal fact
+       (earned-HIGH's gold rim, 2026-08-08) and reverted as "an unexplained
+       extra difference". Shape composes with any fill/rim a block already
+       has, so open + important + earned-HIGH can all show at once. Persists
+       at every zoom, which is the actual requirement — it replaces the
+       retired per-item strip→ribbon animation rather than compensating for
+       it (an animation fires once; this survives zoom, scroll, day loading).
+       Sits in both states: strip tiles ARE tabs, ribbon blocks show which
+       history is still open.
+
+       The rim is set here with !important because paint() inline-writes
+       borderColor from TIER_RIM every repaint, and the tier rims for LOW/
+       MEDIUM sit so close to their own fills that a rounded edge had nothing
+       visible to round (first cut shipped shape alone and was invisible in
+       both views). Shape still does the identifying; this just gives the
+       shape an edge to be seen against. */
+    .blk.open-tab {
+      border-radius: 8px 8px 0 0;
+      border-color: rgba(255,255,255,0.85) !important;
+      border-bottom-color: transparent !important;
+    }
+    /* Strip tiles centre their contents vertically (2026-08-23). The base
+       rules anchor favicon/label at top:4px, which is right for a tiered
+       block (content hugs the top of a variable-height bar) but leaves a
+       30px STRIP_TILE_H tile visibly top-heavy. (30 - 16) / 2 = 7. */
+    #ribbon.uniform-height .blk .fav,
+    #ribbon.uniform-height .blk .blk-label { top: 7px; }
+    /* Reserve the close box's lane so a long label ellipsises before it
+       rather than running underneath. */
+    #ribbon.uniform-height .blk .blk-label { right: 22px; }
+    /* Close box (restored 2026-08-23). Existed as .fs-close on the pre-
+       unification .fs-tab tiles and was lost as collateral when Phase 2
+       replaced that DOM with shared .blk blocks — the FS_CLOSE_TAB handler
+       in background.js never went away. Strip only: closing a historical
+       block is meaningless. Hidden until the tile is hovered, matching
+       Chrome's own tab close box. */
+    .blk-close {
+      display: none;
+      position: absolute;
+      top: 7px;
+      right: 4px;
+      width: 16px;
+      height: 16px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    #ribbon.uniform-height .blk:hover .blk-close { display: flex; }
+    .blk-close:hover { background: rgba(255, 255, 255, 0.22); }
     /* Contained children (spec §6, 2026-07-17): cut out of the container's
        solid interior by a page-background seam — the container itself paints
        like any other HIGH block. Border narrowed 2px -> 1px (2026-08-02) to

@@ -2533,6 +2533,45 @@ import {
       if (el._labelEl.textContent !== text) el._labelEl.textContent = text;
     }
 
+    // Close box (restored 2026-08-23, spec §7c): a hover-revealed × per strip
+    // tile, matching Chrome's own. Existed as .fs-close on the pre-
+    // unification .fs-tab tiles and was lost as collateral when Phase 2
+    // replaced that DOM with shared .blk blocks — background.js's
+    // FS_CLOSE_TAB handler never went away, so this only restores the UI.
+    // Strip only (closing a historical block is meaningless), and never on
+    // pinned tabs: real Chrome doesn't offer a close box on those either.
+    // No onRemoved plumbing needed — the background broadcast already
+    // re-syncs every strip in the window on any close, from any source.
+    for (const s of segs) {
+      const el = blockEls.get(s.key);
+      if (!el) continue;
+      const wants = heightMode === "uniform" && s.e.isOpenTab && !s.e.pinned && s.e.openTabId != null;
+      if (!wants) {
+        if (el._closeEl) {
+          el._closeEl.remove();
+          el._closeEl = null;
+        }
+        continue;
+      }
+      if (!el._closeEl) {
+        const x = document.createElement("span");
+        x.className = "blk-close";
+        x.textContent = "×";
+        x.title = "Close tab";
+        // Stops the click reaching .blk's own switch-to-tab handler.
+        x.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          chrome.runtime
+            .sendMessage({ type: "FS_CLOSE_TAB", tabId: x._tabId })
+            .catch((err) => log("close request failed:", err?.message));
+        });
+        el.appendChild(x);
+        el._closeEl = x;
+      }
+      el._closeEl._tabId = s.e.openTabId;
+    }
+
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
 
     // Capacity check LAST, once the real laid-out total is known and the DOM

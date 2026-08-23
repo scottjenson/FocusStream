@@ -1827,3 +1827,63 @@ third visual state for recently-evicted tabs; Scott's clarification ("it
 really is exactly the same in every way, it just doesn't show up in the
 strip") removed the need entirely. Closing is not a transition to represent;
 it is a return to the default.
+
+---
+
+## Building §7f's marking: shape needed an edge, and a lost close box (2026-08-23)
+
+Implementation notes on §7f's marking half. The eviction half was
+deliberately NOT built — it is Phase 3, and two standing constraints block
+it (the dry-run-vs-live question in the roadmap entry, and
+`eviction-fallback-tedium`'s "no `chrome.tabs.remove()` until retrieval has
+been exercised by hand"). Building the grace slot would also have required
+inventing eviction to feed it, so §7f split cleanly along that line.
+
+**The design was wrong in one specific way, and building it found it
+immediately: shape alone is invisible.** The first cut shipped
+`border-radius: 7px 7px 0 0` on `.blk.open-tab` and showed nothing at all —
+in either view. Not a class bug, not a stylesheet-loading bug (both checked
+first): `paint()` inline-writes `borderColor` from `TIER_RIM[band]` on every
+repaint, and the LOW/MEDIUM rims sit very close to their own fills. There
+was a correctly-rounded border with nothing visible to round.
+
+The fix keeps the argument for shape intact while admitting the gap: open
+blocks take a high-contrast rim (`rgba(255,255,255,0.85)`, `!important` to
+beat the inline write) with a transparent bottom so the tab sits on the
+baseline. **Shape still does the identifying — the rim only gives the shape
+an edge to be seen against.** Worth recording as a general trap on this
+ribbon: any purely-geometric marking has to survive `paint()`'s inline
+colour writes, and "the border is already there" is not the same as "the
+border is visible."
+
+**The close box had been silently missing since 2026-08-22.** Scott noticed
+it while checking the tab shape: hovering a strip tile no longer offered an
+`×`. `git log -S` located it precisely — added in `0e06334`, removed in
+`de076eb` (the Phase 2 unification). Not a deliberate removal: it lived as
+`.fs-close` on the `.fs-tab` tile DOM, and Phase 2 replaced that whole DOM
+with shared `.blk` blocks. The `FS_CLOSE_TAB` handler in `background.js` was
+never touched and had been working the entire time — only the UI half went
+missing.
+
+Rebuilt as `.blk-close` in `paint()`'s own pass, following the same
+create-once/update idiom as the favicon and label passes. Strip-only, and
+never on pinned tabs (real Chrome offers no close box there either, and a
+30px icon-only tile has no room). No new synchronisation: `onRemoved`
+already fires for a close from any source and the existing per-window
+broadcast re-syncs every strip, exactly as §7 documented.
+
+**The spec drift is the more interesting failure.** §7 documented the close
+box as a current, working feature for a full day after it stopped existing,
+because the unification rewrote the DOM it depended on without anything
+flagging the dependency. Nothing in the process catches this class of
+regression — a feature described in one section, implemented in machinery a
+later section replaces. No process change proposed; noting it because
+"the spec says it works" was not evidence here, and a second instance would
+justify one.
+
+**Also fixed, cosmetic:** strip tiles centred their contents vertically
+(`top: 4px` -> `top: 7px` in uniform mode only; `(30 - 16) / 2`). The base
+rules anchor favicon/label to the top, which is right for a variable-height
+tiered block and visibly top-heavy on a fixed 30px tile. The label reserves
+the close box's lane (`right: 22px`) so long names ellipsise instead of
+running underneath it.

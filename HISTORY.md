@@ -333,6 +333,22 @@ terse — write the entry there, then come back and add the one-line pointer.
   have been backwards. The strip keeps one grace slot showing the last
   auto-closed tab; a closed tab is otherwise just ordinary history, which is
   what keeps a third visual state from being needed.
+- **2026-08-23: §7f marking BUILT (eviction still not)** — spec §7/§7f;
+  `decisions/tabmanager.md` ("Building §7f's marking"). Open blocks now carry
+  the tab shape in both strip and ribbon, closing the cue gap
+  `OPEN_TAB_MIN_W`'s retirement left. One design correction found by
+  building it: shape alone was invisible, because `paint()` inline-writes
+  `borderColor` from `TIER_RIM` and the LOW/MEDIUM rims nearly match their
+  own fills — a correctly-rounded border with nothing visible to round. Open
+  blocks take a high-contrast rim so the shape has an edge to be seen
+  against. Also restored the strip's close box, silently lost on 2026-08-22
+  when the Phase 2 unification replaced the `.fs-tab` DOM its `.fs-close`
+  lived on (the `FS_CLOSE_TAB` handler had been intact and working
+  throughout) — and with it, a note that §7 documented that feature as
+  working for a day after it stopped existing. Strip tiles also now centre
+  their contents vertically. Score-based eviction and the grace slot remain
+  design-only, gated behind Phase 3's dry-run question and
+  `eviction-fallback-tedium`.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

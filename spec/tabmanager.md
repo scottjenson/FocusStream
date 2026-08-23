@@ -76,7 +76,12 @@ user-initiated action, not scored eviction.
   another extension) and the existing per-window broadcast
   (`broadcastTabsForWindow`) already re-syncs every other strip in that
   window on every such event. `decisions/tabmanager.md`, "Close box +
-  cross-window sync".
+  cross-window sync". **Rebuilt on `.blk` 2026-08-23** after being lost as
+  collateral in the Phase 2 unification (`de076eb` replaced the `.fs-tab`
+  DOM this `.fs-close` lived on); the `FS_CLOSE_TAB` handler was untouched
+  throughout, so only the UI half went missing. Now `.blk-close`, painted in
+  `paint()`'s own pass, strip-only and never on pinned tabs (real Chrome
+  offers no close box there either, and a 30px icon-only tile has no room).
 
 ### Deferred (Phase 1)
 Scoring/band on tiles, scored auto-eviction (Phase 3), and how a closed tab
@@ -541,11 +546,27 @@ block as open is a VISUAL job (the `.open-tab` class), not a geometric one;
 the visual treatment that replaces the width cue is not yet designed and is
 tied to the pending strip→ribbon animation rework.
 
-## 7f. Open-tab marking + score-based eviction (design 2026-08-23, NOT BUILT)
+## 7f. Open-tab marking + score-based eviction (marking BUILT 2026-08-23; eviction NOT built)
 
-Proposal, not current truth — nothing in this section is implemented. It
-resolves the gap left by `OPEN_TAB_MIN_W`'s retirement (§7e), which removed
+The **marking half is built**. The **eviction half (score-based eviction and
+the grace slot) is design only** — it is Phase 3, gated behind
+`decisions/tabmanager.md`'s standing rule that dry-run-vs-live needs a real
+answer before any `chrome.tabs.remove()` ships, and `WATCHLIST.md`'s
+`eviction-fallback-tedium` blocking condition. Everything below about
+eviction is proposal; everything about marking is current truth.
+
+Resolves the gap left by `OPEN_TAB_MIN_W`'s retirement (§7e), which removed
 the width cue marking a block as open and deliberately left no replacement.
+
+**Correction, same day, from building it:** shape alone was invisible. The
+first cut shipped `border-radius` only and showed nothing in either view,
+because `paint()` inline-writes `borderColor` from `TIER_RIM[band]` on every
+repaint and the LOW/MEDIUM rims sit very close to their own fills — there
+was a correctly-rounded border with nothing visible to round. Open blocks
+therefore also take a high-contrast rim (`rgba(255,255,255,0.85)`,
+`!important` to beat the inline write) with a transparent bottom edge so the
+tab sits on the baseline. Shape still does the identifying; the rim only
+gives the shape an edge to be seen against.
 
 **Open blocks are marked by SHAPE, not colour: rounded top corners, so they
 read as tabs.** The requirement it satisfies is persistence, not transition
@@ -605,3 +626,10 @@ be represented, it is a return to the default.
 the rest of the strip. Same-as-others is simplest and consistent with "strip
 items look like tabs"; distinguishing it reintroduces the extra state this
 design is avoiding.
+
+**Strip tiles centre their contents vertically** (2026-08-23). The base
+rules anchor favicon and label at `top: 4px`, correct for a tiered block
+whose height varies, but visibly top-heavy on a fixed 30px `STRIP_TILE_H`
+tile. Strip mode moves both to `top: 7px` — `(30 - 16) / 2`. The label also
+reserves the close box's lane (`right: 22px`) so a long name ellipsises
+rather than running underneath it.
