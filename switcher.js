@@ -257,9 +257,24 @@
       expanded = false;
       return;
     }
+    // Flush the active tab's in-progress visit into real, finalized
+    // `sessions` BEFORE painting real history (spec §7c, 2026-08-22 —
+    // see FS_FLUSH_CURRENT's own comment in background.js for why: the
+    // ribbon shows only real, already-finalized data now, so the tab
+    // that's currently focused needs a real flush or its newest moments
+    // simply wouldn't exist yet). setHeightMode's skipPaint:true (bug fix,
+    // same day) flips heightMode WITHOUT an intermediate paint — a real
+    // specimen showed the default zoom-window calc (applyDefaultZoomWindow,
+    // timeline.js) locking onto the smaller pre-flush dataset via that
+    // intermediate paint, then never re-running for the larger post-flush
+    // one paintRibbon() below actually renders (26+ blocks visible instead
+    // of 12, stale zoom painting new data). One render only, after the
+    // flush completes, so the zoom calc only ever sees final data.
+    await chrome.runtime.sendMessage({ type: "FS_FLUSH_CURRENT" }).catch(() => null);
     expandBtn.style.display = "none";
     collapseBtn.style.display = "flex";
-    window.setHeightMode?.("tiered");
+    window.setHeightMode?.("tiered", true);
+    await paintRibbon();
     // Height follows content: the ribbon's real bottom-flush geometry
     // determines how tall #ribbon actually painted itself to —
     // #ribbon-wrap and `host` both track it via ResizeObserver rather than

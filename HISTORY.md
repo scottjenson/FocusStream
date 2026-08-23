@@ -191,6 +191,74 @@ terse — write the entry there, then come back and add the one-line pointer.
   resolves `WATCHLIST.md`'s former `overlay-shows-only-finalized-visits`
   entry (deleted, resolved). Spec §7b (rewritten again); `decisions/
   tabmanager.md` "Open-tabs/history unification."
+- **2026-08-22 (same day, later still):** two visual bugs fixed on the
+  unified ribbon — `.blk-label` dropping to the block's bottom edge on
+  expand (now one unconditional favicon-adjacent position, both height
+  modes) and a redundant floating `.rtitle` run-title (now suppressed
+  entirely in this overlay — real closed history was affected too, not
+  just open tabs) — spec §7b; `decisions/tabmanager.md` "Visual cleanup
+  pass on the unified ribbon."
+- **2026-08-22 (same day, built):** strip ordering rethink shipped —
+  replaced the `now`-anchor with a literal Chrome-tab-order strip
+  (categorical, pinned-first, `tabIndex` field) and gave the ribbon its
+  own independent default resting window (last-12-top-level-blocks
+  lookback, `applyDefaultZoomWindow`), since the `now`-anchor was
+  conflating "currently open" with "recently attended" (specimen: an idle
+  pinned tab always rendered as if freshly active). Fences also retired
+  entirely in this view (previously exempted for open tabs only), matching
+  the card-view's own prior fence retirement. Full reasoning and the design
+  discussion: `decisions/tabmanager.md` "Strip ordering rethink"; shipped
+  rules: spec §7c.
+- **2026-08-22 (same day, later, three implementation bugs found + fixed):**
+  (1) strip initially rendered in TIME order, not Chrome order —
+  `assembleThreads()`'s final pass always re-sorts by `startTime`, silently
+  discarding the array order `stripLayout()` assumed; fixed via a real
+  `tabIndex` field propagated through `mergeVisits`/`detectContainers`.
+  (2) four genuinely pinned tabs still showed full labels — `pinned` was
+  never added to those same two constructors when `isOpenTab`/`openTabId`/
+  `tabIndex` were; fixed identically. (3) an idle tab rendered with an
+  ~8-hour, day-spanning duration — `parseSessions`' day filter only checks
+  `endTime` (always "now" for a synthetic record), never `startTime`; fixed
+  by clamping to `viewDayStart` (Pass 1 of 2 — real cross-day zoom-out
+  deferred, separate discussion). The same corrupted duration also
+  explained a second-reported symptom (23 blocks shown instead of 12) —
+  one root cause, two visible bugs. Separately, `applyDefaultZoomWindow`
+  itself was rewritten from a time-span ESTIMATE (vulnerable to `ZOOM_MAX`
+  clamping) to two real `layout()`-measurement passes, still O(n). Full
+  specimens and fixes: `decisions/tabmanager.md` "Strip-ordering bugs found
+  during implementation"; spec §7c (updated in place, not a new section).
+- **2026-08-22/23: open-tab duration was fabricated, not real attention —
+  found, investigated, and fixed.** A real specimen (5-6 blocks starting
+  within minutes of each other, each ~2hrs wide) led to a real
+  investigation: two false leads (Chrome tabId reuse; a `viewDayStart`
+  clamp collision) were raised and ruled out against real data (a direct
+  `chrome.storage.local` console query) before finding the true, deeper
+  issue — `durMs = now - priorSession.startTime` measured "time since
+  last visit began," not attention, violating spec §1. Also found: a
+  tab WITH real history got a duplicate synthetic object alongside its
+  real session (no dedup). Fixed by replacing
+  `syntheticSessionsForOpenTabs` with `markOpenTabs` — tags real sessions
+  in place (no fabricated timing), synthesizes only for a tab with zero
+  real history (`durMs: 0`, honest). Closes the remaining "active tab
+  lags" gap with a real flush (`FS_FLUSH_CURRENT`, `background.js`) that
+  reuses the exact `finalizeCurrent`/`startSession`/`"tab_hidden"` path a
+  real tab switch already uses, by deliberate choice (User: safer to
+  reuse the well-tested departure/return container logic than teach it a
+  new `endReason`). Fixing this then surfaced two more real, independent,
+  pre-existing bugs: the strip's tile list was built from the same
+  day-filtered array as the ribbon (silently dropping any open tab not
+  used today — fixed with `stripEventsFromOpenTabs`, bypassing the day
+  filter for the strip entirely) and uniform mode's scroll position was
+  right-justified (hiding pinned tabs by default — fixed to always rest
+  left). Finally, `applyDefaultZoomWindow`'s one-shot gate was found
+  firing at the wrong moment TWICE, in two rounds (first: on the
+  overlay's pre-expand mount render; second, found only via temporary
+  console logging: against expand()'s pre-flush data instead of its real
+  post-flush data) — fixed by removing the double-render
+  (`setHeightMode`'s new `skipPaint` param) rather than re-arming the gate.
+  Full story, every false lead, every specimen: `decisions/tabmanager.md`
+  "Open-tab duration was fabricated, not real attention" and its three
+  follow-on entries; spec §7c (rewritten in place).
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

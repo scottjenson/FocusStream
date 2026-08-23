@@ -88,9 +88,16 @@ log("service worker starting up");
 
 // All event handlers run through this queue so async storage reads/writes
 // from overlapping Chrome events can't interleave and corrupt state.
+// Returns the chained promise (added for FS_FLUSH_CURRENT, spec §7c
+// strip-open flush, 2026-08-22) so a caller that genuinely needs to know
+// "has my enqueued work finished" (a message handler that must reply only
+// after a flush completes) can await it — every existing call site still
+// ignores the return value, so this is additive, not a behavior change
+// for anything already using enqueue fire-and-forget.
 let chain = Promise.resolve();
 function enqueue(label, fn) {
   chain = chain.then(fn).catch((e) => console.error("[FS bg] error in", label, e));
+  return chain;
 }
 
 // ---------------------------------------------------------------------------
@@ -1021,6 +1028,13 @@ function toStripTab(tab, hostNames) {
     favIconUrl: tab.favIconUrl || "",
     url: tab.url || "",
     active: !!tab.active,
+    // pinned (strip-ordering rework, spec §7c): chrome.tabs.query already
+    // returns tabs in Chrome's own strip order (pinned tabs first, by
+    // Chrome's own construction) — passed straight through as array order,
+    // no sort of our own. `pinned` itself is only needed downstream for the
+    // icon-only (no label) treatment Chrome gives pinned tabs, not for
+    // ordering.
+    pinned: !!tab.pinned,
   };
 }
 
@@ -1057,6 +1071,42 @@ chrome.tabs.onActivated.addListener(({ windowId }) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.title === undefined && changeInfo.favIconUrl === undefined && changeInfo.status !== "complete") return;
   enqueue("switcher: onUpdated", () => broadcastTabsForWindow(tab.windowId));
+});
+
+// FS_FLUSH_CURRENT (spec §7c, 2026-08-22): the strip/ribbon overlay's
+// markOpenTabs (timeline.js) was fabricating duration for open tabs
+// because the ACTIVE tab's in-progress visit lives only in
+// chrome.storage.session's currentSession, never in the real, finalized
+// `sessions` array `switcher.js` reads. Rather than keep inventing
+// display-side timing to paper over that gap, this forces a real flush —
+// same finalizeCurrent/startSession pair chrome.tabs.onActivated already
+// calls on every real tab switch (below), same endReason too
+// (Scott, 2026-08-22: opening the strip overlay IS the user's focus
+// leaving the underlying page for our UI, the same real thing a tab
+// switch is — reusing "tab_hidden" keeps the well-tested
+// departure/return container-qualification logic (assembly.js Guard 1)
+// completely untouched, rather than teaching it a new endReason). Only
+// flushes when the CURRENT session actually belongs to the requesting
+// tab — a strip in some other, non-active tab must never finalize a
+// session it doesn't own. Routed through the same `chain` as every real
+// Chrome event (enqueue) so this can never interleave with/race a real
+// navigation or close landing at the same moment; the caller awaits
+// completion (enqueue's returned promise) before replying, so
+// switcher.js's subsequent chrome.storage.local.get("sessions") is
+// guaranteed to see the flushed data, not a stale read.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== "FS_FLUSH_CURRENT") return;
+  if (sender.tab?.id == null) return;
+  const tabId = sender.tab.id;
+  enqueue("switcher: flush-current", async () => {
+    const current = await getCurrent();
+    if (current && current.tabId === tabId) {
+      await finalizeCurrent("tab_hidden");
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      await startSession(tab);
+    }
+  }).then(() => sendResponse({ ok: true }));
+  return true; // keep the message channel open for the async sendResponse
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

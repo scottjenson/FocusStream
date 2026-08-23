@@ -324,6 +324,24 @@ export function mergeVisits(events) {
         // line rather than relying on which member happened to be picked.
         isOpenTab: run.some((m) => m.isOpenTab),
         openTabId: (run.find((m) => m.isOpenTab) || {}).tabId,
+        // tabIndex (strip-ordering rework, spec §7c): same "first open-tab
+        // member wins" convention as openTabId above — detectContainers'
+        // final sort always reorders by startTime, so the strip's
+        // Chrome-order layout (stripLayout(), timeline.js) needs this
+        // preserved through merging or it silently falls back to time
+        // order (the actual bug this field fixes). Only meaningful when
+        // isOpenTab is true; undefined otherwise, same as openTabId.
+        tabIndex: (run.find((m) => m.isOpenTab) || {}).tabIndex,
+        // pinned (strip-ordering rework, spec §7c, bug fix): same
+        // first-open-tab-member convention as openTabId/tabIndex above —
+        // a merged/chained open tab (e.g. a pinned Gmail tab with real
+        // prior history that chains with another visit) was silently
+        // losing this field the same way tabIndex originally did, since
+        // it was never added here when isOpenTab/openTabId first were.
+        // Caught via a real screenshot: four genuinely Chrome-pinned tabs
+        // still showed full labels because their merged/chained composite
+        // objects had pinned === undefined.
+        pinned: (run.find((m) => m.isOpenTab) || {}).pinned,
         // The FIRST member is the one that resumed after any preceding
         // gap — its gap-audio testimony is the visit's (spec §6).
         ...(run[0].audibleSinceTs != null ? { audibleSinceTs: run[0].audibleSinceTs } : {}),
@@ -723,6 +741,21 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       isOpenTab: c.frags.some((f) => f.isOpenTab) || children.some((ch) => ch.isOpenTab),
       openTabId: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
         .tabId,
+      // tabIndex (strip-ordering rework, spec §7c): same convention as
+      // openTabId directly above — see mergeVisits' own tabIndex comment
+      // for why this field exists at all (detectContainers' final sort
+      // always reorders by startTime, silently losing Chrome's real tab
+      // order otherwise).
+      tabIndex: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
+        .tabIndex,
+      // pinned (strip-ordering rework, spec §7c, bug fix): same convention
+      // as tabIndex directly above — see mergeVisits' own pinned comment
+      // for why this was missing (added alongside isOpenTab/openTabId
+      // originally, but pinned itself was overlooked until a real
+      // specimen — four genuinely pinned tabs still showing full labels
+      // — surfaced it).
+      pinned: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
+        .pinned,
       score: c.score, // summed fragment scores + returns traversal term: add up, then judge
       band: bandFor(c.score),
       // The LAST fragment's exit is the container's exit (2026-08-02,

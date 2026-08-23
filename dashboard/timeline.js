@@ -493,14 +493,19 @@ import {
       run = [];
     };
     for (const event of events) {
-      // Open tabs never fence-collapse (Active Tab Manager Phase 2,
-      // 2026-08-22 unification, Scott's call): fencing is a closed-history
-      // space-saving device for what's already over — a tab the user can
-      // still switch to right now shouldn't disappear into a tiny
-      // non-clickable stick just because it currently scores LOW. Same
-      // precedent as the card view (plans/stack-ribbon.md), which dropped
-      // fences outright; here it's scoped to isOpenTab only, not global.
-      if (event.band === "low" && !event.isOpenTab) {
+      // Fencing retired ENTIRELY in the overlay (spec §7c, 2026-08-22):
+      // originally scoped to isOpenTab only (a tab the user can still
+      // switch to shouldn't disappear into a tiny non-clickable stick just
+      // because it currently scores LOW) — widened per Scott's direct
+      // call to match the same "no fences" precedent the card-view rework
+      // already established (plans/stack-ribbon.md dropped fences
+      // outright, the big learning from that rework). A LOW run of real
+      // CLOSED history in the overlay now renders as ordinary individual
+      // blocks too, same as open tabs already did — anchorMode === "right"
+      // is the existing flag distinguishing this overlay from the
+      // standalone dashboard (see the .rtitle suppression above for the
+      // same convention), which keeps its own fencing (spec §6) unchanged.
+      if (event.band === "low" && !event.isOpenTab && anchorMode !== "right") {
         // Departures split fences, breaks don't (spec §6, 2026-07-28): a
         // scattered grazing stretch is one expand target. Bridged gaps that
         // are still wide enough to hover keep their away plate on top of the
@@ -683,6 +688,79 @@ import {
     return { segs, total };
   }
 
+  // Strip tile source (spec §7c, bug fix 2026-08-22): the strip's tile
+  // list used to come from assembleThreads(parseSessions(sessions,
+  // viewDayStart)).filter(isOpenTab) — the SAME calendar-day-filtered
+  // pipeline the ribbon uses. Real bug, found via a real specimen (3 of 4
+  // pinned tabs, 1 of 6 regular tabs vanished): any open tab whose most
+  // recent real session's endTime falls outside TODAY is silently
+  // excluded by parseSessions before paint() ever sees it — invisible
+  // before because the OLD synthetic-record code always faked
+  // endTime=now (guaranteeing every open tab passed the day filter,
+  // dishonestly); markOpenTabs' fix (no more fabricated timing) removed
+  // that accidental guarantee and exposed this real, independent
+  // pre-existing gap. The strip has no reason to care about calendar
+  // days at all — it's every CURRENTLY OPEN tab, full stop, categorical
+  // by Chrome order, not filtered by when it was last used. This
+  // function builds strip-ready objects straight from openTabs +
+  // whatever real (any-day) prior session exists, bypassing
+  // parseSessions/assembleThreads entirely. Band/score still come from
+  // real evidence when it exists (uniform mode colors by tier — spec
+  // §7b, "tier is shown via fill/border color only"); a tab with zero
+  // real history anywhere gets LOW (nothing earned yet, not a guess).
+  function stripEventsFromOpenTabs(openTabs, sessions) {
+    const latestByTab = new Map();
+    for (const s of sessions) {
+      if (s.tabId == null) continue;
+      const prev = latestByTab.get(s.tabId);
+      if (!prev || s.endTime > prev.endTime) latestByTab.set(s.tabId, s);
+    }
+    return openTabs.map((t, tabIndex) => {
+      const prior = latestByTab.get(t.id);
+      const score = prior ? scoreSession(prior) : 0;
+      return {
+        id: "strip:" + t.id,
+        tabId: t.id,
+        openTabId: t.id,
+        host: hostOf({ url: t.url || "" }),
+        url: t.url || "",
+        favIconUrl: t.favIconUrl || "",
+        score, // real score, not just the derived band — hasEarnedHigh(s.e)
+        // (paint()'s gold "earned-HIGH" border check) reads .score
+        // directly; without this a HIGH-banded strip tile could never
+        // earn the gold rim (undefined >= HIGH_SCORE is always false, a
+        // silent visual gap, not a crash — fixed while it was cheap to).
+        band: bandFor(score),
+        isOpenTab: true,
+        pinned: !!t.pinned,
+        tabIndex,
+      };
+    });
+  }
+
+  // Strip layout (Active Tab Manager, spec §7c, 2026-08-22): the
+  // collapsed strip's own x/w, replacing reuse of layout()'s real
+  // time-based geometry. Deliberately as simple as cardLayout() above —
+  // fixed pitch, array order only, no time math, no gaps-as-absence.
+  // openTabSessions is expected to already be in Chrome's own tab-strip
+  // order (chrome.tabs.query order, pinned tabs first — background.js's
+  // toStripTab/broadcastTabsForWindow do no re-sorting of their own, and
+  // neither does this function: it trusts the array order it's given).
+  // Pinned tabs get a narrower, icon-only tile (STRIP_PINNED_TILE_W,
+  // matching real Chrome's own pinned-tab treatment) — everything else is
+  // one fixed STRIP_TILE_W regardless of duration/band, on purpose: a real
+  // Chrome tab bar doesn't widen a tab because you spent longer on it.
+  function stripLayout(openTabSessions) {
+    let x = 0;
+    const segs = openTabSessions.map((e) => {
+      const w = e.pinned ? STRIP_PINNED_TILE_W : STRIP_TILE_W;
+      const seg = { e, key: e.id, band: e.band, collapsed: false, w, x };
+      x += w + GAP;
+      return seg;
+    });
+    return { segs, total: Math.max(x - GAP, 0) };
+  }
+
   // Ribbon X is NOT linear time (widths are floored), so each whole hour is
   // placed at the time-interpolated X within whichever block was active
   // then. Hours that fell between blocks already own uniform gap slots from
@@ -839,6 +917,14 @@ import {
   // (expand/collapse, day paging, Escape) don't need to re-fetch or
   // re-thread it.
   let lastLockIntervals = [];
+  // Open tabs (spec §7c, bug fix 2026-08-22): the raw openTabs array
+  // FS_renderOpenTabs receives from switcher.js — cached the same way
+  // lastSessions/lastLockIntervals are so paint()'s uniform branch can
+  // build the strip's tile list from it directly (stripEventsFromOpenTabs)
+  // without going through the day-filtered assembleThreads/parseSessions
+  // pipeline. Always [] on the standalone dashboard, which never calls
+  // FS_renderOpenTabs.
+  let lastOpenTabs = [];
 
   // Fences open on hover-in, close on hover-out. Open and close are
   // separate triggers now, not one toggle: hovering the collapsed plate
@@ -1538,29 +1624,71 @@ import {
   // below) — "uniform" forces every top-level block to STRIP_TILE_H
   // regardless of band and skips contained children entirely (no room,
   // no need, at rest); "tiered" is the historical three-height behavior,
-  // unchanged. Horizontal geometry (x/w, PX_PER_SEC/zoom) is NOT part of
-  // this flag on purpose (Scott, 2026-08-22): collapse/expand only ever
-  // changes vertical reveal — zoom is an independent, wheel-driven axis.
+  // unchanged.
+  //
+  // Horizontal geometry DIVERGES between the two modes too, as of the
+  // strip-ordering rework (spec §7c, 2026-08-22 — NOT the same day as the
+  // paragraph above's original height-only design, a real correction to
+  // it): "uniform" now lays out open tabs by chrome.tabs.query's own
+  // order (stripLayout(), fixed pitch, no time math at all) instead of
+  // reusing layout()'s real time-based x/w — a stale pinned tab was
+  // otherwise always glued to the right edge (`now`-anchoring), which
+  // falsely read as "recently attended." "tiered" is untouched: real
+  // time-based x/w from layout(), independent zoom, as always. Since the
+  // two modes can now show genuinely different SETS of blocks (see
+  // stripLayout()), a tab present in the strip may simply have no tiered
+  // position at all — paint()'s existing per-call `seen`/removal sweep
+  // handles that with no new code, same as any other departed element.
   let heightMode = (typeof window !== "undefined" && window.__fsHeightMode) || "tiered";
   const STRIP_TILE_H = 30;
-  function setHeightMode(mode) {
+  // Fixed pitch for the Chrome-order strip (spec §7c) — same idea as the
+  // dormant cardLayout()'s CARD_STEP, just for .blk instead of .card. Not
+  // duration-derived at all: a real Chrome tab bar doesn't widen a tab
+  // because you spent longer on it, and stripLayout() shouldn't either.
+  const STRIP_TILE_W = 120;
+  // Pinned tabs are icon-only, no label (Scott, 2026-08-22: "you just
+  // simply drop the label" — matches real Chrome's own pinned-tab
+  // treatment) — narrower pitch since there's no label to reserve room
+  // for, same favicon size as any other tile.
+  const STRIP_PINNED_TILE_W = 30;
+  // skipPaint (bug fix, spec §7c, 2026-08-22): switcher.js's expand()
+  // flushes the active tab's in-progress visit (FS_FLUSH_CURRENT) AFTER
+  // flipping to tiered, then calls its own fresh paintRibbon() once the
+  // flush completes — real specimen this fixes: applyDefaultZoomWindow's
+  // one-shot was firing on THIS function's own internal paint() call
+  // (still pre-flush data), then never re-firing for paintRibbon()'s
+  // later, larger (post-flush) dataset — zoom stayed sized for the
+  // smaller pre-flush window while the wider post-flush data painted at
+  // that stale zoom (26+ blocks visible instead of 12). skipPaint lets
+  // the caller flip heightMode without an intermediate paint, so
+  // applyDefaultZoomWindow only ever sees ONE, final, complete dataset —
+  // whoever passes skipPaint:true is responsible for calling
+  // render()/paintRibbon() themselves right after. Defaults to false
+  // (paint immediately) for every other caller — the standalone
+  // dashboard and collapse() both have no follow-up render of their own.
+  function setHeightMode(mode, skipPaint) {
     if (mode !== "uniform" && mode !== "tiered") return;
     if (mode === heightMode) return;
     heightMode = mode;
-    if (!lastAssembly) return;
+    if (!lastAssembly || skipPaint) return;
     paint(lastAssembly.events, lastAssembly.hostNames);
-    // Collapsing snaps back to "now" (2026-08-22, Scott's call): if the
-    // user zoomed/panned into history while expanded, collapsing should
-    // reliably show today's open tabs again, not whatever scroll position
-    // history-browsing left behind — collapsed is meant to read as a
-    // clean, predictable Chrome-tab bar. Zoom LEVEL itself is untouched
-    // (only scrollLeft) — collapsed doesn't visibly depend on it (wheel-
-    // zoom is gated off while collapsed, see the wheel listener below),
-    // and resuming the same zoom on re-expand is the more useful default.
-    if (mode === "uniform" && anchorMode === "right") {
+    // Collapsing snaps back to the strip's own LEFT edge (bug fix,
+    // 2026-08-22, re-scoped same day as the strip-ordering rework above):
+    // if the user zoomed/panned into history while expanded, collapsing
+    // should reliably show the strip's own FIRST tabs (pinned tabs, by
+    // Chrome order) again, not whatever scroll position history-browsing
+    // left behind — collapsed is meant to read as a clean, predictable
+    // Chrome-tab bar, and a real Chrome tab bar rests showing its first
+    // tabs, never scrolled to hide them. (Previously right-justified —
+    // real specimen: all 4 pinned tabs + the first regular tab invisible
+    // after collapsing. Same root mistake as render()'s own scroll-reset
+    // above: importing the ribbon's "show now" logic into an axis where
+    // "now" has no meaning.) Zoom LEVEL itself is untouched — collapsed
+    // doesn't visibly depend on it (wheel-zoom is gated off while
+    // collapsed), and resuming the same zoom on re-expand is unaffected.
+    if (mode === "uniform") {
       const wrap = qs("ribbon-wrap");
-      const ribbonEl = qs("ribbon");
-      if (wrap && ribbonEl) wrap.scrollLeft = ribbonEl.scrollWidth - wrap.clientWidth;
+      if (wrap) wrap.scrollLeft = 0;
     }
   }
 
@@ -1590,6 +1718,80 @@ import {
     if (lastAssembly) render(lastAssembly.sessions, lastLockIntervals);
   }
 
+  // Ribbon default resting window (spec §7c, 2026-08-22; corrected same
+  // day — the first cut computed zoom from a pure TIME-span estimate,
+  // which ZOOM_MAX clamping and min-width-floor/gap error could silently
+  // blow past, showing far more than DEFAULT_WINDOW_BLOCKS (caught via a
+  // real specimen: 22 blocks shown instead of 12). This version uses
+  // layout()'s REAL pixel output directly — two layout() passes (initial
+  // probe, then one at the solved zoom), both O(n), no search/iteration —
+  // so "the 12th-from-last block's left edge sits at the viewport's left
+  // edge" is exact, not approximated, and the scroll position is set
+  // explicitly to that edge rather than relying on a coincidental
+  // right-justify (render()'s own scrollLeft reset showed whatever fit at
+  // whatever zoom resulted, not necessarily this window). Still a
+  // deliberately simple heuristic otherwise — no fence-detection pass, no
+  // secondary adjustment (decisions/tabmanager.md "Strip ordering
+  // rethink").
+  const DEFAULT_WINDOW_BLOCKS = 12;
+  // Applied once per page lifetime, not on every render — recomputing it
+  // on every new event/tick would fight a user's own manual zoom/scroll,
+  // which is supposed to be the correction mechanism from here on.
+  let defaultZoomApplied = false;
+  // Returns the scrollLeft that puts the window's left edge at the
+  // viewport's left edge, given the CURRENT zoom/PX_PER_SEC — null if
+  // there aren't enough events to have a meaningful window (render()
+  // falls back to its own right-justify in that case). Only ever reads
+  // layout() output; never mutates zoom itself — applyDefaultZoomWindow
+  // (below) is the only zoom-mutating caller.
+  function windowScrollLeft(events, lockIntervals) {
+    if (events.length <= DEFAULT_WINDOW_BLOCKS) return null;
+    const sorted = [...events].sort((a, b) => a.startTime - b.startTime);
+    const windowStartTime = sorted[sorted.length - DEFAULT_WINDOW_BLOCKS].startTime;
+    const { segs } = layout(clusterEvents(sorted, lockIntervals), null);
+    // First seg whose real member event starts at/after the window's
+    // start time — fences are retired in this view (see clusterEvents'
+    // own anchorMode-gated change above) so every seg here already
+    // corresponds 1:1 to a real top-level or contained event; contained
+    // children are skipped (not real top-level window boundaries).
+    const target = segs.find((s) => !s.contained && s.e.startTime >= windowStartTime);
+    return target ? target.x : null;
+  }
+  // Returns true iff it actually set a new zoom this call (the ONE time
+  // render() should also snap scrollLeft to this window's own left edge,
+  // rather than its ordinary right-justify — see render()'s
+  // usedDefaultWindow). False on every later call (defaultZoomApplied
+  // already set) and on any of the early-exit paths below (not enough
+  // events yet to have a real window, or a degenerate span) — all of
+  // which mean "nothing changed, render() should fall back to its normal
+  // right-justify," same as before this default-window feature existed.
+  function applyDefaultZoomWindow(events, wrap) {
+    if (defaultZoomApplied || !events.length || !wrap) return false;
+    defaultZoomApplied = true;
+    if (events.length <= DEFAULT_WINDOW_BLOCKS) return false; // everything already fits at zoom=1
+    // Probe pass at the current (usually zoom=1) scale to find the
+    // window's real pixel width, then solve for the zoom that makes that
+    // width exactly fill the viewport.
+    const probeLeft = windowScrollLeft(events, lastLockIntervals);
+    if (probeLeft == null) return false;
+    const probeTotal = layout(clusterEvents(events, lastLockIntervals), null).total;
+    const naturalPx = probeTotal - probeLeft;
+    if (naturalPx <= 0) return false;
+    const viewportPx = Math.max(wrap.clientWidth, 1);
+    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, viewportPx / naturalPx));
+    PX_PER_SEC = BASE_PX_PER_SEC * zoom;
+    GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
+    // Flagged, not solved here (decisions/tabmanager.md): if the ideal
+    // zoom is clamped by ZOOM_MIN/ZOOM_MAX, the window will legitimately
+    // show more or fewer than 12 blocks at rest — render()'s own
+    // windowScrollLeft call (computed fresh at this new, possibly-clamped
+    // zoom) still puts the 12th-from-last block's edge at the left of the
+    // viewport correctly; it's the RIGHT edge that may then reveal extra
+    // content beyond it, same honest degradation as any other
+    // zoom-clamped view.
+    return true;
+  }
+
   function render(sessions, lockIntervals) {
     lastSessions = sessions;
     // lockIntervals is optional per call (internal re-renders omit it and
@@ -1609,6 +1811,23 @@ import {
     renderWeekStrip(dayThreads);
     const events = assembleThreads(parseSessions(sessions, viewDayStart));
     lastAssembly = { sessions, dayThreads, hostNames, events };
+    const wrap = qs("ribbon-wrap");
+    // Ribbon default window (spec §7c; bug fix 2026-08-22, SAME root cause
+    // as the earlier "22 blocks not 12" bug — a one-shot gate consumed too
+    // early): only meaningful for the overlay (anchorMode "right") AND
+    // only once the ribbon is actually what's showing (heightMode ===
+    // "tiered") — the overlay's FIRST-EVER render() call happens at page
+    // MOUNT, while still collapsed (switcher.js calls paintRibbon()
+    // immediately, heightMode starts "uniform"). Without this gate,
+    // defaultZoomApplied's one-shot fired then — against whatever
+    // sessions/viewport happened to exist at mount — and was permanently
+    // spent by the time the user actually expanded, so the real first
+    // expand got NO default-window treatment at all (real specimen: 26+
+    // blocks shown on expand). Applied BEFORE paint() so the very first
+    // TIERED paint (the real first expand) already reflects it, not a
+    // post-paint correction.
+    const usedDefaultWindow =
+      anchorMode === "right" && heightMode === "tiered" && applyDefaultZoomWindow(events, wrap);
     if (ribbonMode === "cards") paintCards(events, hostNames);
     else paint(events, hostNames);
     // A real render (new data, day paging, fence toggle — never a zoom
@@ -1617,14 +1836,35 @@ import {
     // left-justified for the standalone dashboard (the day's first event
     // flush against the viewport's left edge, regardless of wherever
     // zoom/pan left the scroll position on the previous day — visual
-    // stability across day paging, not a preserved viewport) or
-    // right-justified for the overlay (the ribbon's rightmost content —
-    // "now" — flush against the viewport's right edge instead).
-    const wrap = qs("ribbon-wrap");
+    // stability across day paging, not a preserved viewport); the overlay
+    // uses the SAME DEFAULT_WINDOW_BLOCKS left edge (windowScrollLeft) it
+    // set zoom against ONLY on the same first-mount call as
+    // applyDefaultZoomWindow (usedDefaultWindow, just below) — every
+    // subsequent render just re-right-justifies at whatever zoom the user
+    // is currently at, same as before, so new data/day-paging/fence-toggle
+    // don't fight a manual zoom/scroll the user already made (2026-08-22
+    // correction: the first cut re-snapped to the 12-block window on
+    // EVERY render, which would have silently undone any zoom-out the
+    // user did to look further back).
+    //
+    // Uniform mode is ALWAYS left-justified (scrollLeft: 0) — bug fix,
+    // spec §7c, 2026-08-22 (real specimen: all 4 pinned tabs + the first
+    // regular tab were invisible, scrolled off past the left edge). The
+    // previous version right-justified uniform mode too (reasoning at the
+    // time: "Chrome-order rightmost slot is always correct") — wrong: a
+    // real Chrome tab bar never hides its FIRST (pinned) tabs by default,
+    // it rests showing them from the left. Right-justifying a Chrome-
+    // order strip was importing the RIBBON's own "show 'now'" logic into
+    // an axis (categorical tab order) where "now" has no meaning at all.
     if (wrap) {
       const ribbonEl = qs("ribbon");
-      wrap.scrollLeft =
-        anchorMode === "right" ? (ribbonEl ? ribbonEl.scrollWidth - wrap.clientWidth : 0) : 0;
+      let scrollLeft = 0;
+      if (anchorMode === "right" && heightMode === "tiered") {
+        const windowLeft = usedDefaultWindow ? windowScrollLeft(events, lastLockIntervals) : null;
+        scrollLeft =
+          windowLeft != null ? windowLeft : ribbonEl ? ribbonEl.scrollWidth - wrap.clientWidth : 0;
+      }
+      wrap.scrollLeft = scrollLeft;
     }
   }
 
@@ -1637,14 +1877,49 @@ import {
     // would fire (periodic refresh, zoom, day paging) without ever getting
     // its mouseleave — cancel rather than let it fire against a dead plate.
     cancelOpen();
-    // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
-    // again, with two independent split rules (clusterEvents: a recorded
-    // lock interval unconditionally splits; otherwise FENCE_IMPLIED_BREAK_MS
-    // gates bridging) — see decisions/timeline_design.md for why. lastLockIntervals
-    // is read directly (closure) rather than threaded as a paint() param,
-    // since relayout() (zoom) calls paint() without re-fetching data.
-    const items = clusterEvents(events, lastLockIntervals);
-    const { segs, plates, bars, gaps, total } = layout(items, expandedKey);
+    // Strip vs. ribbon geometry now genuinely diverge (spec §7c,
+    // 2026-08-22 strip-ordering rework): "uniform" lays out ONLY the open
+    // tabs, in Chrome's own tab-strip order, fixed pitch, no time math —
+    // stripLayout() — instead of reusing layout()'s real time-based x/w
+    // over the full assembled event set. Closed history never appears in
+    // the strip at all (there's no meaningful "Chrome order" for a past
+    // visit). "tiered" is completely unchanged: real assembly, fences,
+    // gaps-as-absence, the works. plates/bars/gaps are empty in uniform
+    // mode (fences/expand-bars/hour-ticks are already reserved-space-free
+    // there — see bandBottom below) — every later use of them in this
+    // function degrades to a no-op on an empty array, not a special case.
+    let segs, plates, bars, gaps, total;
+    if (heightMode === "uniform") {
+      // Built straight from lastOpenTabs/lastSessions (stripEventsFrom
+      // OpenTabs), NOT from `events` (bug fix, spec §7c, 2026-08-22): the
+      // `events` param here is assembleThreads(parseSessions(sessions,
+      // viewDayStart))'s output, day-filtered — an open tab whose most
+      // recent real session isn't from TODAY silently isn't in `events`
+      // at all, so filtering it for the strip dropped that tab entirely
+      // (real specimen: 3 of 4 pinned tabs, 1 of 6 regular tabs vanished).
+      // The strip has no reason to care about calendar days — every
+      // currently open tab belongs there, always. Sorted by tabIndex
+      // defensively (stripEventsFromOpenTabs already builds from
+      // openTabs' own Chrome-order array, so this should already be a
+      // no-op — kept as an explicit guarantee, not a fix for anything
+      // observed here).
+      const stripEvents = stripEventsFromOpenTabs(lastOpenTabs, lastSessions).sort(
+        (a, b) => a.tabIndex - b.tabIndex
+      );
+      ({ segs, total } = stripLayout(stripEvents));
+      plates = [];
+      bars = [];
+      gaps = [];
+    } else {
+      // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
+      // again, with two independent split rules (clusterEvents: a recorded
+      // lock interval unconditionally splits; otherwise FENCE_IMPLIED_BREAK_MS
+      // gates bridging) — see decisions/timeline_design.md for why. lastLockIntervals
+      // is read directly (closure) rather than threaded as a paint() param,
+      // since relayout() (zoom) calls paint() without re-fetching data.
+      const items = clusterEvents(events, lastLockIntervals);
+      ({ segs, plates, bars, gaps, total } = layout(items, expandedKey));
+    }
 
     const ribbon = qs("ribbon");
     // #ribbon.uniform-height (2026-08-22): lets timeline.css key hover/
@@ -1781,8 +2056,8 @@ import {
       // Collapsed sticks are inert; their cluster's plate is the one target.
       // Every visible block navigates — expanded fence members included
       // (spec §6: click means "open this page" everywhere; collapse is the
-      // expand bar or Escape). A synthesized open-tab session (2026-08-22
-      // unification, s.e.isOpenTab — see syntheticSessionsForOpenTabs)
+      // expand bar or Escape). A block tagged isOpenTab (2026-08-22
+      // unification; tagging corrected same day — see markOpenTabs)
       // represents a tab the user ALREADY HAS open: switching to it, never
       // chrome.tabs.create, which would open a duplicate. Same
       // never-calls-chrome.tabs.*-directly-except-switch rule the retired
@@ -1922,7 +2197,21 @@ import {
     // 2026-08-08): the instant per-block label skips these, so a HIGH
     // block never shows two overlapping labels.
     const runLabeledKeys = new Set();
-    for (const run of titleRuns(groupRuns(segs.filter((s) => !s.contained)), total)) {
+    // Suppressed entirely in the open-tabs overlay (Active Tab Manager
+    // Phase 2 cleanup, 2026-08-22): every block there already carries its
+    // own always-on .blk-label (spec §7b) PLUS the existing hover tooltip/
+    // snapshot — a third, floating title on top of both is pure
+    // duplication, for real closed-history HIGH runs same as for open
+    // tabs (confirmed against a real specimen: a closed-history "Gemini"
+    // block still showed the floating title even though isOpenTab was
+    // false, since the redundancy was never open-tab-specific). Narrower
+    // isOpenTab-only exclusion tried first, superseded same day — the
+    // standalone dashboard (anchorMode "left") is untouched, keeping
+    // .rtitle as its one on-face title mechanism same as always.
+    const runTitlesLive = anchorMode !== "right";
+    for (const run of runTitlesLive
+      ? titleRuns(groupRuns(segs.filter((s) => !s.contained)), total)
+      : []) {
       liveTitles.add(run.key);
       for (const memberKey of run.members) runLabeledKeys.add(memberKey);
       let el = titleEls.get(run.key);
@@ -2010,11 +2299,18 @@ import {
     // labelKeyOf, computeHostNames' established idiom throughout this
     // file), not the raw host. Sticks (collapsed or fenced) stay
     // label-free, matching the favicon rule just above — a 3px sliver has
-    // no room for either.
+    // no room for either. Pinned tabs in the strip are ALSO label-free
+    // (spec §7c, 2026-08-22: "you just simply drop the label" — matches
+    // real Chrome's own icon-only pinned-tab treatment); irrelevant in
+    // tiered mode, where s.e.pinned is never set on a real historical
+    // event.
     for (const s of segs) {
       const el = blockEls.get(s.key);
       if (!el) continue;
-      const text = !s.collapsed && !s.stick ? hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host : null;
+      const text =
+        !s.collapsed && !s.stick && !s.e.pinned
+          ? hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host
+          : null;
       if (!text) {
         if (el._labelEl) {
           el._labelEl.remove();
@@ -2051,66 +2347,94 @@ import {
   // rather than a parallel code path.
   //
   // background.js's capture-side finalize-only contract for `sessions`
-  // (chrome.storage.local) is untouched (Scott's call, 2026-08-22) — this
-  // synthesizes a DISPLAY-ONLY record per open tab rather than writing
-  // one to storage, so the "sessions is written exactly once, at visit
-  // end" invariant elsewhere in the codebase still holds.
-  function syntheticSessionsForOpenTabs(openTabs, sessions) {
+  // (chrome.storage.local) is untouched — nothing here ever writes to
+  // storage; this is display-only tagging of an in-memory array.
+  //
+  // REWRITTEN 2026-08-22 (real bug found and corrected same day the
+  // original version shipped — see decisions/tabmanager.md "Open-tab
+  // duration was fabricated, not real attention"): the original version
+  // (below, for the record) called itself "session-shaped" but actually
+  // invented brand-new timing for EVERY open tab, including ones with
+  // real, already-finalized history — `durMs = now - prior.startTime`
+  // measures "time elapsed since your last recorded visit began," which
+  // is NOT attention (spec §1: activity is the sole proxy for
+  // importance). A real 85-second visit at 2:49pm rendered as a
+  // 2.5-hour-wide block by 5pm — confirmed via direct chrome.storage.local
+  // inspection, not assumed. It also DUPLICATED data: a tab with real
+  // prior history got a second, separate synthetic object for the same
+  // time window, spliced in alongside the real session already in
+  // `sessions` (render() did `[...sessions, ...synthetic]`, no dedup).
+  //
+  // This version tags REAL session objects in place instead of inventing
+  // parallel ones. One function, one place, one comment block — the
+  // explicit goal (Scott, 2026-08-22) is no more of this drifting apart
+  // into two slightly-different ideas of "what is an open tab's data."
+  //
+  // Returns a NEW array (shallow-copies tagged sessions; never mutates
+  // the original `sessions` array or its objects) ready to feed straight
+  // into render() — no separate splice step at the call site.
+  function markOpenTabs(openTabs, sessions) {
     // Most recent finalized session per open tabId — chrome.storage.local's
-    // `sessions` is finalize-only (no write happens before a visit ends,
-    // confirmed via background.js), so an open tab's CURRENT visit is
-    // never in here; this is "best prior evidence for this tab," not
-    // "what's happening right now" (WATCHLIST.md
-    // "overlay-shows-only-finalized-visits" — still an open gap: a
-    // synthetic record's startTime/activity are approximated from this
-    // prior evidence when present, not read from live heartbeat state).
+    // `sessions` is finalize-only (no write happens before a visit ends),
+    // so an open tab's CURRENT in-progress visit is never in here; this
+    // is "best real evidence for this tab," not "what's happening right
+    // now." The gap that leaves (the actively-focused tab's newest
+    // moments may lag until it finalizes — on tab switch/hide/close, all
+    // of which already call finalizeCurrent in background.js) is
+    // accepted, not designed around (Scott, 2026-08-22: every OTHER open
+    // tab was already finalized the moment you switched away from it —
+    // only the one tab you're looking at right now can possibly lag, and
+    // only until the next real boundary).
     const latestByTab = new Map();
     for (const s of sessions) {
       if (s.tabId == null) continue;
       const prev = latestByTab.get(s.tabId);
       if (!prev || s.endTime > prev.endTime) latestByTab.set(s.tabId, s);
     }
-    // One `now` read for the whole call, reused as every synthetic
-    // record's endTime — parseSessions() filters strictly by endTime
-    // falling inside the viewed day, and durMs is always `endTime -
-    // startTime`, so this single timestamp is what makes an in-progress
-    // tab pass that filter AND grow its duration naturally on every
-    // repaint, with no special-casing downstream.
-    const now = Date.now();
-    return openTabs.map((t) => {
+    const out = sessions.slice();
+    for (const [t, tabIndex] of openTabs.map((t, i) => [t, i])) {
       const prior = latestByTab.get(t.id);
-      // startTime: the prior finalized visit's own start when one exists
-      // (the tab's real activity, not just its current page, has been
-      // running that long) — otherwise `now`, for a genuinely brand-new
-      // tab with no history at all yet.
-      const startTime = prior ? prior.startTime : now;
-      return {
-        id: "open:" + t.id,
-        tabId: t.id,
-        url: t.url || (prior ? prior.url : ""),
-        startTime,
-        endTime: now,
-        durMs: now - startTime,
-        heartbeats: prior ? prior.heartbeats : 0,
-        audibleMs: prior ? prior.audibleMs : 0,
-        activity: prior ? prior.activity : {},
-        endReason: null,
-        favIconUrl: t.favIconUrl || "",
-        title: t.title || (prior ? prior.title : ""),
-        // isOpenTab (paint()'s click-handler branch): switch to the real
-        // tab instead of chrome.tabs.create — this session represents a
-        // tab the user ALREADY has open, opening a fresh one would
-        // duplicate it (spec §7's never-calls-chrome.tabs.*-directly rule
-        // still holds: only the background script switches tabs).
-        isOpenTab: true,
-        // incomplete (2026-08-21/22 "incomplete container" concept):
-        // true only for a genuinely new tab with no prior evidence at
-        // all — a tab WITH prior history is treated as ordinary data
-        // (real score/band), not forced LOW, since assembleThreads()/
-        // scoreSession() can now judge it on its own real merits.
-        incomplete: !prior,
-      };
-    });
+      if (prior) {
+        // Tag the REAL session in place (shallow copy — sessions/its
+        // objects are never mutated) — no new startTime/endTime/durMs of
+        // any kind. This tab's real, already-finalized attention is
+        // exactly what it is; "still open" is a flag, not a reason to
+        // invent more duration on top of real data.
+        const idx = out.indexOf(prior);
+        out[idx] = { ...prior, isOpenTab: true, openTabId: t.id, tabIndex, pinned: !!t.pinned };
+      } else {
+        // No real evidence at all for this tab today — a genuinely new
+        // tab. Case A (open-and-closed within one heartbeat) was
+        // explicitly ruled out of scope earlier (Scott: "seems very
+        // unlikely... I don't want to worry about it too much"), so this
+        // branch exists only for "opened moments ago, first heartbeat
+        // hasn't landed in `sessions` yet" — durMs: 0 (a real, honest
+        // zero, not a fabricated span) anchored at `now` (NOT viewDayStart
+        // — this tab was just opened, it belongs at the right edge near
+        // "now," not at the start of the day) so it renders as the
+        // smallest legitimate block rather than inventing a story.
+        out.push({
+          id: "open:" + t.id,
+          tabId: t.id,
+          url: t.url || "",
+          startTime: Date.now(),
+          endTime: Date.now(),
+          durMs: 0,
+          heartbeats: 0,
+          audibleMs: 0,
+          activity: {},
+          endReason: null,
+          favIconUrl: t.favIconUrl || "",
+          title: t.title || "",
+          isOpenTab: true,
+          openTabId: t.id,
+          incomplete: true,
+          pinned: !!t.pinned,
+          tabIndex,
+        });
+      }
+    }
+    return out;
   }
 
   // --- Card paint (plans/stack-ribbon.md Stage 1, 2026-08-11): the live
@@ -3375,17 +3699,20 @@ import {
   window.setHeightMode = setHeightMode;
   window.FS_getHeightMode = () => heightMode;
   // Open-tabs entry point (Active Tab Manager Phase 2, spec §7b, UNIFIED
-  // 2026-08-22): the overlay's own driver (switcher.js) calls this instead
-  // of renderTimeline() directly — it's a thin wrapper that splices
-  // syntheticSessionsForOpenTabs()' records in alongside the real
-  // finalized sessions and calls the ONE real render() pipeline
-  // (render/assembleThreads/parseSessions/layout/paint), right-anchored.
-  // No separate open-tabs pipeline exists anymore — an open tab is just
-  // ordinary data with one synthetic field (isOpenTab) and a live-growing
-  // endTime, same assembly/tier/container treatment as any closed visit.
+  // 2026-08-22; markOpenTabs corrected + strip data source split out
+  // 2026-08-22 same day — see each function's own comment for why): the
+  // overlay's own driver (switcher.js) calls this instead of
+  // renderTimeline() directly. Two genuinely different consumers now:
+  // the RIBBON (tiered) still goes through markOpenTabs → the one real
+  // render()/assembleThreads()/parseSessions() pipeline, day-filtered,
+  // real data only. The STRIP (uniform) reads lastOpenTabs directly
+  // (stripEventsFromOpenTabs, inside paint()) — categorical, every
+  // currently open tab, no day filter, since a stale-but-open tab must
+  // never vanish from the strip just because its last real activity
+  // wasn't today.
   window.FS_renderOpenTabs = (openTabs, sessions) => {
-    const synthetic = syntheticSessionsForOpenTabs(openTabs, sessions);
-    render([...sessions, ...synthetic]);
+    lastOpenTabs = openTabs;
+    render(markOpenTabs(openTabs, sessions));
   };
   // Single source of truth for scoring — the Score-table button in
   // dashboard.js uses these so diagnostics can never drift from the render.

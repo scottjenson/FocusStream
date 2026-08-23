@@ -217,49 +217,33 @@
       height: 16px;
       pointer-events: none;
     }
-    /* Block label (Active Tab Manager Phase 2, spec §7b, 2026-08-21):
-       always-on site-name label, bottom-left, clipped by .blk's own
-       overflow:hidden the same way the favicon is — a partial label on a
-       narrow block beats none, matching the favicon rule's own reasoning.
-       white-space+text-overflow only matter once .blk grows wide enough to
-       need them; on a truly narrow block the parent clip does the real
-       work. */
+    /* Block label (Active Tab Manager Phase 2, spec §7b, 2026-08-21;
+       repositioned 2026-08-22 to stay favicon-adjacent in BOTH heights):
+       always-on site-name label, clipped by .blk's own overflow:hidden the
+       same way the favicon is — a partial label on a narrow block beats
+       none, matching the favicon rule's own reasoning. white-space+
+       text-overflow only matter once .blk grows wide enough to need them;
+       on a truly narrow block the parent clip does the real work.
+       Side-by-side with the favicon, both top-anchored — this used to be
+       the collapsed-only (#ribbon.uniform-height) treatment, with the
+       expanded/tiered ribbon falling back to a bottom-left position; that
+       fallback was the actual bug (label visibly dropping to the bottom
+       edge on expand) since expand/collapse is meant to be a pure
+       height-only toggle over one shared element set (spec §7b), not a
+       label-repositioning event. One position, both states. */
     .blk-label {
       position: absolute;
-      left: 4px;
+      top: 4px;
+      left: 24px; /* favicon's 16px width + 4px left inset + 4px gap */
       right: 4px;
-      bottom: 2px;
       font-size: 10px;
-      line-height: 12px;
+      line-height: 16px; /* matches .fav's 16px height so both sit flush */
       color: rgba(255, 255, 255, 0.85);
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       pointer-events: none;
-    }
-    /* Collapsed strip label (Active Tab Manager Phase 2, spec §7b,
-       2026-08-21 fix, re-scoped 2026-08-22 unification): at STRIP_TILE_H
-       (30px, heightMode "uniform") the favicon (top:4px, 16px tall ->
-       rows 4-20) and the label's default bottom-anchored position
-       (bottom:2px, 12px tall -> rows 16-28) mathematically overlap — real
-       bug, not a color bug. Side-by-side + vertically centered instead,
-       matching a real Chrome tab (icon then title) — scoped to
-       #ribbon.uniform-height (timeline.js paint(), toggled by
-       heightMode) so the expanded/tiered ribbon keeps its original
-       stacked favicon-top-left + label-bottom-left arrangement (plenty of
-       vertical room there, and it's the one true rendering path for both
-       now — no separate open-tabs pipeline). */
-    #ribbon.uniform-height .blk .fav {
-      top: 50%;
-      transform: translateY(-50%);
-    }
-    #ribbon.uniform-height .blk .blk-label {
-      left: 24px; /* favicon's 16px width + 4px left inset + 4px gap */
-      right: 4px;
-      bottom: auto;
-      top: 50%;
-      transform: translateY(-50%);
     }
     /* Stack-ribbon cards (plans/stack-ribbon.md Stage 1, 2026-08-11):
        replaces the block ribbon above as the LIVE paint path (timeline.js

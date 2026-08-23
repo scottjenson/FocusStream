@@ -250,9 +250,121 @@ just had nothing real to redraw. Routing open tabs through the real
   listener (that fired on nearly every click, since blocks are narrow and
   the bar spans the full viewport). Escape also collapses.
 
+**Block label position, fixed 2026-08-22:** `.blk-label` is one
+unconditional rule — top-anchored, side-by-side with the favicon — the
+same in both `heightMode`s. (Previously only correct while
+`uniform`, via a height-scoped override; expanding to `tiered` visibly
+dropped the label to the block's bottom edge, since the override no
+longer applied — expand must change height only, never label position.)
+
+**Persistent run-title (`.rtitle`) suppressed in this view, 2026-08-22:**
+every block here already carries its own always-on `.blk-label` plus the
+existing hover tooltip/snapshot; the separate floating "HIGH-run title"
+bar (spec §6, pre-existing, unrelated to Phase 2) is pure duplication on
+top of both — true for real closed history same as for open tabs, not an
+open-tab-specific issue. Suppressed whenever `anchorMode === "right"`
+(this overlay); the standalone dashboard (`anchorMode === "left"`) is
+unaffected, keeping `.rtitle` as its one on-face title mechanism.
+
 ### Deferred (Phase 2)
 Multi-day/unbounded zoom-out beyond what real stored history covers;
 scored auto-eviction (Phase 3); active→historical reconciliation beyond
 what this unification already gives for free (Phase 4, may now be largely
 subsumed — an open tab already IS a real thread/container member, not a
 separate thing needing to "fold in" later). `decisions/tabmanager.md`.
+
+## 7c. Strip ordering + ribbon default window (built 2026-08-22, corrected through 2026-08-23)
+
+Corrects 7b's `now`-anchoring, which conflated "currently open" (a
+Chrome-level fact) with "recently attended" (a telemetry fact) — a pinned
+tab idle for hours rendered identically to one just switched into,
+always glued to the ribbon's right edge, and (worse, found later)
+fabricated multi-hour durations for tabs whose real attention was brief.
+Full reasoning, every rejected alternative, and the full real-bug trail
+are in `decisions/tabmanager.md` under "Strip ordering rethink" and its
+several follow-on entries — this section states only the current, live
+rules.
+
+**Strip (`heightMode: "uniform"`) is built directly from the live open-tab
+list, bypassing the day-filtered ribbon pipeline entirely**
+(`stripEventsFromOpenTabs`, reading `lastOpenTabs`/`lastSessions` set by
+`FS_renderOpenTabs`) — categorical Chrome order, not temporal, and NOT
+scoped to today: an open tab whose last real activity was yesterday (or
+never) still gets a tile. (Earlier version built the strip from
+`assembleThreads(parseSessions(sessions, viewDayStart)).filter(isOpenTab)`
+— the same day-filtered array the ribbon uses — which silently dropped
+any open tab whose most recent real session wasn't from today; real
+specimen: 3 of 4 pinned tabs and 1 of 6 regular tabs vanished.) Each
+tile's `band`/`score` come from real prior evidence when it exists (LOW
+otherwise — nothing earned yet, not a guess); `tabIndex` is the tab's
+real position in `chrome.tabs.query`'s own order (pinned tabs first, by
+Chrome's own construction) and is what `stripLayout()` (fixed pitch,
+`STRIP_TILE_W`/`STRIP_PINNED_TILE_W`, no time math — modeled on the
+dormant `cardLayout()`) sorts by. **Pinned tabs are icon-only, no label**
+— matches real Chrome's own pinned-tab treatment. **The strip's resting
+scroll position is ALWAYS the left edge** (`scrollLeft: 0`, both on
+render and on collapse) — a real Chrome tab bar never hides its first
+(pinned) tabs; an earlier version right-justified uniform mode too
+(reasoning at the time, wrong: "Chrome-order rightmost slot is always
+correct"), which scrolled pinned tabs off-screen by default.
+
+**Ribbon (`heightMode: "tiered"`) shows only real, already-finalized
+session data — no fabricated timing of any kind.** `markOpenTabs`
+(replaces the retired `syntheticSessionsForOpenTabs`) tags a real,
+already-finalized session in place (`isOpenTab`/`openTabId`/`tabIndex`/
+`pinned`, shallow copy, never mutating the original) when one exists for
+an open tab; only a tab with ZERO real history anywhere gets a genuinely
+new placeholder, `durMs: 0`, anchored at `now`. (Earlier version computed
+`durMs = now - priorStartTime` for EVERY open tab, real specimen: an
+85-second real bsky visit at 2:49pm rendered as a 2.5-hour-wide block by
+5pm — `durMs` measures "time since last visit began," not attention,
+violating spec §1's "activity is the sole proxy for importance." It also
+duplicated data: a separate synthetic object for a tab that already had a
+real session in `sessions`, with no dedup.) **The currently-focused tab's
+in-progress visit is flushed into real `sessions` before the ribbon
+paints** (`FS_FLUSH_CURRENT` message, `background.js` — same
+`finalizeCurrent`/`startSession` pair `chrome.tabs.onActivated` already
+uses on a real tab switch, same `endReason: "tab_hidden"` too, deliberately
+reused rather than inventing a new reason so the well-tested departure/
+return container-qualification logic in `detectContainers` needs no
+changes at all) — every OTHER open tab was already finalized the moment
+the user switched away from it, so only the actively-focused tab could
+ever have lagged, and only until this flush or the next real boundary.
+
+Defaults on first real expand to a **last-`DEFAULT_WINDOW_BLOCKS` (12)
+top-level-blocks lookback** (a container counts as one block; no
+fence-detection or secondary adjustment — deliberately the simplest
+version). Computed via two real `layout()` passes
+(`windowScrollLeft`/`applyDefaultZoomWindow`, both O(n), no search) — NOT
+a time-span estimate (an early cut used `spanMs × BASE_PX_PER_SEC`, which
+`ZOOM_MAX` clamping and min-width-floor/gap error could silently blow
+past). Gated to fire only on a `heightMode === "tiered"` render — the
+overlay's very first `render()` call happens at page MOUNT while still
+collapsed (`switcher.js` paints once on load), and the one-shot gate
+(`defaultZoomApplied`) was being spent there uselessly before an earlier
+fix added this gate. `switcher.js`'s `expand()` also calls
+`setHeightMode("tiered", true)` (the new `skipPaint` param) instead of
+letting it paint immediately — expand() flushes (above) THEN does its own
+single fresh render, and letting `setHeightMode` paint first, before the
+flush's data existed, meant the zoom calc locked onto a smaller dataset
+than what actually painted moments later. Applied once per page lifetime;
+every later render falls back to the ordinary right-justify (tiered mode
+only) so a manual zoom/scroll is never fought.
+
+**Fences are retired entirely in this view** (`clusterEvents`, gated on
+`anchorMode !== "right"`) — not just for open tabs (7b's original,
+narrower exemption) but for real closed history too, matching the
+card-view's own prior fence retirement (`plans/stack-ribbon.md`). The
+standalone dashboard's fencing (spec §6) is unchanged.
+
+**Animation is intersection-only:** a tab animates strip→ribbon only if
+it has a valid position under the ribbon's current zoom/scroll; a tab
+outside that window simply isn't part of the tiered paint pass — no
+fade-out, no edge-pinned placeholder (considered, rejected). Nothing about
+a stale tab's real reachability changes: it's still fully present in the
+strip (Chrome order, any day) and in the ribbon once zoomed/scrolled to
+its real time position, same as any historical event.
+
+**Deferred, not started:** real cross-day zoom-out for the ribbon
+(reintroducing multi-day data into a view that currently loads only one
+day's `sessions`) — a separate, bigger discussion.
