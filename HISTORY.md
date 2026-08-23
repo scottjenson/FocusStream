@@ -306,6 +306,17 @@ terse — write the entry there, then come back and add the one-line pointer.
   it. Marking a block as open is a visual job, not a geometric one; the
   `.open-tab` class is the hook, and the replacement treatment is left to the
   pending strip→ribbon animation rework.
+- **2026-08-23 (docs only): product goal and two design stances recorded** —
+  `decisions/tabmanager.md` ("The product goal, stated plainly", "Week strip
+  / day-picker model retired", "Pending: strip → ribbon animation rework").
+  No code. Captures what was driving the week's work but existed nowhere as
+  a stated goal: the product is that the user stops managing tabs, the system
+  closes them aggressively, and the ribbon is what makes that safe — so
+  ribbon quality gates the whole product rather than sitting alongside it.
+  Also records why day-*picking* (the week strip's mini-summaries) was
+  replaced by zoom-back in the overlay, and flags the strip→ribbon animation
+  rework, which now also owns the open-tab visual cue that
+  `OPEN_TAB_MIN_W`'s retirement removed.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

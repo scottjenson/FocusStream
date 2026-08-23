@@ -1659,3 +1659,84 @@ Considered and rejected: making `OPEN_TAB_MIN_W` itself zoom-dependent
 (decay toward `MIN_W` as labels stop being legible). It would have worked,
 but it keeps a special case and adds a second ladder to reason about, to
 preserve a cue that was the wrong mechanism in the first place.
+
+---
+
+## The product goal, stated plainly (2026-08-23)
+
+Recorded because it was driving every decision this week while appearing
+nowhere in the docs as a goal — only as "Phase 3" in the roadmap, which
+badly undersells it. Someone reading this project cold would conclude it is
+a timeline visualization that has an eviction feature planned. It is the
+reverse.
+
+**The product is: you stop managing tabs.** The system closes them for you,
+aggressively. Everything else exists to make that safe. Scott's framing:
+"the goal with this project is to allow the user to have auto closing tabs
+— if you can trust that your history contains everything, then you should
+be able to get back to what you wanted to, no problem."
+
+So the dependency runs: **auto-close is the product → it is only acceptable
+if retrieval is trustworthy → the ribbon is the retrieval mechanism → ribbon
+quality gates the product.** Zoom, cross-day reach, band ladders, legibility
+at range are not visualization polish that happens alongside eviction; they
+are the work that earns the right to ship it. That is why a week was spent
+on zoom before any `chrome.tabs.remove()` exists.
+
+The safety argument itself is in "Lightweight opinion + fallback" above —
+the system is *allowed* to be wrong about importance because browsing is
+always the recovery path, so the failure mode to watch is tedium rather than
+inaccuracy (`eviction-fallback-tedium`). This entry is only about stating
+what the thing is for, since the premise entry assumed it.
+
+**Pinned tabs are the standing exception** and always will be: pinning is
+the user explicitly declaring "keep this regardless of use," a channel
+telemetry cannot infer. See the premise entry.
+
+## Week strip / day-picker model retired for the overlay (2026-08-23)
+
+§7e replaces day *picking* with zoom-back, and the reason is an evaluative
+judgment on a shipped feature rather than a technical constraint. Scott, on
+the standalone dashboard's week strip: "we had the day browser with these
+small little mini summaries above each day and while it was clever it wasn't
+that helpful and it didn't give me a good idea of what happened on each
+day." Hence: "now that we've switched towards a very tab-heavy approach, I
+think it's more helpful to start from today and just go back into history."
+
+Two models of time navigation, and the overlay picks the second:
+* **Discrete day picking** (week strip): jump to a day, see that day. Needs
+  a per-day summary good enough to choose from — which is exactly what
+  didn't work.
+* **Continuous zoom-back** (§7e): always anchored at now, reach further by
+  zooming. No summary needed, because you never choose a day — you widen the
+  window until what you want is in it.
+
+The standalone dashboard keeps its week strip and day paging unchanged; this
+is an overlay decision, not a deletion. But the overlay is where the product
+is heading, so treat the week strip as legacy rather than as a model to
+extend. Open question, not urgent: whether `viewDayStart` and the week strip
+should eventually retire from the overlay's code path entirely, or stay as
+the standalone dashboard's own affordance.
+
+## Pending: strip -> ribbon animation rework (flagged 2026-08-23, not designed)
+
+Raised by Scott twice in one session and worth tracking before the reasons
+are lost. **The animation that morphs strip tiles into ribbon blocks is
+largely dead:** "we had an animation that tried to animate the strip blocks
+to the ribbon blocks and given the decisions that we've made recently, the
+majority of that animation is completely lost." The decisions that eroded it
+were each individually right — Chrome-order strip vs. time-ordered ribbon
+(§7c) means tiles and blocks no longer correspond positionally, and
+intersection-only animation (§7b) means a tab outside the ribbon's current
+window has nothing to animate to.
+
+**It has since acquired a second job.** Retiring `OPEN_TAB_MIN_W` (above)
+removed the width cue that marked a block as open, deliberately, on the
+grounds that open-ness is a visual property and not a geometric one. The
+replacement treatment — Scott: "likely highlighting the block in a way that
+implies that it is open" — was left to this rework rather than designed
+separately, since both are about the same thing: how strip and ribbon stay
+legible as one object.
+
+Not designed, deliberately. Noting only that the two questions are one
+question, and that `.open-tab` (set in `paint()`) is the existing hook.
