@@ -152,7 +152,11 @@
       scrollbar-width: none;
     }
     #ribbon-wrap::-webkit-scrollbar { display: none; }
-    /* Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
+    /* The expanded OVERLAY ribbon inverts this — right-pinned to "now" (spec
+       §7d, 2026-08-23, timeline.js). The rule below still governs the
+       standalone dashboard and the collapsed strip verbatim.
+
+       Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
        first event's left edge sits at the viewport's left edge and stays
        there under panning — the browser's own scrollLeft clamp (never
        negative) gives this for free with no spacer needed, AS LONG AS

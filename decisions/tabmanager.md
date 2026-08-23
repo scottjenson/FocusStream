@@ -1247,3 +1247,92 @@ one, final, complete dataset. Considered and rejected: making the
 one-shot re-arm itself whenever the flush changed `events.length` — more
 moving parts for the same result, and doesn't fix the deeper issue (two
 renders for one logical "expand" action was itself the wrong shape).
+
+---
+
+## Zoom anchors right, not left (2026-08-23)
+
+**The trigger was the multi-day plan, not a bug.** The existing zoom was
+left-pinned: content laid out from x=0 and grew rightward, so zooming out
+compacted it toward the left and zooming in expanded it to the right.
+Scott: "that was the original model and worked well when we tried very
+hard to keep the day always within the width of the viewport. But now that
+we're going to get rid of the day navigation and be able to zoom out back
+into history, I think we need to switch this around." The reasoning holds
+independently of the multi-day work landing: `now` is the one landmark
+that is always meaningful, and once the ribbon reaches past today there is
+no natural left edge to anchor to at all.
+
+**First framing was wrong, and Scott corrected it.** The initial read was
+that right-pinning and cursor-anchored zoom were in conflict — you can pin
+the right edge or hold the instant under the cursor, not both — and that
+choosing the pin meant giving up zoom-into-a-specific-block. Scott
+rejected the premise: "even with the cursor focus that we have today, it
+still is pinned on the left and it expands to the right. So I don't think
+that the how you zoom around the cursor completely reframes it... I'm just
+asking that we keep the same basic model, but we just pin it to the
+right."
+
+That is correct, and it is the whole insight behind the implementation
+being as small as it is. **The pin is not a competing anchor — it is what
+the clamp does when the anchor runs out of room.** Today's left pin is not
+written anywhere; it is the platform clamping a negative `scrollLeft` to
+0. Adding a `min(..., maxScroll)` on the other end produces the right pin
+by exactly the same mechanism. Scott's own rule for which regime applies:
+cursor-anchoring matters specifically when content overflows, because
+"you often want to put the cursor over something that you cannot see very
+well and you want to blow it up." Below the fit threshold there is nothing
+to scroll and nothing to anchor, so the edge simply wins. One expression,
+two regimes, no mode flag, and the arms agree at the crossing so there is
+no visible jump.
+
+**The underflow pad, and why it is not the 2026-08-08 spacer.** The one
+case `scrollLeft` cannot express is content narrower than the viewport:
+scrolling is impossible, the blocks are laid out from x=0, so the leftover
+space lands on the right and the newest block drifts away from the right
+edge as you zoom out. Fixing that needs the leftover space on the *left*,
+i.e. a pad. A permanent lead spacer was tried and reverted on 2026-08-08
+(`timeline.css`'s `#ribbon-wrap` comment) — worth checking before
+repeating it. The reverted one existed at *every* zoom level, which made
+`scrollLeft: 0` show blank space in the *scrollable* regime and read as
+the ribbon centering itself and drifting under panning. This pad is
+`max(0, viewportW - total)`: it is exactly 0 whenever content overflows,
+so it never exists in the regime where the old one failed, and being
+absent there it cannot drift. The two differ precisely in the dimension
+that killed the first attempt.
+
+**Strip stays left-justified — caught live, not by review.** The pad's
+first cut sat above `paint()`'s uniform/tiered fork and so applied to the
+collapsed strip too. Scott found it testing: the strip "is supposed to
+look like a chrome tab view, in that case that one should be left
+justified," and asked whether having one view left-justified and the other
+right-justified would be a problem. It is not, and the reason is worth
+recording: the two views have different *axes*. The ribbon's is time, so
+its right edge means "now"; the strip's is categorical (Chrome tab order),
+where a right edge means nothing and pinning to it hides the first/pinned
+tabs. That is the same reasoning that produced the 2026-08-22 fix
+(§7c) — right-pinning the strip was importing the ribbon's "show now"
+logic into an axis with no now. Gated on `heightMode === "tiered"`, matching
+`render()`'s scroll reset.
+
+**`windowScrollLeft` as a resting position was deleted, and the view got
+better.** `applyDefaultZoomWindow` used to solve the 12-block zoom *and*
+snap `scrollLeft` to that window's left edge. Under the right pin the snap
+is redundant — pinning right at that same zoom shows the same window — and
+strictly worse in the clamped case: when `ZOOM_MIN`/`ZOOM_MAX` prevents
+the exact solve, the left-edge snap could leave "now" off-screen to the
+right, whereas the pin always shows "now" and whatever fits behind it. The
+function survives as `applyDefaultZoomWindow`'s own probe; only its use as
+a resting position is gone.
+
+**`ZOOM_MAX` 8 -> 16, provisional.** Raised in the same session, on
+Scott's call ("let's just double it to 16 for now... this is part of my
+experiment to make sure that we get zoom working properly") after 24 was
+proposed. The reason a ceiling was being felt at all: at 8x
+(`BASE_PX_PER_SEC` 0.0375 -> 1080 px/hour) a 30-second visit renders ~9px,
+barely clear of `MIN_W`'s 8px floor — and right-pinned zoom made zooming
+in the primary way to inspect exactly those short visits. Note the floor
+also means low zoom is *not* linear in time; zooming in makes the layout
+more honestly proportional, not just bigger, so there is little reason to
+cap it early. Left at 16 to watch rather than 24, per the project's
+one-knob-at-a-time rule.

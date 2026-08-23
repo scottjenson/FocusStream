@@ -256,6 +256,22 @@ terse — write the entry there, then come back and add the one-line pointer.
   console logging: against expand()'s pre-flush data instead of its real
   post-flush data) — fixed by removing the double-render
   (`setHeightMode`'s new `skipPaint` param) rather than re-arming the gate.
+- **2026-08-23: ribbon zoom anchors right instead of left** — spec §7d;
+  `decisions/tabmanager.md` ("Zoom anchors right, not left"). The expanded
+  overlay now rests pinned to "now" at the viewport's right edge with
+  history running back to the left, motivated by the coming cross-day
+  zoom-out (there is no natural left edge once the ribbon reaches past
+  today). Cursor-anchored zoom survives unchanged, now clamped at both
+  ends — the pin is what the clamp does when the anchor runs out of room,
+  so the `min()` is the whole regime switch. An underflow `marginLeft` pad
+  covers the one case `scrollLeft` cannot express (content too narrow to
+  scroll); it is 0 whenever content overflows, which is what separates it
+  from the permanent lead spacer reverted 2026-08-08. The collapsed strip
+  stays left-justified — categorical axis, no "now" to pin to (found live
+  during testing). `applyDefaultZoomWindow`'s left-edge `scrollLeft` snap
+  deleted as redundant under the pin, and better-degrading without it when
+  zoom clamps. `ZOOM_MAX` 8 -> 16, provisional (at 8x a 30-second visit
+  was ~9px, against `MIN_W`'s 8px floor).
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

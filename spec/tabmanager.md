@@ -368,3 +368,62 @@ its real time position, same as any historical event.
 **Deferred, not started:** real cross-day zoom-out for the ribbon
 (reintroducing multi-day data into a view that currently loads only one
 day's `sessions`) — a separate, bigger discussion.
+
+## 7d. Ribbon zoom anchors right (built 2026-08-23)
+
+**The expanded ribbon rests right-pinned: "now" sits at the viewport's
+right edge and history runs back to the left.** Zooming in expands
+leftward; zooming out contracts back toward the right edge. This replaces
+the historical left-justified rest position (spec §6) for the overlay only
+— the standalone dashboard is unchanged, and so is the collapsed strip
+(see below). Motivation: `now` is the only landmark that stays meaningful
+once the ribbon can reach past the current day, where there is no natural
+left edge to anchor to.
+
+**Two mechanisms, split by regime, because they answer different
+questions.** When the content *overflows* the viewport, the right pin is
+just `scrollLeft` clamped to its maximum. When the content *underflows*
+there is nothing to scroll at all, so no `scrollLeft` can hold the right
+edge; a `marginLeft` pad on `#ribbon` (`paint()`, `max(0, viewportW -
+total)`) moves the leftover space to the left instead. The pad is exactly
+0 whenever content overflows, so the scrollable regime keeps the
+historical geometry untouched. This is NOT the permanent lead spacer tried
+and reverted 2026-08-08 (see `timeline.css`): that one existed at every
+zoom level and so made `scrollLeft: 0` show blank space in the scrollable
+regime, reading as drift under panning. This pad only exists when
+scrolling is impossible, so it cannot drift.
+
+**Cursor-anchored zoom survives, bounded.** The existing anchor math (hold
+the pointer's x-fraction of total width across the width change) is
+unchanged; it is now clamped above by `maxScroll` as well as below by 0.
+Zoomed in, the anchor wins — the instant under the pointer stays under it,
+so a barely-visible block can be zoomed into directly. Zoomed out, the
+anchor target runs past the right end and clamps, producing the pin. The
+`min()` *is* the regime switch — there is no mode flag, and the two arms
+agree exactly at the crossing point, so there is no jump through the fit
+threshold.
+
+**The collapsed strip stays left-justified** (`heightMode === "uniform"`,
+same gate on both the pad and `render()`'s scroll reset). Its axis is
+categorical (Chrome tab order), not time, so a right edge means nothing
+there and pinning to it would hide the first/pinned tabs — the 2026-08-22
+bug recorded in §7c. Left- and right-justification coexist as the two arms
+of the `heightMode` branch, not as an inconsistency to reconcile.
+
+**`applyDefaultZoomWindow` no longer computes a `scrollLeft`.** It still
+solves the zoom that makes `DEFAULT_WINDOW_BLOCKS` (12) fill the viewport;
+right-pinning at that zoom shows that same window. The removed left-edge
+snap (`windowScrollLeft` as a resting position — the function itself
+survives as the zoom probe) degraded worse under a `ZOOM_MIN`/`ZOOM_MAX`
+clamp: it could leave "now" off-screen to the right, where the pin always
+shows "now" and whatever fits behind it.
+
+**`ZOOM_MAX` is 16** (was 8, provisional — weights and knobs stay named
+constants, one turn at a time). At 8x a 30-second visit rendered ~9px
+wide, barely clear of `MIN_W`'s 8px floor, which became the binding limit
+once zooming in was the main way to inspect short visits. Only affects the
+default view on a day sparse enough that 12 blocks wanted more than 8x,
+where the higher cap is strictly better.
+
+**Deferred, unchanged from §7c:** real cross-day zoom-out. Zoom-out
+currently bottoms out at the day's own extent.

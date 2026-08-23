@@ -108,7 +108,7 @@ import {
   // them before a relayout.
   let zoom = 1;
   const ZOOM_MIN = 0.5;
-  const ZOOM_MAX = 8;
+  const ZOOM_MAX = 16; // 8 -> 16, 2026-08-23, provisional (spec §7d)
   let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
   // Open-tab width floor (Active Tab Manager Phase 2, 2026-08-22
@@ -1553,7 +1553,14 @@ import {
       GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
       relayout();
       const newTotal = ribbonEl.scrollWidth || 1;
-      wrap.scrollLeft = frac * newTotal - (lastPointerX - rect.left);
+      // Right-pin (spec §7d, 2026-08-23): the cursor anchor is now bounded
+      // above by maxScroll as well as below by 0 — anchor wins zoomed in,
+      // clamps to the right edge zoomed out. The min() IS the regime switch.
+      const maxScroll = newTotal - wrap.clientWidth;
+      wrap.scrollLeft =
+        maxScroll <= 0
+          ? 0
+          : Math.min(frac * newTotal - (lastPointerX - rect.left), maxScroll);
     };
     wrap.addEventListener("pointermove", (ev) => {
       lastPointerX = ev.clientX;
@@ -1757,14 +1764,10 @@ import {
     const target = segs.find((s) => !s.contained && s.e.startTime >= windowStartTime);
     return target ? target.x : null;
   }
-  // Returns true iff it actually set a new zoom this call (the ONE time
-  // render() should also snap scrollLeft to this window's own left edge,
-  // rather than its ordinary right-justify — see render()'s
-  // usedDefaultWindow). False on every later call (defaultZoomApplied
-  // already set) and on any of the early-exit paths below (not enough
-  // events yet to have a real window, or a degenerate span) — all of
-  // which mean "nothing changed, render() should fall back to its normal
-  // right-justify," same as before this default-window feature existed.
+  // Sets zoom (once per page lifetime) so DEFAULT_WINDOW_BLOCKS fill the
+  // viewport. Since 2026-08-23 (spec §7d) render() right-pins unconditionally,
+  // so this no longer needs a scrollLeft of its own — the pin at this zoom IS
+  // the default window. Return value is now advisory; no caller reads it.
   function applyDefaultZoomWindow(events, wrap) {
     if (defaultZoomApplied || !events.length || !wrap) return false;
     defaultZoomApplied = true;
@@ -1781,14 +1784,8 @@ import {
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, viewportPx / naturalPx));
     PX_PER_SEC = BASE_PX_PER_SEC * zoom;
     GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
-    // Flagged, not solved here (decisions/tabmanager.md): if the ideal
-    // zoom is clamped by ZOOM_MIN/ZOOM_MAX, the window will legitimately
-    // show more or fewer than 12 blocks at rest — render()'s own
-    // windowScrollLeft call (computed fresh at this new, possibly-clamped
-    // zoom) still puts the 12th-from-last block's edge at the left of the
-    // viewport correctly; it's the RIGHT edge that may then reveal extra
-    // content beyond it, same honest degradation as any other
-    // zoom-clamped view.
+    // A ZOOM_MIN/MAX clamp here just means more or fewer than 12 blocks at
+    // rest; under the right-pin that degrades on its own (spec §7d).
     return true;
   }
 
@@ -1826,8 +1823,7 @@ import {
     // blocks shown on expand). Applied BEFORE paint() so the very first
     // TIERED paint (the real first expand) already reflects it, not a
     // post-paint correction.
-    const usedDefaultWindow =
-      anchorMode === "right" && heightMode === "tiered" && applyDefaultZoomWindow(events, wrap);
+    if (anchorMode === "right" && heightMode === "tiered") applyDefaultZoomWindow(events, wrap);
     if (ribbonMode === "cards") paintCards(events, hostNames);
     else paint(events, hostNames);
     // A real render (new data, day paging, fence toggle — never a zoom
@@ -1837,15 +1833,10 @@ import {
     // flush against the viewport's left edge, regardless of wherever
     // zoom/pan left the scroll position on the previous day — visual
     // stability across day paging, not a preserved viewport); the overlay
-    // uses the SAME DEFAULT_WINDOW_BLOCKS left edge (windowScrollLeft) it
-    // set zoom against ONLY on the same first-mount call as
-    // applyDefaultZoomWindow (usedDefaultWindow, just below) — every
-    // subsequent render just re-right-justifies at whatever zoom the user
-    // is currently at, same as before, so new data/day-paging/fence-toggle
-    // don't fight a manual zoom/scroll the user already made (2026-08-22
-    // correction: the first cut re-snapped to the 12-block window on
-    // EVERY render, which would have silently undone any zoom-out the
-    // user did to look further back).
+    // RIGHT-pins to "now" (spec §7d, 2026-08-23) on every render, first
+    // included — applyDefaultZoomWindow sets the zoom, the pin shows it, so
+    // it no longer needs a scrollLeft of its own. Zoom LEVEL is never reset
+    // here, so re-renders don't fight a manual zoom.
     //
     // Uniform mode is ALWAYS left-justified (scrollLeft: 0) — bug fix,
     // spec §7c, 2026-08-22 (real specimen: all 4 pinned tabs + the first
@@ -1858,13 +1849,10 @@ import {
     // an axis (categorical tab order) where "now" has no meaning at all.
     if (wrap) {
       const ribbonEl = qs("ribbon");
-      let scrollLeft = 0;
-      if (anchorMode === "right" && heightMode === "tiered") {
-        const windowLeft = usedDefaultWindow ? windowScrollLeft(events, lastLockIntervals) : null;
-        scrollLeft =
-          windowLeft != null ? windowLeft : ribbonEl ? ribbonEl.scrollWidth - wrap.clientWidth : 0;
-      }
-      wrap.scrollLeft = scrollLeft;
+      wrap.scrollLeft =
+        anchorMode === "right" && heightMode === "tiered" && ribbonEl
+          ? Math.max(0, ribbonEl.scrollWidth - wrap.clientWidth)
+          : 0;
     }
   }
 
@@ -1932,6 +1920,15 @@ import {
     // short (not just its tiles). "tiered" keeps the historical frame.
     const bandBottom = heightMode === "uniform" ? STRIP_TILE_H : TITLE_AREA + BAND_H;
     ribbon.style.width = total + "px";
+    // Right-pin underflow pad (spec §7d, 2026-08-23): holds the right edge
+    // when content is too narrow to scroll. 0 whenever it overflows, so the
+    // scrollable regime is untouched. Overlay + tiered only — same gate as
+    // render()'s scroll reset.
+    const padWrap = qs("ribbon-wrap");
+    ribbon.style.marginLeft =
+      anchorMode === "right" && heightMode === "tiered"
+        ? Math.max(0, (padWrap ? padWrap.clientWidth : 0) - total) + "px"
+        : "0px";
     ribbon.style.height = (heightMode === "uniform" ? bandBottom : bandBottom + AXIS_AREA) + "px";
     qs("ribbon-empty").hidden = segs.length > 0;
 
