@@ -184,8 +184,12 @@ export function treeRootsOf(sessions) {
 // viewDayStart is timeline.js's (the day-navigation UI lives there) — passed
 // in rather than closed over here, so this module has no mutable state of
 // its own beyond openerEdges above.
-export function parseSessions(sessions, viewDayStart) {
-  const from = viewDayStart;
+//
+// windowStart (optional, spec §7e, 2026-08-23) widens the window backward to
+// span multiple days: [windowStart, nextDayStart(viewDayStart)). Omitted, the
+// window is the single day viewDayStart names — every pre-existing caller.
+export function parseSessions(sessions, viewDayStart, windowStart) {
+  const from = windowStart != null ? windowStart : viewDayStart;
   const to = nextDayStart(viewDayStart);
   const rootOf = treeRootsOf(sessions);
   const inDay = sessions.filter((s) => s.endTime >= from && s.endTime < to && s.url);

@@ -272,6 +272,27 @@ terse — write the entry there, then come back and add the one-line pointer.
   deleted as redundant under the pin, and better-degrading without it when
   zoom clamps. `ZOOM_MAX` 8 -> 16, provisional (at 8x a 30-second visit
   was ~9px, against `MIN_W`'s 8px floor).
+- **2026-08-23: cross-day ribbon + band floor ladders** — spec §7e;
+  `decisions/tabmanager.md` ("Cross-day", "Scroll anchoring", "Fence
+  retirement re-tested", "Band floor ladders"). The ribbon now starts at
+  today and reaches back through history as the user zooms out, capped at 7
+  days. The feared bug (time-vs-datetime math mixing 9am yesterday with 9am
+  today) did not exist — `layout()` was always epoch-based, so this was a
+  data-windowing change, not a geometry one. Overnight gaps collapse to a
+  fixed-width vertical day divider (the one deliberate exception to §6's
+  absence-proportional rule) so a day costs O(1) px instead of hours-asleep.
+  Scroll anchoring switched to right-relative (`fromRight`), which survives
+  prepending a day untouched and subsumes §7d's pin as `fromRight === 0`.
+  Day loading triggers on CAPACITY, not scroll position — the first cut used
+  an infinite-scroll `scrollLeft` test that could never fire in the underflow
+  regime zoom-out lands in. Reach was then capped at ~3 days by `MIN_W`, not
+  the zoom range: fences were measured as the fix and rejected (+0.46 days
+  for 111 blocks made hover-only), and LOW/MEDIUM instead got offset 8-5-3-drop
+  floor ladders whose last rung filters the band out of `layout()` entirely —
+  a zero floor alone did nothing, since real width always beat it. HIGH never
+  descends, so zoom-out sharpens the importance hierarchy rather than
+  flattening it. Measured reach 6 days, up from 1.75. Two open watch items:
+  `band-drop-cliff`, `band-drop-absence`.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

@@ -427,3 +427,105 @@ where the higher cap is strictly better.
 
 **Deferred, unchanged from §7c:** real cross-day zoom-out. Zoom-out
 currently bottoms out at the day's own extent.
+
+## 7e. Cross-day ribbon (design 2026-08-23)
+
+Replaces the deferral noted at the end of §7c. The ribbon starts at today
+and reaches backward through history as the user zooms out, up to a 7-day
+cap. Supersedes the week strip's day-*picker* model for this view (Scott:
+the per-day mini-summaries "weren't that helpful"); the standalone
+dashboard's own day paging (§6) is unchanged.
+
+**The layout engine already spans days; only the data window was
+single-day.** `layout()` positions everything from absolute epoch
+milliseconds (`(nextStart - prevEnd) / HOUR * GAP_HOUR_PX`) and never reads
+clock time — yesterday 9am and today 9am are 86,400,000ms apart and lay out
+correctly with no day concept at all. The only clock-relative call is
+`msPastHour()`, used for whole-hour tick labels, which is correct as-is. So
+cross-day is a **data-windowing** change, not a geometry one: the single
+boundary is `parseSessions`' `[viewDayStart, nextDayStart)` filter.
+
+**Scroll position is stored as distance from the RIGHT edge.** `fromRight =
+scrollWidth - clientWidth - scrollLeft`, preserved across a day load and
+converted back after. `scrollLeft` is measured from the document's left
+edge, so prepending a day invalidates it by exactly the width inserted (the
+classic prepend-jump); every pixel right of an insertion keeps its distance
+from the right edge, so a right-relative offset survives untouched. This is
+the same idea as §7d's right pin, and subsumes it: **`fromRight === 0` IS
+the resting right pin**, so rest and preserved-anchor are one expression
+rather than two mechanisms that must agree. Valid only while zoom is
+constant across the load, which the loading rule below guarantees.
+
+**Loading a day never changes zoom.** A load extends content leftward and
+recomputes `scrollLeft` from the preserved `fromRight`; nothing else moves.
+The user-visible invariant: *loading a day must not move anything already
+on screen.*
+
+**Night is a fixed-width divider, not an honest gap.** An overnight gap
+rendered at honest gap scale (`GAP_HOUR_PX`) would be thousands of pixels
+of empty ribbon between yesterday's last block and today's first — the user
+would zoom out into a blank corridor rather than into yesterday. Overnight
+gaps therefore collapse to a constant width carrying a vertical day label
+("Sunday", "Monday"). Rotated text is accepted deliberately here: the
+labels are short, fixed, and repetitive, and the break reads as a clean
+day separator. Cost per additional day is O(1) px instead of
+O(hours-asleep), which is what makes zoom-out reach real content.
+This is the first deliberate exception to §6's absence-proportional gap
+rule; it is confined to the day boundary.
+
+**The break is at midnight, provisionally.** A user working 6pm-2am has a
+genuinely different "night" and a hard midnight rule would slice through
+active work. Known better answer, deliberately not built yet (see
+`WATCHLIST.md` `night-break-midnight`): collapse any gap over a threshold,
+and let the *label* attach to the first block after midnight — the label
+means a calendar day, so its boundary must stay midnight, but the visual
+break should land wherever the real quiet stretch is. Both versions are
+just "how wide is this gap and what is drawn in it," so the upgrade needs
+no other change.
+
+**Days load on demand, one at a time, capped at 7.** The trigger is
+CAPACITY, checked at the end of each `paint()`: if the laid-out total is
+narrower than the viewport, there is room for more history, so load one
+more day. This is the same condition as §7d's underflow pad — "the pad is
+non-zero" and "there is room for more history" are one fact. Scroll
+position is deliberately NOT the signal: the user reaches history by
+zooming, not panning, and zooming out lands in the regime where content
+underflows and `scrollLeft` is pinned at 0, where a position test cannot
+fire at all (real specimen, `decisions/tabmanager.md`). **One day per
+paint, never a loop** — zoom ticks are frequent, so the window catches up
+across a gesture instead of jumping several days in one frame. Accepted
+consequence: on a sparse day the ribbon RESTS underfilled (today only)
+until the user zooms; underfill is a normal resting state here. At 7 days
+loading stops, as it does when there is no older data.
+
+**Bands thin out and then drop as zoom decreases, so a multi-day view shows
+only what mattered.** LOW and MEDIUM each descend the same four-rung floor
+ladder — 8 → 5 → 3 → dropped — offset in zoom so LOW is fully gone before
+MEDIUM begins thinning; HIGH never descends. Open tabs are never dropped
+whatever their band (they are reachable right now). At full zoom-out the
+ribbon shows HIGH blocks and day dividers only, which is the honest answer
+to "when did things that mattered happen" rather than a compromise to fit
+more days.
+
+The final rung **drops the band from `layout()` entirely** — a zero floor
+alone does nothing, because `widthOf` takes `max(floor, realWidth)` and
+real width simply wins (measured: with the floor at 0, *zero* of 131 LOW
+blocks were still resting on it). Filtering happens before any geometry, so
+a dropped block consumes no width and its neighbours' gaps close over it.
+Duration is deliberately not preserved here: it is a weak signal this far
+out, and a long LOW visit is an oddity rather than something worth width.
+
+This replaced a `MIN_W`-driven wall: every block used to claim 8px
+regardless of score, capping the view at `viewport / MIN_W` ≈ 215 blocks at
+*any* zoom. Re-enabling fences was measured as the alternative and rejected
+— +0.46 days in exchange for 111 blocks made hover-only
+(`decisions/tabmanager.md`, "Fence retirement re-tested"). Blocks narrower
+than `MIN_W` lose hover (`.inert`): a 1-4px target is worse than none.
+
+**Measured reach: 6 days** (was 3 before the ladders, ~1.75 before
+cross-day). All ladder thresholds, `ZOOM_MIN` (0.25, was 0.5) and
+`ZOOM_MAX` (16, was 8) are provisional and expected to move with use.
+
+**The strip is unchanged.** Open tabs are a *now* fact with no day
+dimension (§7c's Chrome-order, day-filter-bypassing `stripEventsFromOpenTabs`
+already ignores days entirely). Cross-day affects the ribbon only.

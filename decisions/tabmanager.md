@@ -1403,3 +1403,213 @@ different retrieval guarantees — the system took the action, so it owes a
 stronger one back. The data model has no such flag today. Not to be solved
 now, but Phase 3's design should decide it deliberately rather than
 inherit "indistinguishable" by default.
+
+---
+
+## Cross-day: the feared bug wasn't there, the real one was elsewhere (2026-08-23)
+
+**Scott's stated worry, checked first, and it was unfounded:** "I believe a
+lot of your math and positioning is based entirely on time, not date and
+time... when we cross into the next day, we're going to be getting the
+meetings all mixed up. They won't know that a 9am yesterday is
+significantly earlier than a 9am today."
+
+Reading `layout()` settled it: every position comes from arithmetic on
+absolute epoch milliseconds (`(nextStart - prevEnd) / HOUR * GAP_HOUR_PX`),
+never from clock fields. Two 9am timestamps a day apart differ by
+86,400,000ms and lay out 24 hours apart with no day concept involved. The
+sole clock-relative call is `msPastHour()`, for whole-hour tick labels,
+which is correct. **The layout engine has always been multi-day capable; it
+drew single days only because `parseSessions` fed it one.** Worth recording
+because it inverts the expected difficulty: cross-day is a data-windowing
+change, not a geometry rewrite.
+
+**The real problem was the overnight gap.** §6's honest absence-proportional
+gaps work beautifully within a day and fail at the day scale, because a
+night is not the same *kind* of absence as a coffee break. At
+`GAP_HOUR_PX`, 8-10 hours of sleep is thousands of pixels of blank ribbon;
+zooming out to reach yesterday would mean zooming out *through* a vast
+empty corridor until yesterday finally crawled in, tiny. Precisely the
+tedium `eviction-fallback-tedium` warns about.
+
+Three options were put up: (A) fixed-width divider, (B) non-linear/log gap
+compression, (C) honest geometry plus a jump-navigation affordance so the
+corridor exists but is never traversed. **A was chosen** (Scott: agreed,
+"especially if that fixed block can contain some vertical text that says
+Sunday or Monday"). B was rejected as making the axis genuinely unreadable
+— two gap scales already exist (§6), a third with meaningless hour ticks
+inside compressed regions is too much. C is a reasonable complement but
+weak alone. A's decisive property is O(1) px per additional day, which is
+what makes zoom-out actually reach content.
+
+**Rotated day labels, accepted deliberately.** Normally avoided; fine here
+because the labels are short, fixed, and repetitive, and the vertical rule
+reads as a clean day separator rather than as text to be read carefully.
+
+**Night-owl boundary: the clean answer exists, and was deliberately not
+built.** Scott raised it directly — someone working 6pm-2am has a different
+"night," and a hard midnight break would slice through active work. The
+clean solution separates two things a single rule was conflating: the
+*label* boundary is midnight by definition (a divider labeled "Monday"
+would be lying if 1am Monday blocks sat on the Sunday side), while the
+*visual* break should land in whatever stretch is actually quiet. So:
+collapse any gap over a threshold (~3h), and attach the day label to the
+first block after midnight. A night owl then gets no divider at midnight
+(no long gap there) and one at their real 2am-10am gap; a long afternoon
+absence compresses the same way, which is honest. Consequence, judged
+acceptable and arguably correct: day labels can appear mid-stream rather
+than only at dividers — that is what actually happened. Not built because
+midnight is right for Scott's real usage, the simple version is ~10 lines,
+and both versions are just "how wide is this gap and what is drawn in it,"
+so the upgrade is local. Tracked as `night-break-midnight`.
+
+## Scroll anchoring: right-relative, and it subsumes the §7d pin (2026-08-23)
+
+**The prepend problem.** Scott's initial model: "when you're zooming,
+you've got a concept of an X location... if we store an X location based on
+today's time and date, loading additional information should not cause a
+glitch." Right in spirit, wrong about the mechanism as written —
+`scrollLeft` is measured from the *document's left edge*, so prepending a
+day invalidates it by exactly the width inserted. This is the classic
+scroll-upward prepend jump. Worse here than a constant shift, since
+`layout()` walks left-to-right accumulating a cursor: prepending yesterday
+re-runs the whole walk and today's blocks land at entirely new x values.
+
+**First proposal (mine) was over-engineered: a timestamp anchor.** Read the
+viewport edge as a time, load, convert that time back to a new x, restore.
+Correct, but it needs a time<->x conversion in both directions and is only
+exact at block edges (inside a `MIN_W`-floored block, time is not linear in
+x at all).
+
+**Scott's correction, which is better:** "if the constant of scrolling is
+leftmost... what would happen if we just switched the logic to be rightmost
+because that is fixed. There is no further right than now." Exactly right,
+with one wrinkle: there is no `scrollRight` property to switch to, so the
+"switch" is storing a right-relative number ourselves and deriving
+`scrollLeft` from it — `fromRight = scrollWidth - clientWidth - scrollLeft`,
+inverted after the load. Every pixel right of an insertion keeps its
+distance from the right edge, so `fromRight` survives a prepend untouched.
+Two lines, no conversions, no block-edge inexactness.
+
+**And it subsumes §7d.** `fromRight === 0` *is* the resting right pin, so
+the rest position and the preserved-anchor position become one expression
+instead of two mechanisms that have to agree. One concept covers both.
+
+**Its one precondition:** `fromRight` is a pixel distance, so it is stable
+only while pixels-per-time is stable — i.e. while zoom does not change
+across the load. That is already the rule ("loading a day never changes
+zoom"), so the precondition is satisfied by construction; noted here
+because a future change that re-zoomed on load would silently break it.
+
+---
+
+## Fence retirement re-tested against cross-day zoom, and it holds (2026-08-23)
+
+Cross-day zoom-out hit a hard wall at ~3 days, and the obvious candidate fix
+was to un-retire fences in the overlay (§7c retired them entirely, gated on
+`anchorMode !== "right"`). Both of us reached for it independently; Scott
+added the right caution: "we should do some calculations to make sure that
+adding the fences back in will make a meaningful difference... I'm worried
+that the overall effect is going to be quite small." **Measured with a
+temporary what-if in the debug hook — laying the same events out with
+fencing forced on — and the worry was correct. Rejected on data.**
+
+**The wall itself, first.** At `zoom` 0.25 (`atZoomMin: true`) with 3 days
+loaded: 217 blocks, 188 of them (87%) pinned at exactly `MIN_W` = 8px, and
+floored blocks were 87% of total width. Gaps were down to 94px across three
+whole days. So zoom-out had nothing left to compress — it only scales
+`PX_PER_SEC`/`GAP_HOUR_PX`, and gaps were already gone. Lowering `ZOOM_MIN`
+further would have moved 2947px to roughly 2900px. The real ceiling is
+arithmetic: `viewport / MIN_W` ≈ 1721/8 ≈ **215 blocks, ever**, at any zoom.
+
+**What fencing would actually buy:** 616px saved, 21% — and the number that
+matters, days visible on screen, goes from **1.75 to 2.21**. Half a day.
+
+**Why so little, and this is the generalizable part:** fences collapse
+*consecutive runs* of LOW blocks, so the saving is driven by run LENGTH, not
+by how many LOW blocks exist. 50 fences swallowed 111 blocks — **average run
+length 2.2.** This user's LOW blocks are scattered, interleaved with
+MEDIUM/HIGH, not clustered into long grazing stretches. Collapsing two 8px
+blocks into two 3px sticks saves ~10px per fence; 50 of those is noise.
+
+**And the trade is worse than the number suggests.** It would make 111
+blocks require hover-to-expand — strictly harder to find — to gain 0.46 days
+of reach. Measured directly against `eviction-fallback-tedium`'s bar ("a
+low-scored sliver stays findable without already knowing when it happened"),
+that is a net loss. §7c's retirement stands, now on evidence from the
+situation most likely to overturn it rather than on the card-view analogy it
+was originally argued from.
+
+**The finding this leaves open.** 86% of ribbon width is spent on blocks the
+scoring model itself rates lowest, because every block claims `MIN_W`
+regardless of importance. Fences are the wrong lever for that (they need
+runs); the honest lever is importance-proportional floors or true
+aggregation at low zoom — not designed here, deliberately, since the same
+evidence standard should apply to whatever replaces it. Tracked as
+`zoom-out-block-floor`.
+
+---
+
+## Band floor ladders: three attempts to reclaim zoom-out width (2026-08-23)
+
+Follows directly from "Fence retirement re-tested" above, which established
+that `MIN_W` (not `ZOOM_MIN`) capped cross-day reach at ~3 days, and that
+fences were the wrong lever. Three successive cuts, each corrected by
+measurement rather than argument — worth recording in order, because the
+first two both *looked* right and both quietly did nothing.
+
+**Attempt 1: shrink LOW's floor on a zoom ladder (8-4-2-1).** Scott's idea,
+and it fixed the mechanism fences couldn't: shrinking has no adjacency
+requirement, so scattered LOW blocks (the 2.2-average-run problem) all pay
+off. Framing that made it work: the intermediate rungs are **transition
+frames, not states** — "we either settle on the one pixel solution or the
+zero pixel solution, and we use the four and the two as intermediaries to
+make it look more natural." That killed the discrete-vs-continuous question
+and the hysteresis worry in one move, since nothing has to be *useful* at
+4px, only on its way somewhere. Hover drops below `MIN_W` (`.inert`): a
+1-4px hover target is worse than none — the user tries, misses, and reads
+the UI as broken.
+
+Result: worked, 2947px -> 2218px. But a bug caught in review first — the
+step lookup returned the FIRST matching rung, so the ladder never descended
+past 4px. Ordering the table most-zoomed-out-first fixed it; verified
+against a printed zoom/floor table rather than by reading.
+
+**Attempt 2: same ladder for MEDIUM, offset.** Scott predicted MEDIUM would
+now dominate, and the measurement confirmed it: at 3 days/zoom 0.25, MEDIUM
+held **722px from just 69 blocks (60 of them floored)** — more width than
+129 LOW blocks took (606px). Holding MEDIUM at `MIN_W` was the remaining
+cap. Both bands got the same 8-5-3-0 shape (Scott's call — "I would have
+the low and the medium ladders be exactly the same"), offset so LOW
+finishes before MEDIUM starts. **The offset is what makes vanishing
+legible**: the user watches LOW fade out first and learns the rule, so
+MEDIUM following later reads as "zoomed out past the small stuff" rather
+than "my data is missing." Two bands vanishing together would be a cliff.
+
+**Attempt 3, the actual fix: zero must mean DROPPED, not unfloored.** Both
+ladders reached a 0 floor and the ribbon still showed 224 blocks. The
+diagnostic caught why in one field: **`lowAtFloor: 0` of 131** — not a
+single LOW block was resting on the floor any more. `widthOf` takes
+`max(floor, realWidth)`, so once the floor hit 0 every block simply rendered
+at its honest duration width and the ladder stopped doing anything at all.
+A floor can only remove padding; it can never remove real data. The fix was
+to make the last rung a genuine filter, applied at `layout()`'s entry so
+dropped blocks consume no width and neighbouring gaps close over them.
+
+Scott's reasoning for dropping duration rather than preserving it: "duration
+is a signal, but it's not that important a signal, especially at low,
+because a longer low is an odd thing." Correct — at six days' range, a long
+LOW visit is an oddity, not something worth width.
+
+**Known and accepted: the last rung is a cliff.** Scott predicted it before
+it shipped ("it may feel like a large jump") and the numbers agree — 131
+LOW blocks vanish on one tick, 70 MEDIUM on another, while the 8-5-3 rungs
+before them shift a 4px block to 3px. A progressive duration-based filter
+across those rungs was designed and deliberately NOT built: the simple
+version shipped first to be judged by use, since the cliff lands at an
+explicit "show me only what mattered" gesture rather than somewhere a user
+drifts into.
+
+**Outcome: 6 days of reach** (from 3 with cross-day alone, ~1.75 before it).
+Scott: "I can see multiple days, I can now see the important events... the
+zooming seems to be reasonable." All thresholds provisional, pending use.

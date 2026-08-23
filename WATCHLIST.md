@@ -312,3 +312,43 @@ labels"; the watch no longer describes current behavior.)
   possibly search as a second channel) — not in retuning the score, which
   is not the thing that failed. Blocking: no `chrome.tabs.remove()` should
   ship until retrieval has been exercised by hand on a real day's history.
+- **night-break-midnight (2026-08-23):** §7e collapses overnight gaps to a
+  fixed-width labeled divider, and puts that break at midnight. Correct for
+  a day-shift user, wrong for a night owl: someone working 6pm-2am gets a
+  hard break slicing through the middle of active work, since their real
+  quiet stretch is 2am-10am. The better answer is already worked out and
+  deliberately unbuilt (`decisions/tabmanager.md`, "Cross-day"): collapse
+  any gap over a threshold (~3h) wherever it falls, and attach the day
+  *label* to the first block after midnight — label boundary stays midnight
+  because that is what the label means, visual break follows the real
+  absence. Watch for: a divider landing inside a work session, or a day's
+  blocks visually split across two dividers. Cheap to switch — both
+  versions are just "how wide is this gap and what is drawn in it," so the
+  upgrade is local to the gap-rendering path and needs no other change.
+- **band-drop-cliff (2026-08-23):** §7e's band ladders end by DROPPING the
+  band, and that last rung is a cliff — 131 LOW blocks vanish on one zoom
+  tick, 70 MEDIUM on another, while the 8-5-3 rungs before them shift a 4px
+  block to 3px. Predicted before it shipped ("it may feel like a large
+  jump") and shipped simple anyway, to be judged by use rather than
+  pre-engineered (`decisions/tabmanager.md`, "Band floor ladders"). It may
+  well be fine: the cliff lands at an explicit "show me only what mattered"
+  gesture, not somewhere a user drifts into. Watch for: the drop reading as
+  a glitch or data loss rather than a zoom level, or zooming back and forth
+  across the threshold feeling unstable. Planned response, already designed:
+  make the last rungs filter progressively BY DURATION (drop LOW under 30s,
+  then under 2min, then all) so the disappearances spread across three ticks
+  in a principled order — shortest first, keeping the odd long-LOW visits
+  longest. Do not respond by softening the ladder into more rungs; the rungs
+  are transition frames and adding more does not change where the mass is.
+- **band-drop-absence (2026-08-23):** dropping LOW/MEDIUM entirely at low
+  zoom means a day of nothing but low-value activity renders nearly empty —
+  a day divider with little between it. Honest under "lightweight opinion"
+  (see `eviction-fallback-tedium`), but it is the one place §7e can make the
+  fallback silently incomplete: a user hunting a demoted tab at 6-day zoom
+  sees no trace of it and may conclude it is not there, rather than that it
+  is below the current zoom. Watch for: concluding "that tab isn't in my
+  history" while zoomed out, then finding it on zoom-in. Candidate
+  responses if it fires: a faint density hint in the emptied stretch, a
+  count affordance ("+38 not shown"), or an explicit zoom-to-reveal cue —
+  all deliberately unbuilt, since the staged fade (LOW first, MEDIUM well
+  after) may already teach the rule well enough on its own.

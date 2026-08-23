@@ -107,7 +107,9 @@ import {
   // the LIVE (zoomed) values every layout call reads; setZoom() recomputes
   // them before a relayout.
   let zoom = 1;
-  const ZOOM_MIN = 0.5;
+  // 0.5 -> 0.25, 2026-08-23, provisional (spec §7e): at 0.5 the ribbon could
+  // only reach about one day back, so cross-day stopped at yesterday.
+  const ZOOM_MIN = 0.25;
   const ZOOM_MAX = 16; // 8 -> 16, 2026-08-23, provisional (spec §7d)
   let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
@@ -120,6 +122,68 @@ import {
   // duration earns more (Scott's call: a per-seg floor, not a special
   // zoom level — see widthOf below).
   const OPEN_TAB_MIN_W = 96;
+  // LOW-block shrink ladder (spec §7e, 2026-08-23). At low zoom nearly every
+  // block sits ON the MIN_W floor (measured: 87% of 217 blocks across 3 days,
+  // 87% of total ribbon width), so zoom-out stops shrinking the ribbon and
+  // reach stalls at ~3 days — MIN_W, not ZOOM_MIN, is the real wall. Only LOW
+  // blocks descend this ladder: MEDIUM/HIGH keep MIN_W, so zooming out
+  // progressively SHARPENS the importance hierarchy instead of flattening it
+  // into uniform slivers. Fences were measured as the alternative here and
+  // rejected (they need consecutive runs; the real runs average 2.2) — see
+  // decisions/tabmanager.md. The 4px/2px rungs are transition frames, not
+  // useful states: they exist so the shrink reads as a shrink rather than a
+  // pop. The ladder ENDS AT ZERO: at full zoom-out only HIGH survives, which
+  // is what a multi-day view should answer ("when did things that mattered
+  // happen"), not a compromise to reach 7 days.
+  //
+  // LOW and MEDIUM use the SAME 8-5-3-0 shape, OFFSET in zoom so LOW is fully
+  // gone before MEDIUM starts thinning. The staging is what makes vanishing
+  // legible rather than alarming: the user watches LOW fade out first and
+  // learns the rule, so MEDIUM following later reads as "I'm zoomed out past
+  // the small stuff," not "my data is missing." Two bands vanishing at the
+  // same threshold would read as a cliff. HIGH never descends.
+  //
+  // Measured basis (3 days, zoom 0.25, 1721px viewport): after LOW's first
+  // ladder shipped, MEDIUM was the LARGEST consumer at 722px from just 69
+  // blocks, 60 of them pinned at the 8px floor — more width than 129 LOW
+  // blocks took (606px). Holding MEDIUM flat was the remaining cap on reach.
+  const BAND_FLOOR_STEPS = {
+    // Most-zoomed-out FIRST: the first threshold at or below the current zoom
+    // wins, so the ladder descends as zoom shrinks.
+    low: [
+      { zoom: 0.45, w: 0 },
+      { zoom: 0.6, w: 3 },
+      { zoom: 0.8, w: 5 },
+    ],
+    medium: [
+      { zoom: 0.28, w: 0 },
+      { zoom: 0.35, w: 3 },
+      { zoom: 0.42, w: 5 },
+    ],
+  };
+  // Overlay only: the standalone dashboard shows one day and never reaches
+  // the zoom levels these ladders live at, so its geometry is untouched.
+  const bandFloorFor = (e) => {
+    if (anchorMode !== "right") return MIN_W;
+    const steps = BAND_FLOOR_STEPS[e.band];
+    if (!steps) return MIN_W; // high (and anything unbanded) never descends
+    for (const s of steps) if (zoom <= s.zoom) return s.w;
+    return MIN_W;
+  };
+  // The final rung DROPS the band outright, duration and all (spec §7e,
+  // 2026-08-23). A floor of 0 alone was not enough: widthOf takes
+  // max(floor, realWidth), so once the floor reached 0 every block simply
+  // rendered at its honest duration width and the ladder stopped doing
+  // anything (measured: lowAtFloor 0 of 131 — not one LOW block was still
+  // resting on the floor). Duration is a signal but a weak one down here
+  // (Scott: "a longer low is an odd thing"), so past the zero threshold the
+  // band goes entirely rather than proportionally. This is a real filter,
+  // not a rendering tweak: at full zoom-out the view answers "when did
+  // things that mattered happen," and LOW/MEDIUM are not answers to it.
+  const bandDroppedAt = (e) => {
+    const floor = bandFloorFor(e);
+    return floor === 0;
+  };
   const GAP = 2;
   const BAND_H = 144;
   // Bottom-flush; top edge = importance contour. MEDIUM/LOW dropped to 75%
@@ -474,6 +538,83 @@ import {
   // value, passing it into assembly.js's parseSessions explicitly.
   let viewDayStart = dayStartOf(Date.now());
 
+  // Cross-day window (spec §7e, 2026-08-23), overlay only. windowStart is the
+  // oldest day loaded; it walks backward one day at a time as the user zooms
+  // out, capped at MAX_WINDOW_DAYS. Equal to viewDayStart = today-only, the
+  // historical behavior and what the standalone dashboard always keeps.
+  const MAX_WINDOW_DAYS = 7;
+  let windowStart = viewDayStart;
+  // Overnight absence collapses to a fixed-width labeled divider instead of
+  // an honest GAP_HOUR_PX span (spec §7e: 8-10h of sleep would otherwise be
+  // thousands of px of blank ribbon, and zooming out would reach a corridor
+  // rather than yesterday). O(1) px per day is what makes zoom-out usable.
+  const DAY_DIVIDER_W = 34;
+  const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  // Scroll anchor as distance from the RIGHT edge (spec §7e, 2026-08-23).
+  // scrollLeft is measured from the document's LEFT edge, so prepending a day
+  // invalidates it by exactly the width inserted (the classic prepend jump);
+  // every pixel right of an insertion keeps its distance from the right edge,
+  // so this survives a load untouched. fromRight === 0 IS §7d's resting right
+  // pin — rest and preserved-anchor are one expression, not two mechanisms.
+  // Valid only while zoom is constant across a load, which §7e guarantees.
+  let fromRight = 0;
+  const maxScrollOf = (wrap) => {
+    const ribbonEl = qs("ribbon");
+    return ribbonEl ? Math.max(0, ribbonEl.scrollWidth - wrap.clientWidth) : 0;
+  };
+  const captureFromRight = (wrap) => {
+    fromRight = Math.max(0, maxScrollOf(wrap) - wrap.scrollLeft);
+  };
+  const applyFromRight = (wrap) => {
+    wrap.scrollLeft = Math.max(0, maxScrollOf(wrap) - fromRight);
+  };
+
+  // Demand-driven day loading (spec §7e, 2026-08-23, trigger corrected same
+  // day). The signal is CAPACITY, not scroll position: if the loaded range no
+  // longer fills the viewport, there is room for more history, so load a day.
+  //
+  // The first cut triggered on `scrollLeft <= 200px` — an infinite-scroll
+  // pattern, which measures PANNING toward the end of loaded content. But the
+  // user reaches history by ZOOMING, and zoom doesn't move the scroll position
+  // at all; it changes how much fits. Worse, zooming out lands in exactly the
+  // regime where the signal is undefined: content narrower than the viewport
+  // means no scrolling is possible and scrollLeft is pinned at 0 forever, so
+  // the trigger could never fire again (real specimen: 621px of content in a
+  // 1470px viewport, stuck at "yesterday" no matter how far the user zoomed).
+  //
+  // `total < viewportWidth` is well-defined in both regimes and never mentions
+  // scroll. Note it is the same condition as §7d's underflow pad — "the pad is
+  // non-zero" and "there is room for more history" are one fact, which is a
+  // good sign this is the model rather than another special case.
+  //
+  // ONE day per relayout, deliberately not a loop (Scott: "a type of calming
+  // action... spread the load out across multiple scrolls so that we don't
+  // have this weird edge case of having to load three days at once"). Zoom
+  // ticks are frequent, so the window catches up over a gesture rather than
+  // in one jump — and it removes the loop, its termination argument, and the
+  // multi-day content jump in a single frame. Consequence, accepted: on a
+  // sparse day the ribbon RESTS underfilled (today only) until the user zooms;
+  // underfill is a normal resting state here, not a transient.
+  let loadingDay = false;
+  function maybeLoadOlderDay(totalPx) {
+    if (loadingDay) return;
+    if (anchorMode !== "right" || heightMode !== "tiered") return;
+    const wrap = qs("ribbon-wrap");
+    if (!wrap || totalPx >= wrap.clientWidth) return; // viewport is full — nothing wanted
+    if (Math.round((viewDayStart - windowStart) / 864e5) + 1 >= MAX_WINDOW_DAYS) return;
+    const older = prevDayStart(windowStart);
+    if (oldestDayStart() > older) return; // no data older than this — stop
+    windowStart = older;
+    log(`§7e: loading older day, window now ${new Date(windowStart).toDateString()}`);
+    loadingDay = true;
+    try {
+      render(lastSessions, lastLockIntervals);
+    } finally {
+      loadingDay = false;
+    }
+  }
+
   // True if [from, to) fully contains at least one recorded OS-lock interval
   // (spec §3/§6, 2026-08-08) — confirmed departure, not a wall-clock guess.
   function gapIsLockBounded(from, to, lockIntervals) {
@@ -536,6 +677,19 @@ import {
   }
 
   function layout(items, expandedKey) {
+    // Band drop (spec §7e, 2026-08-23): filter BEFORE any geometry so a
+    // dropped block consumes no width and its neighbours' gaps close over it
+    // — the point is to reclaim the space, not to hide a block that still
+    // occupies it. Open tabs are never dropped (they are reachable right now,
+    // whatever they scored). Cluster members are filtered individually; a
+    // cluster emptied by the filter disappears with them.
+    items = items
+      .map((item) => {
+        if (item.kind !== "cluster") return item;
+        const members = item.members.filter((e) => e.isOpenTab || !bandDroppedAt(e));
+        return members.length ? { ...item, members } : null;
+      })
+      .filter((item) => item && (item.kind === "cluster" || item.event.isOpenTab || !bandDroppedAt(item.event)));
     // Leading pad from the floor hour at GAP scale — absence is absence,
     // including the absence before the first block (spec §6: hour labels
     // stay clean whole hours; the pad does the honesty).
@@ -545,6 +699,7 @@ import {
     const plates = [];
     const bars = [];
     const gaps = [];
+    const dividers = []; // day boundaries (spec §7e) — see allocGap below
     let prevEnd = null; // wall-clock end of the previously laid element
     // Absence at gap scale (spec §6 two time scales): every gap between
     // drawn elements — fence sticks included — gets width proportional to
@@ -552,6 +707,22 @@ import {
     // boundary special case; a 30s tab-hop allocates a fraction of a px.
     const allocGap = (nextStart) => {
       if (prevEnd === null) return;
+      // Day boundary (spec §7e, 2026-08-23): a gap straddling midnight
+      // collapses to DAY_DIVIDER_W and carries the following day's label —
+      // the one deliberate exception to the absence-proportional rule above,
+      // confined to this boundary. No hour ticks inside: they would be
+      // meaningless at a compressed scale. Midnight is provisional; see
+      // WATCHLIST night-break-midnight for the night-owl case.
+      if (dayStartOf(nextStart) > dayStartOf(prevEnd)) {
+        dividers.push({
+          x: cursor,
+          w: DAY_DIVIDER_W,
+          label: DAY_LABELS[new Date(nextStart).getDay()],
+          at: dayStartOf(nextStart),
+        });
+        cursor += DAY_DIVIDER_W;
+        return;
+      }
       const w = ((nextStart - prevEnd) / HOUR) * GAP_HOUR_PX;
       const marks = [];
       for (let t = prevEnd - msPastHour(prevEnd) + HOUR; t < nextStart; t += HOUR) {
@@ -563,7 +734,10 @@ import {
       }
     };
     const widthOf = (e) =>
-      Math.max(e.isOpenTab ? OPEN_TAB_MIN_W : MIN_W, (e.durMs / 1000) * PX_PER_SEC);
+      Math.max(
+        e.isOpenTab ? OPEN_TAB_MIN_W : bandFloorFor(e),
+        (e.durMs / 1000) * PX_PER_SEC
+      );
     for (const item of items) {
       if (item.kind === "cluster" && item.key !== expandedKey) {
         let left = null;
@@ -655,7 +829,7 @@ import {
         }
       }
     }
-    return { segs, plates, bars, gaps, total: Math.max(cursor - GAP, 0) };
+    return { segs, plates, bars, gaps, dividers, total: Math.max(cursor - GAP, 0) };
   }
 
   // --- Card layout (plans/stack-ribbon.md Stage 1, 2026-08-11; rotation/
@@ -1561,9 +1735,19 @@ import {
         maxScroll <= 0
           ? 0
           : Math.min(frac * newTotal - (lastPointerX - rect.left), maxScroll);
+      // The zoom just settled the viewport; that position is the anchor to
+      // preserve if a day loads (spec §7e). Loading itself is triggered from
+      // paint(), which is where the real laid-out total is known.
+      captureFromRight(wrap);
     };
     wrap.addEventListener("pointermove", (ev) => {
       lastPointerX = ev.clientX;
+    });
+    // Panning moves the anchor. It does NOT trigger loading — reaching history
+    // is a zoom act, and capacity (paint()) is what decides a load (spec §7e).
+    wrap.addEventListener("scroll", () => {
+      if (anchorMode !== "right" || heightMode !== "tiered") return;
+      captureFromRight(wrap);
     });
     wrap.addEventListener(
       "wheel",
@@ -1806,7 +1990,9 @@ import {
     // only; the label-rendering pass itself is gone.
     const hostNames = computeHostNames(sessions, isTransit);
     renderWeekStrip(dayThreads);
-    const events = assembleThreads(parseSessions(sessions, viewDayStart));
+    // windowStart spans multiple days in the overlay (spec §7e); it equals
+    // viewDayStart everywhere else, so this is the historical single-day call.
+    const events = assembleThreads(parseSessions(sessions, viewDayStart, windowStart));
     lastAssembly = { sessions, dayThreads, hostNames, events };
     const wrap = qs("ribbon-wrap");
     // Ribbon default window (spec §7c; bug fix 2026-08-22, SAME root cause
@@ -1848,11 +2034,8 @@ import {
     // order strip was importing the RIBBON's own "show 'now'" logic into
     // an axis (categorical tab order) where "now" has no meaning at all.
     if (wrap) {
-      const ribbonEl = qs("ribbon");
-      wrap.scrollLeft =
-        anchorMode === "right" && heightMode === "tiered" && ribbonEl
-          ? Math.max(0, ribbonEl.scrollWidth - wrap.clientWidth)
-          : 0;
+      if (anchorMode === "right" && heightMode === "tiered") applyFromRight(wrap);
+      else wrap.scrollLeft = 0;
     }
   }
 
@@ -1876,7 +2059,7 @@ import {
     // mode (fences/expand-bars/hour-ticks are already reserved-space-free
     // there — see bandBottom below) — every later use of them in this
     // function degrades to a no-op on an empty array, not a special case.
-    let segs, plates, bars, gaps, total;
+    let segs, plates, bars, gaps, dividers, total;
     if (heightMode === "uniform") {
       // Built straight from lastOpenTabs/lastSessions (stripEventsFrom
       // OpenTabs), NOT from `events` (bug fix, spec §7c, 2026-08-22): the
@@ -1898,6 +2081,7 @@ import {
       plates = [];
       bars = [];
       gaps = [];
+      dividers = [];
     } else {
       // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
       // again, with two independent split rules (clusterEvents: a recorded
@@ -1906,7 +2090,7 @@ import {
       // is read directly (closure) rather than threaded as a paint() param,
       // since relayout() (zoom) calls paint() without re-fetching data.
       const items = clusterEvents(events, lastLockIntervals);
-      ({ segs, plates, bars, gaps, total } = layout(items, expandedKey));
+      ({ segs, plates, bars, gaps, dividers, total } = layout(items, expandedKey));
     }
 
     const ribbon = qs("ribbon");
@@ -1978,6 +2162,10 @@ import {
       const bottomInset = s.contained ? CONTAIN_BOTTOM_INSET : 0;
       el.style.left = Math.round(s.x) + "px";
       el.style.width = Math.round(s.x + s.w) - Math.round(s.x) + "px";
+      // Below MIN_W a block is a presence indicator, not a target (spec §7e):
+      // a 1-4px hover target is worse than none — the user tries, misses, and
+      // reads the UI as broken. Zooming back in restores both size and hover.
+      el.classList.toggle("inert", s.w < MIN_W);
       el.style.top = bandBottom - h + topInset + "px";
       el.style.height = h - topInset - bottomInset + "px";
       // Containers paint like any other solid block (spec §6, 2026-07-17 —
@@ -2100,6 +2288,26 @@ import {
       el.style.top = TITLE_AREA + "px";
       el.style.height = BAND_H + "px";
       el.dataset.tip = `away ${fmtClock(g.from)} – ${fmtClock(g.to)} · ${fmtDuration(g.to - g.from)}`;
+      ribbon.appendChild(el);
+    }
+
+    // Day dividers (spec §7e, 2026-08-23): fixed-width break carrying a
+    // rotated day name. Full ribbon height — it separates days, it isn't an
+    // event in a band.
+    for (const d of dividers) {
+      const el = document.createElement("div");
+      el.className = "dayline transient";
+      el.style.left = d.x + "px";
+      el.style.width = d.w + "px";
+      el.style.height = bandBottom + "px";
+      el.dataset.tip = new Date(d.at).toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      });
+      const label = document.createElement("span");
+      label.textContent = d.label;
+      el.appendChild(label);
       ribbon.appendChild(el);
     }
 
@@ -2325,6 +2533,11 @@ import {
     }
 
     log(`rendered ${segs.length} blocks in ${plates.length} fences + ${bars.length} expanded, ${total}px wide`);
+
+    // Capacity check LAST, once the real laid-out total is known and the DOM
+    // is settled (spec §7e): if the loaded range no longer fills the viewport,
+    // pull in one more day. At most one per paint — see maybeLoadOlderDay.
+    maybeLoadOlderDay(total);
   }
 
   // --- Open tabs as real sessions (Active Tab Manager Phase 2, spec §7b,
