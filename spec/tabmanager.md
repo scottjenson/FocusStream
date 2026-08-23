@@ -176,11 +176,11 @@ finalize-only write contract for real `sessions` is untouched.
   non-clickable stick just because it currently scores LOW. Same
   precedent as the card view's fence retirement (`plans/stack-ribbon.md`),
   scoped here to `isOpenTab` only, not global.
-* **`OPEN_TAB_MIN_W` (96px), not `MIN_W` (8px):** `widthOf()` floors an
-  `isOpenTab` seg at a much larger minimum than closed history's 8px sliver
-  floor — a just-opened tab (near-zero `durMs`) still needs room for a
-  favicon+label. Grows past the floor once real duration earns more, same
-  as `MIN_W` always has.
+* **`OPEN_TAB_MIN_W` (96px) — RETIRED 2026-08-23, see §7e.** Open tabs now
+  take the ordinary `MIN_W` floor and show honest duration like every other
+  block. They keep their exemption from the band-drop filter (a tab reachable
+  right now stays visible whatever it scored), but no longer get extra width
+  for it.
 
 **Why zoom was dead before this rework:** the retired open-tabs pipeline
 never called `render()`/`assembleThreads()` at all, so `lastAssembly` (what
@@ -529,3 +529,14 @@ cross-day). All ladder thresholds, `ZOOM_MIN` (0.25, was 0.5) and
 **The strip is unchanged.** Open tabs are a *now* fact with no day
 dimension (§7c's Chrome-order, day-filter-bypassing `stripEventsFromOpenTabs`
 already ignores days entirely). Cross-day affects the ribbon only.
+
+**Open tabs take `MIN_W`, not a special floor** (2026-08-23, retiring
+`OPEN_TAB_MIN_W`'s 96px — §7b). That floor made every open tab render at
+identical width regardless of real duration, and at multi-day zoom-out a
+handful of them claimed hundreds of px exactly where width was scarcest,
+working against the band ladders above. Open tabs keep their exemption from
+the band-drop filter — a tab the user can switch to right now stays visible
+whatever it scored — but hold `MIN_W` while exempt, not more. Marking a
+block as open is a VISUAL job (the `.open-tab` class), not a geometric one;
+the visual treatment that replaces the width cue is not yet designed and is
+tied to the pending strip→ribbon animation rework.

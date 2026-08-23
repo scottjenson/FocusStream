@@ -1613,3 +1613,49 @@ drifts into.
 **Outcome: 6 days of reach** (from 3 with cross-day alone, ~1.75 before it).
 Scott: "I can see multiple days, I can now see the important events... the
 zooming seems to be reasonable." All thresholds provisional, pending use.
+
+---
+
+## OPEN_TAB_MIN_W retired: a geometric answer to a visual question (2026-08-23)
+
+Found by Scott immediately after the band ladders shipped, from a screenshot
+of the five rightmost blocks: "their durations are all ridiculously short,
+like on the order of just a few minutes, and yet they're all equally wide.
+There's something weird going on there and it's affecting how much data we
+can show on the screen when we zoom out."
+
+**Diagnosis.** Those five were his open tabs, and `widthOf` floored every
+`isOpenTab` seg at `OPEN_TAB_MIN_W` = 96px — twelve times closed history's
+`MIN_W`. All five sat ON that floor, so their real durations never showed
+and they rendered identically. The check also ran FIRST and unconditionally,
+before the band ladder and with no zoom awareness at all.
+
+**Why it mattered more after §7e than before.** The floor was added
+2026-08-22 for a real reason (a just-opened tab has `durMs` near zero and at
+8px is an unreadable sliver where a favicon+label belongs), and while the
+ribbon only ever showed one day it cost little. Once zoom-out became the
+main way to reach history, five blocks claiming 480px sat exactly where
+width was scarcest — actively fighting the band ladders that had just been
+built to reclaim it. Worse in combination with the drop-exemption open tabs
+correctly have: the blocks *least* relevant to a multi-day time question got
+the *most* width at the zoom where width was most contested.
+
+**Fix: delete the floor, keep the exemption.** Open tabs take ordinary
+`MIN_W` and show honest duration like everything else; they are still never
+dropped by the band filter, because a tab reachable right now should stay
+visible whatever it scored. Visibility and width are separable, and
+conflating them was the mistake.
+
+**The generalizable point, and Scott's own framing of the fix:** "it can be
+solved in a different way — likely highlighting the block in a way that
+implies that it is open." Marking a block as open is a VISUAL job, not a
+geometric one. Geometry on this ribbon means time; spending it on identity
+corrupts the axis. The `.open-tab` class already exists in `paint()` as the
+hook, and the replacement treatment is deliberately left undesigned — it is
+tied to the pending strip→ribbon animation rework, which Scott flagged in
+the same message as the direction he wants to take open-tab visibility.
+
+Considered and rejected: making `OPEN_TAB_MIN_W` itself zoom-dependent
+(decay toward `MIN_W` as labels stop being legible). It would have worked,
+but it keeps a special case and adds a second ladder to reason about, to
+preserve a cue that was the wrong mechanism in the first place.

@@ -113,15 +113,15 @@ import {
   const ZOOM_MAX = 16; // 8 -> 16, 2026-08-23, provisional (spec §7d)
   let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
-  // Open-tab width floor (Active Tab Manager Phase 2, 2026-08-22
-  // unification): MIN_W (8px) is fine for a closed history sliver — a
-  // freshly-opened tab (durMs near 0, still growing) hitting the SAME
-  // floor is the old "tabs too narrow to read" problem this whole rework
-  // exists to avoid. isOpenTab segs get this larger floor instead, plenty
-  // of room for a favicon+label, while still growing past it once real
-  // duration earns more (Scott's call: a per-seg floor, not a special
-  // zoom level — see widthOf below).
-  const OPEN_TAB_MIN_W = 96;
+  // OPEN_TAB_MIN_W (96px) RETIRED 2026-08-23 — see spec §7e. Open tabs used
+  // to claim a 96px floor so a freshly-opened tab (durMs near 0) had room for
+  // favicon+label. It made every open tab identical width regardless of real
+  // duration, and at multi-day zoom-out those few blocks claimed hundreds of
+  // px exactly where width was scarcest — fighting the band ladders that had
+  // just been added to reclaim it. Open tabs now use the ordinary MIN_W floor
+  // and show honest duration like everything else. "This tab is open" is a
+  // VISUAL job, not a geometric one: the .open-tab class (set in paint) is
+  // the hook for that treatment.
   // LOW-block shrink ladder (spec §7e, 2026-08-23). At low zoom nearly every
   // block sits ON the MIN_W floor (measured: 87% of 217 blocks across 3 days,
   // 87% of total ribbon width), so zoom-out stops shrinking the ribbon and
@@ -165,6 +165,11 @@ import {
   // the zoom levels these ladders live at, so its geometry is untouched.
   const bandFloorFor = (e) => {
     if (anchorMode !== "right") return MIN_W;
+    // Open tabs never descend and are never dropped (the layout() filter
+    // exempts them too): a tab the user can switch to right now stays visible
+    // whatever it scored. They hold MIN_W, not a larger floor — see the
+    // OPEN_TAB_MIN_W retirement note above.
+    if (e.isOpenTab) return MIN_W;
     const steps = BAND_FLOOR_STEPS[e.band];
     if (!steps) return MIN_W; // high (and anything unbanded) never descends
     for (const s of steps) if (zoom <= s.zoom) return s.w;
@@ -733,11 +738,7 @@ import {
         cursor += w;
       }
     };
-    const widthOf = (e) =>
-      Math.max(
-        e.isOpenTab ? OPEN_TAB_MIN_W : bandFloorFor(e),
-        (e.durMs / 1000) * PX_PER_SEC
-      );
+    const widthOf = (e) => Math.max(bandFloorFor(e), (e.durMs / 1000) * PX_PER_SEC);
     for (const item of items) {
       if (item.kind === "cluster" && item.key !== expandedKey) {
         let left = null;

@@ -293,6 +293,19 @@ terse — write the entry there, then come back and add the one-line pointer.
   descends, so zoom-out sharpens the importance hierarchy rather than
   flattening it. Measured reach 6 days, up from 1.75. Two open watch items:
   `band-drop-cliff`, `band-drop-absence`.
+- **2026-08-23 (same day, follow-on): `OPEN_TAB_MIN_W` (96px) retired** —
+  spec §7b/§7e; `decisions/tabmanager.md` ("OPEN_TAB_MIN_W retired"). Found
+  from a screenshot: five open tabs with minutes-long durations all rendering
+  identically wide, because every `isOpenTab` seg was floored at 96px — 12x
+  closed history's `MIN_W`, checked before the band ladder and with no zoom
+  awareness. Harmless while the ribbon showed one day; actively harmful once
+  zoom-out mattered, since those blocks claimed hundreds of px exactly where
+  the new band ladders were reclaiming it. Open tabs now take ordinary
+  `MIN_W` and show honest duration, keeping their exemption from the
+  band-drop filter (reachable now = stays visible) without extra width for
+  it. Marking a block as open is a visual job, not a geometric one; the
+  `.open-tab` class is the hook, and the replacement treatment is left to the
+  pending strip→ribbon animation rework.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).
