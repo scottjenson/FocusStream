@@ -70,6 +70,41 @@ separate go/no-go decision rather than one committed build:
    raised when confirming this roadmap ("closing a tab could have it join
    an existing container").
 
+### Phase status (reviewed 2026-08-24)
+
+**Phases 1 and 2 are done; 3 and 4 are not started.** Phase 1 (§7) shipped
+2026-08-21, Phase 2 (§7b) 2026-08-22. Phase 2's undecided expansion
+mechanism got answered in the building: an in-page overlay sharing ONE
+geometry pipeline with the historical ribbon, not a separate panel or a
+differently-fed dashboard tab.
+
+**Everything from §7c to §7h is post-Phase-2 work the roadmap did not
+anticipate** — strip ordering, right-anchored zoom, cross-day loading with
+band ladders, open-tab marking, the ribbon coordinate system, panning. It
+reads as Phase 2 polish and is not: it is Phase 3 groundwork, by this file's
+own premise (see "What licenses aggressive eviction") that the ribbon is the
+PRECONDITION for eviction rather than a nice-to-have alongside it. Making
+history genuinely navigable is what earns the right to close tabs. Anyone
+picking this up cold should read those four days as one project, not eight
+unrelated fixes.
+
+**Phase 1 was briefly un-done without anyone noticing:** the close box was
+lost as collateral in the Phase 2 unification (`de076eb` replaced the DOM it
+lived on) and only rebuilt 2026-08-23. Worth remembering as a pattern — a
+phase declared complete can be silently undone by the next one, since the
+handler survived and only the UI half went missing.
+
+**Phase 1's one open item is a watch item, not unfinished work:**
+`switcher-fixed-root-overlap`.
+
+**Phase 3 is the next real decision, and it is gated, not merely unstarted.**
+Two standing conditions, both recorded before any `chrome.tabs.remove()`
+ships: the dry-run-vs-live question needs a real answer, and `WATCHLIST.md`'s
+`eviction-fallback-tedium` is an explicit blocking condition. The gate is a
+judgment call about whether the history fallback is now fast enough — which
+is what the §7c–§7h work exists to make true, and what play-testing it is
+meant to answer.
+
 ## Rejected alternatives
 
 * **Build the full doc as one pass** (scoring + live eviction + new

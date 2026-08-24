@@ -387,6 +387,12 @@ terse — write the entry there, then come back and add the one-line pointer.
   `scrollLeft` writes round the remainder away — measured: 20px/sec travelled
   0px in two seconds). A first diagnosis of the vibration blamed the clamp and
   was wrong; the wall-stop and latch it added are kept on their own merits.
+- **2026-08-24 (docs only): phase status reviewed** —
+  `decisions/tabmanager.md` ("Phase status"). Phases 1 and 2 done, 3 and 4
+  not started; §7c–§7h recorded as unanticipated Phase 3 GROUNDWORK rather
+  than Phase 2 polish, since this file's own premise makes the navigable
+  ribbon the precondition for eviction. Phase 3 is gated (dry-run-vs-live
+  answer + `eviction-fallback-tedium`), not merely unstarted.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.
