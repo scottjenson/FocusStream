@@ -681,3 +681,110 @@ trailing space can.
 back raced with Chrome's layout flush and returned the previous frame's
 width. `paint()` records `total` and both pads at the moment it sets the
 styles, and every calculation reads those.
+
+## 7h. Ribbon panning — edge-proximity pump (built 2026-08-24)
+
+**The gesture.** No targetable scroll affordances — no arrows, no visible
+scrollbar, no drag. The ribbon pans by where the cursor RESTS inside the
+viewport: a dead zone in the middle does nothing, and past its edge the
+ribbon travels continuously toward the nearer side, faster the closer the
+cursor sits to that side. A hover STATE driven by a rAF pump, not an
+event-driven gesture — the cursor can be still while the view moves.
+
+**Continuous ramp, not discrete zones.** Rate is a smooth function of
+distance from centre: zero inside the dead zone, rising to a maximum at the
+viewport edge, with a curve exponent as the tuning knob. Three fixed zones
+with two step rates were rejected — a zone boundary is a step change in
+speed, felt as a jerk, and the dead-zone edge is the only threshold that
+reads as one (it is felt as motion STARTING). Dead-zone width, exponent and
+max rate are provisional play-test knobs; turn one at a time.
+
+**Rate is zoom-invariant:** viewport-widths per second, converted to pixels
+each frame. A px/frame rate would crawl through minutes at 16x and tear
+through days at 0.25x, when the felt speed should be the same at every zoom
+level. The remaining scroll range is not an input, so a day loading mid-pan
+cannot change the pan's speed.
+
+**Sub-pixel motion is banked, not handed to the platform.** `scrollLeft`
+stores at integer device-pixel resolution, so a fractional write rounds and
+the remainder is lost — at the gentle end of the ramp that is the whole
+frame's motion (measured: 20px/sec travels 0px in two seconds unbanked, 40px
+banked). The pump accumulates the fraction and writes only whole pixels: no
+artificial speed floor, and the platform's rounding stays out of the loop.
+
+**Position is a pixel between geometry changes, and a TIMESTAMP across
+them.** The pan owns `scrollLeft` frame to frame — adding a delta to what is
+on screen is exact. It consults its carried instant only when `paint()`'s
+recorded total or pads changed under it (a load, a relayout), which is the
+one moment a remembered pixel is meaningless and an instant is not. Then it
+re-bases through `axis` and drops the banked fraction.
+
+Re-deriving from the timestamp EVERY frame is what the first implementation
+did, and it vibrates: the round trip is compressive inside a floored block
+(8px can span 40 minutes), so it loses part of each frame's delta and can
+land behind where it started. One conversion out on re-base, none back in.
+
+**Hitting a wall ends the pan, and latches which wall.** No point running a
+60fps loop against an edge. The latch is required, not decorative:
+`pointermove` fires on the faintest jitter and would otherwise restart the
+pump straight back into the same wall. Re-arming needs the cursor to call for
+the other direction, to return to the dead zone, or the wall to move (a zoom
+clears the latch). Only a frame that moves whole pixels registers a wall.
+
+**`fromRight` stays the REST anchor,** re-captured when the pump stops, as
+`applyZoom` already does at the end of a zoom. `applyFromRight` is skipped
+during a pan, the same way it is skipped during a zoom (`pendingAnchor`).
+Retiring `fromRight` in favour of a resting timestamp is the natural
+follow-on and is deliberately NOT bundled here.
+
+**Loading is triggered by capacity OR proximity — panning reaches history
+too.** `maybeLoadOlderDay` gains a second arm: content underflows the
+viewport (§7e's capacity signal) OR the viewport is within `LOAD_MARGIN_PX`
+of the oldest loaded content. Both are asked from `paint()`, and neither
+gesture knows about loading — zoom changes capacity, pan changes proximity.
+The pump also asks each frame, since panning triggers no render of its own.
+
+This reverses §7e's rejection of a scroll-position trigger, deliberately.
+That rejection's reason — the signal is undefined on underflow — does not
+carry, since panning only exists in the overflow regime. The real argument is
+a UX correction: the 7-day window is an efficiency trick and should be
+invisible; with infinite memory all seven days would simply be loaded.
+
+The proximity arm is gated on a pan being IN PROGRESS: `scrollLeft` is 0 at
+rest on every render, so ungated it reads as "near the left end" before the
+user has touched anything and pulls all seven days at startup.
+`LOAD_MARGIN_PX` is generous (order of one viewport) so the day lands before
+the pan reaches the edge.
+
+**A load moves the view by exactly zero.** The only thing that moves the
+viewport is the pan's own rate. A prepended day becomes available to pan
+into; the pan reaches it a moment later. This is not the zoom rule ("hold the
+block under the cursor") — panning is horizontal motion and content DOES
+slide out from under the cursor. The invariant is about jumps, not motion.
+
+**A day load re-solves the default window, until the user takes over.**
+`DEFAULT_WINDOW_BLOCKS` (§7c) is a claim about what rests on screen, solved
+against the event set present at solve time; a prepend falsifies it. So
+`maybeLoadOlderDay` re-arms the one-shot gate before re-rendering — unless
+the user has already zoomed or panned, from which point their gesture is the
+correction mechanism. The pan arm sets that flag only once it has actually
+MOVED something. Re-armed at the load site rather than by loosening the gate,
+so ordinary data ticks still never re-solve.
+
+**The wall is honest.** With proximity loading, panning stops only at
+`MAX_WINDOW_DAYS` (7) or the genuine end of recorded data — the edge of
+history, not the edge of a cache.
+
+**Gating.** Tiered only, same early-return as the wheel handler: the
+collapsed strip's axis is categorical (Chrome tab order, §7c). Deliberately
+NOT gated on `anchorMode` — the standalone dashboard gets panning too, and
+the math holds there because both pads stay 0 outside the overlay. Only the
+proximity LOAD arm stays overlay-only. The pump stops when the pointer leaves
+the wrap, and arms only after a real `pointermove` inside it (so an overlay
+opening under a parked cursor does not start travelling on its own).
+
+**Panning suppresses hover UI.** Tooltips, `cardHoverText` and gap plates are
+inspection; panning is navigation, and they are not simultaneous intents.
+Without this, a block hovered in the outer band slides out from under the
+cursor mid-tooltip. Precedent: `.zooming` already suspends transitions for a
+zoom gesture. Watch item: `pan-hover-suppression`.

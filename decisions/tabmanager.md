@@ -1954,3 +1954,199 @@ the clamped target *is* the right pin. A first attempt at enlarging the LEFT
 pad was checked numerically and made it worse — it grows the needed and the
 available scroll equally. Only trailing space extends the range without moving
 content; with it the anchor holds exactly across the whole overflow range.
+
+## Panning: edge-proximity pump, and the window stops being visible (2026-08-24)
+
+Designed and built the same day. Recorded because the reasoning that settled
+it will not be recoverable from the code.
+
+**Starting constraint, from Scott: no targetable scroll affordances.** No
+arrows, no visible scrollbar, no drag handle. What existed was two weak
+paths, neither adequate: the wheel handler's `wrap.scrollLeft += ev.deltaX`
+(trackpad horizontal only — a mouse emits no `deltaX`, so with a mouse there
+was no way to pan at all) and `#ribbon-wrap`'s native `overflow-x: auto` with
+the scrollbar hidden in CSS.
+
+**Three zones lost to a continuous ramp.** The first sketch was Scott's: a
+50% dead zone, a slow band, then a fast band at the outer 10%. Rejected on
+one argument — crossing a zone boundary is a step change in speed, felt as a
+jerk, and there is nothing meaningful at that boundary to justify it. The
+dead-zone edge is different: it is felt as motion starting, which is a real
+event. So one threshold survives and the rest becomes a curve. Scott agreed
+immediately and restated it better than the proposal did ("increment from one
+to two to three to four pixels gradually"). The curve exponent recovers the
+original intent — a high exponent IS "slow across most of the band, fast only
+at the very edge," expressed as a knob instead of a cliff.
+
+**Rate had to leave pixel-space.** A px/frame rate means one edge-hover
+crawls at 16x and tears across days at 0.25x, which contradicts the whole
+motivation ("as I zoom out and more days are shown, moving in that direction
+exposes them"). Viewport-widths per second is zoom-invariant and self-scaling.
+Scott arrived at the same place independently and drew the further conclusion
+that since rate depends only on viewport size, a load cannot perturb it.
+
+**Where that conclusion needed one correction.** Rate immunity is real, but
+the jump would never have come from the rate — it comes from the coordinate
+system the rate is applied TO. `scrollLeft` is measured from the content's
+left edge, so a prepend shifts every pixel right while the scroll value
+stands still. Two separate facts, both true.
+
+**Which led to the actual insight, and it was Scott's.** He connected it back
+to §7g: the zoom refactor from width-fraction to timestamp was "a much more
+mature definition of where the block is relative to everything else," and
+scrolling is the same problem wanting the same answer — "a good
+content-invariant way to discuss how to scroll the existing content."
+
+That reframe is what makes §7h coherent rather than a pile of compensations.
+Both gestures need to answer "where should the viewport be." Both were
+answering in a coordinate system unstable under what happens mid-gesture:
+zoom used width-fraction (broken by the ribbon deforming rather than
+scaling), pan would use `scrollLeft` (broken by prepends moving the origin).
+Same class of error, same fix — name the position in time, convert to pixels
+only when writing to the DOM. It also means `axis` becomes what §7g's title
+already claimed it was: the ribbon's coordinate system, with both gestures as
+clients, rather than a helper the zoom anchor happened to need.
+
+An honest note on what this does and does not buy: it does NOT make prepend
+compensation disappear. Something must always re-express position after a
+prepend; the question is only whether that something is `fromRight` or
+`axis`. `axis` is the better carrier — `fromRight` is invariant only under a
+pure left-prepend at constant zoom (its own comment says so), while a
+timestamp additionally survives zoom changes and §7e band thresholds crossing
+mid-motion, which move every pixel without moving any time. That matters
+concretely for a diagonal trackpad gesture, which the wheel handler already
+decomposes into zoom and pan simultaneously.
+
+**Reversing §7e's rejection of a scroll-position load trigger.** §7e rejected
+the infinite-scroll pattern because the signal is undefined in the underflow
+regime (`scrollLeft` pinned at 0, trigger can never re-fire). That specific
+objection does not survive panning — panning only exists in the overflow
+regime. But the real argument was Scott's, and it is a UX correction rather
+than a technical one:
+
+> "If we had an infinitely large computer with infinite memory, we would
+> always load all seven days of data and get rid of this. It is entirely an
+> efficiency trick... exposing to the user the fact that they need to zoom in
+> order to see more is a bad UX design."
+
+That is right, and it reclassifies the earlier rule. "Zoom is how you reach
+history" was never a design stance — it was a rationalization of a loading
+strategy that happened to be the only thing changing capacity. The window is
+an implementation detail that had leaked into the interaction model.
+
+**The fighting concern, and why it mostly dissolves.** The stated worry was
+zoom and pan contending. They do not contend for INPUT (wheel vs. cursor
+position, as Scott noted) — they contend for scroll position during a
+prepend, and only there. Two disciplines settle it: the pump is stateless
+with respect to pixel position (read fresh, add one frame's delta, write —
+so a load landing between frames is inherited, not fought), and loading stays
+in `paint()` behind its existing one-day-per-relayout throttle, triggered by
+a condition neither gesture knows about. Sustained fast panning can therefore
+pull several days in a few seconds; that is what the user asked for, and
+`MAX_WINDOW_DAYS` is the real backstop.
+
+**Deliberately not bundled: retiring `fromRight`.** Once the axis carries the
+moving position, `fromRight` is a pixel-currency holdover doing a job the
+axis does better. Retiring it touches `render()`, `applyFromRight()`, the
+scroll listener and §7d's right pin — real surgery on working code, for a
+gain that is coherence rather than behaviour. It stays the rest anchor, with
+handoff at pump start/stop mirroring `applyZoom`'s existing
+`captureFromRight()`. Revisit once panning has proven itself.
+
+**Two things the design missed, found in the build.** Both are the same
+mistake in different clothes: treating a resting state and a gesture as if
+they were the same situation.
+
+The proximity load arm, written exactly as designed, pulls all seven days the
+instant the ribbon first paints. `scrollLeft` is 0 at rest on every fresh
+render, so "within `LOAD_MARGIN_PX` of the left end" is trivially true before
+the user has touched anything — the arm defeats the window it exists to make
+invisible. Gating it on a pan actually being in progress is the fix, and the
+sharper statement of the rule: proximity is a claim about a gesture, not
+about a position. It also has to be asked from the pump, not only from
+`paint()` — `paint()` runs on renders, and panning triggers none.
+
+`applyFromRight` needed the same treatment: skip it during a pan, as it is
+already skipped during a zoom. Not just for the wasted work — a mid-pan load
+is precisely where `fromRight`'s "valid only at constant zoom" caveat is
+least safe, and the pump's next frame will place the instant correctly from
+the rebuilt axis regardless. That the fix was a one-word extension of an
+existing guard (`!pendingAnchor && !panning`) is a small sign the §7g/§7h
+framing is the right one: pan slotted into the place zoom had already made.
+
+**A third default-window regression, found by testing (2026-08-24).** On
+expand the ribbon showed far more than `DEFAULT_WINDOW_BLOCKS`. Cause: the
+one-shot `defaultZoomApplied` gate is spent by the first solve, but a day
+loading immediately afterwards (capacity arm, and now much more readily the
+proximity arm) prepends events that then render at a zoom solved for the
+smaller set. The gate had nothing to say about its premise changing.
+
+Worth noting the shape, since this is the third time: 2026-08-22's two bugs
+were both "the gate fired too early." This one is "the gate correctly refused
+to fire again, when it should have." A one-shot is a claim that the answer
+cannot change; that claim was true when the event set was fixed at one day,
+and §7e/§7h made it false. The fix re-arms at the load site rather than
+loosening the gate, which keeps "ordinary data ticks never re-solve" intact —
+the property the one-shot existed for in the first place.
+
+The `userAdjusted` flag it is conditioned on is also the cleaner statement of
+what the one-shot was always reaching for: not "solve once" but "solve until
+the user takes over." Panning sets it only once it has actually moved
+something, so resting a cursor in an outer band against a wall — where the
+rate is non-zero but nothing moves — does not count as taking over.
+
+**The vibration, diagnosed wrong once and then properly (2026-08-24).**
+Reported from use: zoomed out, panning right, the ribbon shakes between two
+positions a pixel or two apart instead of settling at the edge.
+
+**First diagnosis, wrong.** Blamed the CLAMP — a clamped frame re-deriving
+panT from a position `xToTime` cannot faithfully reproduce inside a floored
+block. Plausible, and it did remove one feedback path, but not the bug. The
+second report killed it: same shake, now stuck an hour BEFORE "now" and
+breaking through after ~20 frames. Neither fits a clamp (not at the edge, and
+a hard clamp never breaks through).
+
+**The actual cause.** Scott's question cracked it — "it implies that it's
+trying to move but it can't, and so it snaps back." Motion was being
+generated and thrown away. Two losses compounding. `scrollLeft` is stored at INTEGER device-pixel
+resolution, so a fractional write is rounded and the remainder is simply
+gone. And the per-frame `timeToX -> +delta -> xToTime` round trip is lossy
+inside a floored block, where 8px can span 40 minutes — one pixel is minutes,
+so a sub-pixel discrepancy returns as a visibly different pixel. Because panT
+was derived from a position the platform had ALREADY rounded, the timestamp
+encoded a different pixel than the one the delta was added to, and a frame
+could land behind where it started.
+
+Measured, which settled it: at 20px/sec, handing the fraction to the platform
+moves 0px in two seconds — every frame's 0.33px rounded away — against 40px
+when the fraction is banked. That is "trying to move but can't" exactly, and
+it explains breaking through after ~20 frames: near a floored block the
+effective delta collapses to sub-pixel until enough accumulates to escape.
+
+**Chose the accumulator over the round-up.** Scott's round-up (force >= 1px
+per frame) would also break the loop, and was offered as the fallback. The
+accumulator was preferred because it costs nothing in fidelity: round-up puts
+a speed floor under the gentle end of the ramp (77px/sec becomes at least
+60px/sec), while banking the fraction reproduces every rate exactly. It also
+removes the platform's rounding from the loop rather than out-muscling it.
+
+**And the "stateless" discipline was overapplied.** The original design said
+the pump must be stateless with respect to pixel position, re-deriving from
+the timestamp every frame so a load landing mid-gesture is inherited rather
+than fought. The robustness goal was right; paying a lossy conversion 60
+times a second to get it was not. Consulting the timestamp only when the
+geometry ACTUALLY changed — comparing paint()'s own recorded total and pads
+against the last frame's — buys the identical property at none of the cost.
+A good reminder that "recompute from the invariant every time" is a
+correctness strategy with a precision bill attached, and the bill comes due
+wherever the mapping is compressive.
+
+**The wall latch, kept from the wrong fix.** Stopping the pump at a wall only
+converts a 60fps shake into a jitter-frequency one: `pointermove` re-arms on
+any hand movement and walks straight back into the same wall. The latch
+(`panWall`) makes "against this wall" a state that outlives the gesture, so
+re-arming demands a real change — the other direction, the dead zone, or the
+wall moving. Zoom clears it explicitly, being exactly the event that turns a
+wall back into open road. Both the stop and the latch predate the real
+vibration fix and were kept: not running a rAF loop against an edge is right
+regardless of what caused the shake.

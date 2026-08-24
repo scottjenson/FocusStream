@@ -364,6 +364,29 @@ terse — write the entry there, then come back and add the one-line pointer.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).
+- **2026-08-24: §7h ribbon panning (edge-proximity pump)** — spec §7h;
+  `decisions/tabmanager.md` ("Panning: edge-proximity pump, and the window
+  stops being visible" + follow-ons). Cursor-proximity panning with no
+  targetable affordances: a dead zone at centre, then a continuous ramp
+  toward either edge (three fixed zones were the first sketch, rejected — a
+  zone boundary is a felt jerk in speed). Rate is viewport-widths per second,
+  so it is zoom-invariant, with sub-pixel motion banked rather than handed to
+  the platform. Position is a pixel between geometry changes and a TIMESTAMP
+  across them, extending §7g's stance from zoom to pan. Reverses §7e's
+  rejection of a scroll-position load trigger: the 7-day window is an
+  efficiency trick that should be invisible, so panning reaches history too
+  and the wall moves to the genuine edge of recorded data. `fromRight` stays
+  the rest anchor; retiring it is the noted follow-on. Three tuning/risk items
+  in `WATCHLIST.md` (`pan-ramp-tuning`, `pan-load-burst`,
+  `pan-hover-suppression`).
+  Two bugs found in testing, both folded into §7h: expanding showed far more
+  than `DEFAULT_WINDOW_BLOCKS` (a day loading after the one-shot zoom solve
+  falsifies it — now re-armed unless the user has taken over; third
+  default-window gate bug), and the pan stuck and vibrated (the per-frame
+  timestamp round trip is lossy inside a floored block, and fractional
+  `scrollLeft` writes round the remainder away — measured: 20px/sec travelled
+  0px in two seconds). A first diagnosis of the vibration blamed the clamp and
+  was wrong; the wall-stop and latch it added are kept on their own merits.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

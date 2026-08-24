@@ -633,17 +633,50 @@ import {
   // multi-day content jump in a single frame. Consequence, accepted: on a
   // sparse day the ribbon RESTS underfilled (today only) until the user zooms;
   // underfill is a normal resting state here, not a transient.
+  //
+  // PROXIMITY arm added 2026-08-24 (spec §7h): panning reaches history too,
+  // deliberately reversing the rejection recorded above — the 7-day window is
+  // an efficiency trick and should be invisible, and the old objection (the
+  // signal is undefined on underflow) does not apply to panning, which only
+  // exists in the overflow regime. Neither gesture knows about loading:
+  // zoom changes capacity, pan changes proximity, paint() decides.
+  //
+  // Generous margin (order of one viewport) so the day lands BEFORE the pan
+  // reaches the edge. If panning stalls at the left before MAX_WINDOW_DAYS,
+  // this constant is the suspect, not the ramp.
+  const LOAD_MARGIN_PX = 1200;
+  // Set the first time the user zooms or pans (spec §7h). Until then a day
+  // load may re-solve the default window, which a prepend otherwise falsifies;
+  // after it, the user's gesture is the correction mechanism and re-solving
+  // would fight it. Third default-window gate bug — see DEFAULT_WINDOW_BLOCKS.
+  let userAdjusted = false;
+  // Set by the pan pump for a pan's duration. The proximity arm is gated on it
+  // because scrollLeft is 0 at rest on every render — ungated it would read as
+  // "near the left end" before the user touched anything and pull all seven
+  // days at startup. Proximity is a claim about a gesture, not a position.
+  let panning = false;
   let loadingDay = false;
   function maybeLoadOlderDay(totalPx) {
     if (loadingDay) return;
     if (anchorMode !== "right" || heightMode !== "tiered") return;
     const wrap = qs("ribbon-wrap");
-    if (!wrap || totalPx >= wrap.clientWidth) return; // viewport is full — nothing wanted
+    if (!wrap) return;
+    // Capacity (§7e) OR proximity (§7h) — "is there room for more history to
+    // be useful", asked two ways. lastPadPx is the left pad: content starts
+    // there, so that is the real distance to the oldest loaded pixel.
+    const underflows = totalPx < wrap.clientWidth;
+    const nearLeftEnd = panning && wrap.scrollLeft - lastPadPx <= LOAD_MARGIN_PX;
+    if (!underflows && !nearLeftEnd) return; // plenty of loaded history ahead
     if (Math.round((viewDayStart - windowStart) / 864e5) + 1 >= MAX_WINDOW_DAYS) return;
     const older = prevDayStart(windowStart);
     if (oldestDayStart() > older) return; // no data older than this — stop
     windowStart = older;
     log(`§7e: loading older day, window now ${new Date(windowStart).toDateString()}`);
+    // A prepend falsifies a default window solved before it — the extra day
+    // renders at a zoom solved for the smaller set (spec §7h). Re-armed here
+    // rather than by loosening the gate, so ordinary data ticks still never
+    // re-solve.
+    if (!userAdjusted) defaultZoomApplied = false;
     loadingDay = true;
     try {
       render(lastSessions, lastLockIntervals);
@@ -1677,6 +1710,12 @@ import {
       // updateCardGap (pointermove) is the sole authority for this label
       // whenever a gap is active, so this handler must leave it alone.
       if (gapKey == null) hideCardHoverText();
+      // Panning suppresses hover UI entirely (spec §7h, 2026-08-24):
+      // navigation and inspection are not simultaneous intents. The blocks
+      // sliding past under a travelling cursor fire pointerover constantly;
+      // without this they would each arm a tooltip for a block that is
+      // already gone by the time it shows.
+      if (ribbonEl.classList.contains("panning")) return;
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
       const isCard = el.classList.contains("card");
@@ -1814,6 +1853,19 @@ import {
     const ZOOM_SENSITIVITY = 0.0018; // wheel-delta-to-zoom-factor curve; retune to taste
     const ZOOM_IDLE_MS = 150; // quiet period after the last tick before .zooming lifts (re-arms .blk's transition)
     let pendingDy = 0;
+    // Which wall the pan last stopped against: -1 (oldest), +1 ("now"), 0 none.
+    // Latched, because pointermove fires on the faintest jitter and would
+    // otherwise restart the pump straight back into the same wall.
+    let panWall = 0;
+    // Sub-pixel bank (see panTick): fractional movement the platform would
+    // have rounded away, carried to the next frame instead.
+    let panFrac = 0;
+    // Geometry as of the last pan frame. When these stop matching paint()'s
+    // live values, something relaid out under us and the carried timestamp —
+    // not the remembered pixel — is what still means something.
+    let panGeomTotal = -1;
+    let panGeomPad = -1;
+    let panGeomPadRight = -1;
     let rafId = null;
     let lastPointerX = 0;
     let idleTimer = null;
@@ -1841,6 +1893,12 @@ import {
       const anchorT = axis ? axis.xToTime(cursorX) : null;
       zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * Math.exp(-pendingDy * ZOOM_SENSITIVITY)));
       pendingDy = 0;
+      userAdjusted = true; // the user owns the view now — see applyDefaultZoomWindow
+      // A zoom moves the walls: content that was flush against the right edge
+      // may now overflow it. Clear the pan's wall latch so a cursor still
+      // parked in an outer band can resume panning without first having to
+      // cross to the other side of the viewport.
+      panWall = 0;
       PX_PER_SEC = BASE_PX_PER_SEC * zoom;
       GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
       // paint() reads this while sizing the underflow pad — see pendingAnchor.
@@ -1866,11 +1924,203 @@ import {
       // paint(), which is where the real laid-out total is known.
       captureFromRight(wrap);
     };
+    // ---- Panning: edge-proximity pump (spec §7h, 2026-08-24) ----
+    //
+    // No targetable affordances. The ribbon pans by where the cursor RESTS: a
+    // dead zone in the middle, then travel toward the nearer edge, faster the
+    // closer the cursor sits to it. A hover STATE, not an event-driven
+    // gesture — the cursor can be still while the view moves, hence the pump.
+    //
+    // PROVISIONAL knobs, to be play-tested — turn ONE at a time.
+    const PAN_DEAD_FRAC = 0.5; // middle 50% of the viewport: no panning
+    // Curve exponent. 1 = linear; higher keeps the ramp gentle across most of
+    // the band and concentrates speed at the very edge. Replaces a three-zone
+    // dead/slow/fast design, whose zone boundaries were felt as speed jerks
+    // (spec §7h). The knob most likely to want turning.
+    const PAN_CURVE = 2;
+    // VIEWPORT-WIDTHS PER SECOND, not px/frame: a pixel rate would crawl
+    // through minutes at 16x zoom and tear across days at 0.25x, when the felt
+    // speed should be the same at every zoom level. Converted to px each frame
+    // against the live viewport width, so it is zoom- AND load-invariant (the
+    // viewport does not change when a day arrives).
+    const PAN_MAX_RATE = 1.2;
+    const PAN_MAX_FRAME_MS = 50; // dt clamp: a stalled tab must not teleport the view
+
+    // The tunable core, kept pure and DOM-free so it can be read and reasoned
+    // about on its own. Returns signed viewport-widths/sec: negative = pan
+    // left (toward history), positive = right (toward now), 0 inside the dead
+    // zone. Symmetric about the centre.
+    function panRateFor(cursorX, viewportWidth) {
+      if (!(viewportWidth > 0)) return 0;
+      const f = cursorX / viewportWidth; // 0 = left edge, 1 = right edge
+      const d = Math.abs(f - 0.5) * 2; // 0 at centre, 1 at either edge
+      if (d <= PAN_DEAD_FRAC) return 0;
+      // Normalize the live band to 0..1 so the curve spans it regardless of
+      // how wide the dead zone is set.
+      const t = (d - PAN_DEAD_FRAC) / (1 - PAN_DEAD_FRAC);
+      const rate = Math.pow(Math.min(1, t), PAN_CURVE) * PAN_MAX_RATE;
+      return f < 0.5 ? -rate : rate;
+    }
+
+    let panRaf = null;
+    let panLastTs = 0;
+    // The instant the pan is holding, used to re-base after a prepend or
+    // relayout — scrollLeft is measured from the content's left edge, so a
+    // prepended day invalidates it while a timestamp survives (spec §7h,
+    // extending §7g's stance from zoom to pan). Live only during the pump;
+    // fromRight stays the REST anchor, re-captured on stop as applyZoom does.
+    let panT = null;
+    // Arm-on-first-move (spec §7h): without this, an overlay opening with the
+    // pointer already parked at an edge would start travelling before the user
+    // touched anything, reading as the ribbon moving on its own.
+    let panArmed = false;
+
+    const stopPan = () => {
+      if (panRaf != null) cancelAnimationFrame(panRaf);
+      panRaf = null;
+      panT = null;
+      panLastTs = 0;
+      panFrac = 0;
+      panning = false;
+      if (ribbonEl.classList.contains("panning")) {
+        ribbonEl.classList.remove("panning");
+      }
+    };
+
+    const panTick = (ts) => {
+      panRaf = null;
+      if (!panArmed || heightMode !== "tiered") return stopPan();
+      const vw = wrap.clientWidth;
+      const rate = panRateFor(lastPointerX - wrap.getBoundingClientRect().left, vw);
+      if (rate === 0) return stopPan();
+      // First tick establishes the clock without moving anything.
+      const dt = panLastTs ? Math.min(PAN_MAX_FRAME_MS, ts - panLastTs) : 0;
+      panLastTs = ts;
+      const deltaPx = rate * vw * (dt / 1000);
+      // Set once the pan actually moves something (dt > 0 — the first tick
+      // only starts the clock): the user owns the view from here, so the
+      // default window must never be re-solved underneath them. Merely
+      // resting the cursor in a band, with the view clamped at a wall and
+      // nothing moving, is not taking over.
+      if (deltaPx !== 0) userAdjusted = true;
+
+      // The pan owns the pixel position between geometry changes; the
+      // timestamp is consulted ONLY when something relaid out under us, which
+      // is the one moment a remembered pixel is meaningless. Re-deriving from
+      // panT every frame instead is lossy enough to vibrate — the round trip
+      // is compressive inside a floored block (spec §7h).
+      const geomChanged =
+        lastTotalPx !== panGeomTotal || lastPadPx !== panGeomPad || lastPadRightPx !== panGeomPadRight;
+      let baseX;
+      if (geomChanged && axis && panT != null) {
+        baseX = axis.timeToX(panT) + lastPadPx; // re-base: the instant is what survived
+        panFrac = 0; // banked sub-pixels refer to the old geometry — drop them
+      } else {
+        baseX = wrap.scrollLeft;
+      }
+      panGeomTotal = lastTotalPx;
+      panGeomPad = lastPadPx;
+      panGeomPadRight = lastPadRightPx;
+
+      // scrollLeft stores at integer device-pixel resolution, so a fractional
+      // write rounds and the remainder is lost — at the gentle end of the ramp
+      // that is the whole frame's motion. Bank it instead: every rate reaches
+      // the screen, with no artificial speed floor (spec §7h).
+      panFrac += deltaPx;
+      const wholePx = Math.trunc(panFrac);
+      panFrac -= wholePx;
+      const wanted = baseX + wholePx;
+      // The clamp is the wall. At the far right ("now") and at the true end of
+      // history there is nothing beyond. Before MAX_WINDOW_DAYS the proximity
+      // load should have extended the range already, so the cache edge is
+      // never felt — only the real edge of recorded time.
+      const maxScroll = maxScrollOf(wrap);
+      const target = Math.max(0, Math.min(maxScroll, wanted));
+      // Hitting a wall ends the pan and latches which wall (spec §7h) — no
+      // point running a 60fps loop against an edge. Only a frame that moved
+      // whole pixels counts: wholePx === 0 is the clock-starting first tick or
+      // a banked sub-pixel frame, neither of which is evidence of an edge.
+      const clamped = wholePx !== 0 && target !== wanted;
+      if (clamped) {
+        panWall = rate < 0 ? -1 : 1;
+        // Land exactly on the wall first: the last frame before stopping
+        // should reach the edge, not stop a few px short of it.
+        if (target !== wrap.scrollLeft) setScrollLeft(wrap, target);
+        captureFromRight(wrap);
+        return stopPan();
+      }
+      panWall = 0; // moved freely — no wall in play
+      setScrollLeft(wrap, target);
+      // Keep the carried instant fresh for the NEXT re-base. This is not read
+      // again until geometry actually changes, so it never feeds back into the
+      // position the way the old per-frame round trip did — one conversion
+      // out, none back in. Skipped on sub-pixel frames (nothing moved to
+      // re-record) to keep the common slow-creep path free of axis work.
+      if (axis && wholePx !== 0) panT = axis.xToTime(target - lastPadPx);
+      captureFromRight(wrap);
+      // paint() asks this too, but only runs on a render and panning triggers
+      // none — so the pump asks for itself. A question, not a command:
+      // maybeLoadOlderDay owns every guard and usually does nothing.
+      maybeLoadOlderDay(lastTotalPx);
+      panRaf = requestAnimationFrame(panTick);
+    };
+
+    const startPan = () => {
+      if (panRaf != null || heightMode !== "tiered") return;
+      panLastTs = 0;
+      panFrac = 0;
+      // Start from the live geometry, so the first frame takes the ordinary
+      // scrollLeft path rather than spuriously re-basing off a timestamp that
+      // was only just derived from that same position.
+      panGeomTotal = lastTotalPx;
+      panGeomPad = lastPadPx;
+      panGeomPadRight = lastPadRightPx;
+      panT = axis ? axis.xToTime(wrap.scrollLeft - lastPadPx) : null;
+      // Panning suppresses hover UI (spec §7h): navigation and inspection are
+      // not simultaneous intents, and without this a block hovered in the
+      // outer band slides out from under the cursor mid-tooltip. Same
+      // precedent as .zooming suspending transitions for a zoom gesture.
+      ribbonEl.classList.add("panning");
+      panning = true; // gates maybeLoadOlderDay's proximity arm (spec §7h)
+      hideTip();
+      hideQuickLabel();
+      hideCardHoverText();
+      panRaf = requestAnimationFrame(panTick);
+    };
+
     wrap.addEventListener("pointermove", (ev) => {
       lastPointerX = ev.clientX;
+      panArmed = true;
+      // Tiered only — the collapsed strip's axis is categorical (Chrome tab
+      // order, §7c), so time-based panning is meaningless there. Deliberately
+      // NOT gated on anchorMode: the standalone dashboard gets panning too,
+      // and the math holds there because both pads stay 0 outside the overlay
+      // (spec §7h). Only the proximity LOAD arm is overlay-only.
+      if (heightMode !== "tiered") return;
+      const rate = panRateFor(ev.clientX - wrap.getBoundingClientRect().left, wrap.clientWidth);
+      if (rate === 0) {
+        panWall = 0; // back in the dead zone: whatever wall we held is moot
+        if (panRaf != null) stopPan();
+        return;
+      }
+      // Held against a wall (see panWall): only a cursor calling for the
+      // OTHER direction re-arms the pump. Jitter in the same direction is
+      // ignored, which is what keeps the wall from shaking.
+      if (panWall !== 0 && Math.sign(rate) === panWall) return;
+      panWall = 0;
+      startPan();
     });
-    // Panning moves the anchor. It does NOT trigger loading — reaching history
-    // is a zoom act, and capacity (paint()) is what decides a load (spec §7e).
+    // Pointer gone: the view must not drift on while the user is doing
+    // something else entirely.
+    wrap.addEventListener("pointerleave", () => {
+      panArmed = false;
+      stopPan();
+    });
+
+    // Panning moves the anchor, and as of §7h (2026-08-24) it ALSO reaches
+    // history: paint()'s load check now has a proximity arm alongside §7e's
+    // capacity arm. The gesture itself still knows nothing about loading —
+    // paint() decides, exactly as it does for zoom.
     wrap.addEventListener("scroll", () => {
       if (anchorMode !== "right" || heightMode !== "tiered") return;
       if (selfScrolling) return; // our own assignment echoing back
@@ -2160,8 +2410,11 @@ import {
       // (edge-relative) only for applyZoom to immediately reposition it by
       // the time anchor — wasted work, and a frame positioned by the wrong
       // rule. At rest pendingAnchor is null and this is the resting pin.
+      // `panning` extends the same rule to the pan pump (spec §7h): the pump's
+      // next frame re-bases off its carried instant, so positioning here by
+      // fromRight would only be undone.
       if (anchorMode === "right" && heightMode === "tiered") {
-        if (!pendingAnchor) applyFromRight(wrap);
+        if (!pendingAnchor && !panning) applyFromRight(wrap);
       } else wrap.scrollLeft = 0;
     }
   }

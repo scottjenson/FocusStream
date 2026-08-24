@@ -188,6 +188,11 @@
        laggy smear instead of a crisp real-time zoom) — #ribbon.zooming
        (toggled in JS for the gesture's duration) suspends it. */
     #ribbon.zooming .blk, #ribbon.zooming .rtitle { transition: none; }
+    /* Panning (spec §7h, 2026-08-24): same reasoning as .zooming above, and
+       panning additionally suppresses hover UI — navigation and inspection
+       are not simultaneous intents. The JS handler returns early while
+       .panning; this only stops the CSS :hover treatments. */
+    #ribbon.panning .blk, #ribbon.panning .rtitle { transition: none; }
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred).
        Excludes #ribbon.uniform-height (Active Tab Manager Phase 2,
@@ -196,6 +201,9 @@
        symbols — click to switch, nothing else — so no hover effect at all
        while collapsed. Expanded (tiered) ribbon tiles keep it. */
     #ribbon:not(.uniform-height) .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
+    /* ...but not while panning (spec §7h). Must come after, and match the
+       specificity of, the rule above. */
+    #ribbon.panning:not(.uniform-height) .blk:hover { filter: none; box-shadow: none; }
     /* Sub-MIN_W LOW blocks at low zoom (spec §7e): present so nothing ever
        silently vanishes, but too narrow to be a real hover target. */
     .blk.inert { pointer-events: none; }

@@ -352,3 +352,36 @@ labels"; the watch no longer describes current behavior.)
   count affordance ("+38 not shown"), or an explicit zoom-to-reveal cue —
   all deliberately unbuilt, since the staged fade (LOW first, MEDIUM well
   after) may already teach the rule well enough on its own.
+- **pan-ramp-tuning (2026-08-24, §7h):** the dead-zone
+  width, curve exponent and max rate are declared provisional play-test
+  knobs with no data behind them. The shape is argued (one threshold, felt
+  as motion starting; everything past it a smooth curve) but the numbers are
+  guesses. Watch for: the dead zone reading as dead space rather than rest,
+  max rate overshooting so the target is repeatedly passed, or the curve
+  feeling like it "catches" partway out. Response: turn one knob at a time
+  (project rule for provisional constants). Do NOT respond by reintroducing
+  discrete zones — that trade was made deliberately and the exponent already
+  expresses "slow across most of the band, fast at the edge."
+- **pan-load-burst (2026-08-24, §7h):** proximity
+  loading means a sustained fast pan left can pull several days in a few
+  seconds, each one a full `render()`. §7e chose one-day-per-relayout
+  explicitly as "a calming action... spread the load out across multiple
+  scrolls," and panning is a much higher-frequency driver of `paint()` than
+  zoom ticks were. Watch for: frame drops or visible hitching during a long
+  fast pan, or the ribbon deforming under the cursor as several days land in
+  quick succession. Candidate responses: a minimum interval between loads,
+  or suppressing loads above a rate threshold and letting them land as the
+  pan slows. Both deliberately unbuilt — `MAX_WINDOW_DAYS` (7) caps the
+  worst case at six loads total, which may simply never be a problem. Scott
+  reported "an occasional glitch or a stutter" during 2026-08-24 testing,
+  not chased at the time — this is the first suspect if it persists.
+- **pan-hover-suppression (2026-08-24, §7h):** §7h has
+  panning suppress tooltips/`cardHoverText`/gap plates outright, on the
+  argument that navigation and inspection are not simultaneous intents. The
+  risk is the converse: the outer bands are where panning lives, so any
+  block reachable only by panning to it becomes inspectable only after
+  returning the cursor to the dead zone — which may read as the ribbon
+  refusing to explain itself exactly where the user is hunting. Watch for:
+  chasing a block toward centre just to read its tooltip. Candidate
+  response: suppress only while the rate is above some floor, so the slow
+  inner band stays inspectable.
