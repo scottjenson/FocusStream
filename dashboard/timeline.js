@@ -2057,11 +2057,10 @@ import {
   // which is supposed to be the correction mechanism from here on.
   let defaultZoomApplied = false;
   // Returns the scrollLeft that puts the window's left edge at the
-  // viewport's left edge, given the CURRENT zoom/PX_PER_SEC — null if
-  // there aren't enough events to have a meaningful window (render()
-  // falls back to its own right-justify in that case). Only ever reads
-  // layout() output; never mutates zoom itself — applyDefaultZoomWindow
-  // (below) is the only zoom-mutating caller.
+  // viewport's left edge, given the CURRENT zoom/PX_PER_SEC — null if there
+  // aren't enough events to have a meaningful window. Used only as
+  // applyDefaultZoomWindow's probe now (§7d dropped it as a resting
+  // position); never mutates zoom itself.
   function windowScrollLeft(events, lockIntervals) {
     if (events.length <= DEFAULT_WINDOW_BLOCKS) return null;
     const sorted = [...events].sort((a, b) => a.startTime - b.startTime);

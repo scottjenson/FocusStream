@@ -51,3 +51,16 @@ phases land) how an active tab's state folds into the historical container
 view — **`spec/tabmanager.md`**. Terms: **strip** (collapsed, Chrome-tab-
 bar-like), **ribbon** (expanded, full-history), **block** (one item in the
 list, either state). Phase roadmap and reasoning: `decisions/tabmanager.md`.
+
+**Read this before judging any tab-manager trade-off.** The product goal is
+that the user *stops managing tabs*: the system closes them aggressively
+(Phase 3), and everything else exists to make that safe. So the dependency
+runs — auto-close is the product → it is only acceptable if retrieval is
+trustworthy → the ribbon is the retrieval mechanism → **ribbon quality gates
+the product.** Zoom, cross-day reach, and legibility at range are not
+visualization polish alongside eviction; they are what earns the right to
+ship it. The system is allowed to be *wrong* about importance, because
+browsing is always the fallback — which makes the failure mode to watch
+**tedium, not inaccuracy**. Full statement: `decisions/tabmanager.md`, "The
+product goal, stated plainly" and "Lightweight opinion + fallback"; the
+blocking watch item is `eviction-fallback-tedium`.

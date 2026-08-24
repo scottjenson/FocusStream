@@ -433,7 +433,7 @@ where the higher cap is strictly better.
 **Deferred, unchanged from §7c:** real cross-day zoom-out. Zoom-out
 currently bottoms out at the day's own extent.
 
-## 7e. Cross-day ribbon (design 2026-08-23)
+## 7e. Cross-day ribbon (built 2026-08-23)
 
 Replaces the deferral noted at the end of §7c. The ribbon starts at today
 and reaches backward through history as the user zooms out, up to a 7-day
