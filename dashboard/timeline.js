@@ -564,15 +564,47 @@ import {
   // pin — rest and preserved-anchor are one expression, not two mechanisms.
   // Valid only while zoom is constant across a load, which §7e guarantees.
   let fromRight = 0;
-  const maxScrollOf = (wrap) => {
-    const ribbonEl = qs("ribbon");
-    return ribbonEl ? Math.max(0, ribbonEl.scrollWidth - wrap.clientWidth) : 0;
-  };
+  // The ribbon's scrollable width, as WE laid it out — never read back from
+  // the DOM (spec §7g). Reading ribbonEl.scrollWidth raced with Chrome's
+  // layout flush and returned the previous frame's width; we set the width,
+  // so our own number is authoritative and cannot be stale.
+  let lastTotalPx = 0;
+  let lastPadPx = 0;
+  // Trailing pad — extends the scroll range during a zoom gesture so the
+  // anchor's target is not clamped away. See paint()'s padRightPx.
+  let lastPadRightPx = 0;
+  // The current layout's time<->x mapping (see axisOf). Replaced on every
+  // tiered paint; null before the first one and in strip mode, where the axis
+  // is categorical (Chrome tab order) and time has no meaning.
+  let axis = null;
+  // Zoom anchor request, set by applyZoom for the duration of one relayout:
+  // {t, viewportX} = "keep instant t at this many px from the viewport's left
+  // edge". paint() consults it when sizing the underflow pad, so the anchor
+  // works in BOTH regimes (2026-08-23). Scroll position alone cannot hold an
+  // anchor when content is narrower than the viewport — there is nothing to
+  // scroll — so the pad becomes the actuator there, exactly as it is already
+  // the actuator for holding the right edge. Null outside a zoom gesture,
+  // where the pad reverts to its plain flush-right behaviour.
+  let pendingAnchor = null;
+  const scrollableWidth = () => lastTotalPx + lastPadPx + lastPadRightPx;
+  const maxScrollOf = (wrap) => Math.max(0, scrollableWidth() - wrap.clientWidth);
   const captureFromRight = (wrap) => {
     fromRight = Math.max(0, maxScrollOf(wrap) - wrap.scrollLeft);
   };
+  // True while WE are assigning scrollLeft. Assigning it fires a scroll event
+  // asynchronously; without this the listener would re-derive fromRight from
+  // a scroll we caused ourselves (spec §7g).
+  let selfScrolling = 0;
+  const setScrollLeft = (wrap, x) => {
+    selfScrolling++;
+    wrap.scrollLeft = x;
+    // Cleared after the event loop turn that delivers the scroll event.
+    setTimeout(() => {
+      selfScrolling = Math.max(0, selfScrolling - 1);
+    }, 0);
+  };
   const applyFromRight = (wrap) => {
-    wrap.scrollLeft = Math.max(0, maxScrollOf(wrap) - fromRight);
+    setScrollLeft(wrap, Math.max(0, maxScrollOf(wrap) - fromRight));
   };
 
   // Demand-driven day loading (spec §7e, 2026-08-23, trigger corrected same
@@ -679,6 +711,83 @@ import {
   function msPastHour(t) {
     const d = new Date(t);
     return d.getMinutes() * 60000 + d.getSeconds() * 1000 + d.getMilliseconds();
+  }
+
+  // The ribbon's coordinate system (spec §7g, 2026-08-23). Ribbon X is NOT
+  // linear in time — widths are floored, gaps run on their own scale, day
+  // dividers compress a whole night, and §7e drops whole bands — so time<->x
+  // can only be answered by walking what layout() actually produced. Returns
+  // that mapping so callers stop improvising their own.
+  function axisOf(segs, gaps, dividers, total) {
+    const spans = [];
+    for (const s of segs) {
+      if (s.collapsed || s.w <= 0) continue; // sticks/dropped carry no usable span
+      const t0 = s.e.startTime;
+      const t1 = s.e.endTime > t0 ? s.e.endTime : t0 + 1;
+      spans.push({ t0, t1, x0: s.x, x1: s.x + s.w });
+    }
+    for (const g of gaps) if (g.w > 0) spans.push({ t0: g.from, t1: g.to, x0: g.x, x1: g.x + g.w });
+    // A divider swallows the whole overnight span into a fixed width. Its
+    // real time range is not recoverable from x (that IS the compression),
+    // so it maps as a single block — good enough for anchoring, and honest.
+    for (const d of dividers) spans.push({ t0: d.at, t1: d.at, x0: d.x, x1: d.x + d.w });
+    spans.sort((a, b) => a.x0 - b.x0);
+    const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+    // Binary search for the last span whose start is <= the probe.
+    // Last span whose start is <= the probe. Index form, because callers need
+    // the NEXT span too, to interpolate across a hole between spans.
+    const findIdx = (val, key) => {
+      if (!spans.length) return -1;
+      if (val <= spans[0][key]) return 0;
+      let lo = 0;
+      let hi = spans.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (spans[mid][key] <= val) lo = mid;
+        else hi = mid - 1;
+      }
+      return lo;
+    };
+    return {
+      // Interpolates inside the containing span, and ACROSS holes (stretches
+      // with no drawn geometry, e.g. a band-dropped range) to the next span.
+      // Interpolating holes rather than clamping is what keeps this monotonic
+      // and continuous in t — the property the zoom anchor needs (spec §7g).
+      timeToX(t) {
+        if (!spans.length) return 0;
+        const i = findIdx(t, "t0");
+        const s = spans[i];
+        if (t <= s.t0) return s.x0;
+        if (t < s.t1) return s.x0 + ((t - s.t0) / (s.t1 - s.t0)) * (s.x1 - s.x0);
+        const next = spans[i + 1];
+        if (!next) return s.x1;
+        const dt = next.t0 - s.t1;
+        if (dt <= 0) return s.x1;
+        return s.x1 + ((t - s.t1) / dt) * (next.x0 - s.x1);
+      },
+      // x -> time. The inverse, with the same interpolation. Inside a FLOORED
+      // block time is not linear in x, so this is approximate there by
+      // construction — bounded by that one block's width, which is the
+      // smallest unit the layout represents at all.
+      xToTime(x) {
+        if (!spans.length) return null;
+        const px = clamp(x, 0, total);
+        const i = findIdx(px, "x0");
+        const s = spans[i];
+        if (px <= s.x0) return s.t0;
+        if (px < s.x1) {
+          const w = s.x1 - s.x0;
+          return s.t0 + (w > 0 ? ((px - s.x0) / w) * (s.t1 - s.t0) : 0);
+        }
+        // Across a hole to the next span — the inverse of timeToX's own
+        // hole interpolation, keeping the two exact inverses of each other.
+        const next = spans[i + 1];
+        if (!next) return s.t1;
+        const dx = next.x0 - s.x1;
+        if (dx <= 0) return s.t1;
+        return s.t1 + ((px - s.x1) / dx) * (next.t0 - s.t1);
+      },
+    };
   }
 
   function layout(items, expandedKey) {
@@ -830,7 +939,8 @@ import {
         }
       }
     }
-    return { segs, plates, bars, gaps, dividers, total: Math.max(cursor - GAP, 0) };
+    const total = Math.max(cursor - GAP, 0);
+    return { segs, plates, bars, gaps, dividers, total, ...axisOf(segs, gaps, dividers, total) };
   }
 
   // --- Card layout (plans/stack-ribbon.md Stage 1, 2026-08-11; rotation/
@@ -941,11 +1051,23 @@ import {
   // then. Hours that fell between blocks already own uniform gap slots from
   // layout — the old clamp-to-edge case (which shingled labels when a
   // multi-hour absence stacked its hours on one x) no longer exists.
-  function hourMarks(segs, gaps) {
+  // Now placed via layout()'s own coordinate system (axisOf) rather than a
+  // duplicate interpolation of its own. Deliberately still SKIPS any hour
+  // with no drawn geometry: an hour inside a band-dropped stretch or between
+  // spans has no honest x, and inventing one would put a tick where nothing
+  // is rendered. Hence the containment test rather than a bare timeToX call
+  // (timeToX clamps to the nearest edge, which is right for anchoring and
+  // wrong for tick placement).
+  function hourMarks(segs, gaps, laid) {
     if (!segs.length) return [];
     const first = segs[0];
-    const gapX = new Map();
-    for (const g of gaps) for (const m of g.marks) gapX.set(m.t, m.x);
+    const spans = [];
+    for (const s of segs) {
+      if (s.collapsed || s.w <= 0) continue;
+      spans.push({ t0: s.e.startTime, t1: s.e.endTime });
+    }
+    for (const g of gaps) if (g.w > 0) spans.push({ t0: g.from, t1: g.to });
+    const covered = (t) => spans.some((s) => t >= s.t0 && t <= s.t1);
     // First tick: the floor hour, sitting at the left edge of the pad (the
     // pad is absence, so it's gap-scaled) — a clean whole-hour label with
     // the first block proportionally inset.
@@ -953,17 +1075,7 @@ import {
     const marks = [{ t: floorT, x: first.x - (msPastHour(first.e.startTime) / HOUR) * GAP_HOUR_PX }];
     const lastEnd = segs[segs.length - 1].e.endTime;
     for (let t = floorT + HOUR; t <= lastEnd; t += HOUR) {
-      if (gapX.has(t)) {
-        marks.push({ t, x: gapX.get(t) });
-        continue;
-      }
-      for (const s of segs) {
-        if (t >= s.e.startTime && t <= s.e.endTime) {
-          const span = s.e.endTime - s.e.startTime;
-          marks.push({ t, x: s.x + (span > 0 ? ((t - s.e.startTime) / span) * s.w : 0) });
-          break;
-        }
-      }
+      if (covered(t)) marks.push({ t, x: laid.timeToX(t) });
     }
     return marks;
   }
@@ -1719,23 +1831,36 @@ import {
       // clamped to 0 by the platform, so the left edge always wins with no
       // special-casing — the anchor point drifts slightly under the cursor
       // only in that edge case, self-correcting on the next tick.
-      const cursorX = lastPointerX - rect.left + wrap.scrollLeft;
-      const oldTotal = ribbonEl.scrollWidth || 1;
-      const frac = cursorX / oldTotal;
+      const viewportX = lastPointerX - rect.left; // cursor, relative to viewport
+      // Ribbon coords = viewport + scroll - pad (the pad shifts content right,
+      // so it must come off to get back to the axis's own coordinate space).
+      const cursorX = viewportX + wrap.scrollLeft - lastPadPx;
+      // Anchor on the INSTANT under the cursor (spec §7g). The earlier
+      // width-fraction proxy assumed zoom scales the ribbon uniformly; it
+      // deforms instead, so a fraction lands on a different time.
+      const anchorT = axis ? axis.xToTime(cursorX) : null;
       zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * Math.exp(-pendingDy * ZOOM_SENSITIVITY)));
       pendingDy = 0;
       PX_PER_SEC = BASE_PX_PER_SEC * zoom;
       GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
+      // paint() reads this while sizing the underflow pad — see pendingAnchor.
+      pendingAnchor = anchorT != null ? { t: anchorT, viewportX } : null;
       relayout();
-      const newTotal = ribbonEl.scrollWidth || 1;
-      // Right-pin (spec §7d, 2026-08-23): the cursor anchor is now bounded
-      // above by maxScroll as well as below by 0 — anchor wins zoomed in,
-      // clamps to the right edge zoomed out. The min() IS the regime switch.
-      const maxScroll = newTotal - wrap.clientWidth;
-      wrap.scrollLeft =
-        maxScroll <= 0
-          ? 0
-          : Math.min(frac * newTotal - (lastPointerX - rect.left), maxScroll);
+      pendingAnchor = null;
+      // paint() just wrote lastTotalPx/lastPadPx — our own numbers, not a DOM
+      // read-back that Chrome may not have flushed yet (see lastTotalPx).
+      const newTotal = scrollableWidth() || 1;
+      // Applied unconditionally, including when a day loaded during the
+      // relayout above: a timestamp anchor survives prepending, unlike the
+      // width fraction this replaced (spec §7g). timeToX is in ribbon coords,
+      // so the left pad is added to reach viewport coords. No clamp to
+      // maxScroll — the anchor outranks the right pin during a gesture, and
+      // paint()'s trailing pad extends the range to make room.
+      const target =
+        anchorT != null && axis
+          ? Math.max(0, axis.timeToX(anchorT) + lastPadPx - viewportX)
+          : Math.max(0, newTotal - wrap.clientWidth);
+      setScrollLeft(wrap, target);
       // The zoom just settled the viewport; that position is the anchor to
       // preserve if a day loads (spec §7e). Loading itself is triggered from
       // paint(), which is where the real laid-out total is known.
@@ -1748,6 +1873,7 @@ import {
     // is a zoom act, and capacity (paint()) is what decides a load (spec §7e).
     wrap.addEventListener("scroll", () => {
       if (anchorMode !== "right" || heightMode !== "tiered") return;
+      if (selfScrolling) return; // our own assignment echoing back
       captureFromRight(wrap);
     });
     wrap.addEventListener(
@@ -1940,14 +2066,9 @@ import {
     if (events.length <= DEFAULT_WINDOW_BLOCKS) return null;
     const sorted = [...events].sort((a, b) => a.startTime - b.startTime);
     const windowStartTime = sorted[sorted.length - DEFAULT_WINDOW_BLOCKS].startTime;
-    const { segs } = layout(clusterEvents(sorted, lockIntervals), null);
-    // First seg whose real member event starts at/after the window's
-    // start time — fences are retired in this view (see clusterEvents'
-    // own anchorMode-gated change above) so every seg here already
-    // corresponds 1:1 to a real top-level or contained event; contained
-    // children are skipped (not real top-level window boundaries).
-    const target = segs.find((s) => !s.contained && s.e.startTime >= windowStartTime);
-    return target ? target.x : null;
+    // Uses layout()'s own coordinate system (axisOf) rather than re-deriving
+    // the position by scanning segs — same answer, one shared mechanism.
+    return layout(clusterEvents(sorted, lockIntervals), null).timeToX(windowStartTime);
   }
   // Sets zoom (once per page lifetime) so DEFAULT_WINDOW_BLOCKS fill the
   // viewport. Since 2026-08-23 (spec §7d) render() right-pins unconditionally,
@@ -2035,8 +2156,14 @@ import {
     // order strip was importing the RIBBON's own "show 'now'" logic into
     // an axis (categorical tab order) where "now" has no meaning at all.
     if (wrap) {
-      if (anchorMode === "right" && heightMode === "tiered") applyFromRight(wrap);
-      else wrap.scrollLeft = 0;
+      // Skipped while a zoom gesture owns positioning (pendingAnchor set): a
+      // day loaded mid-zoom would otherwise be positioned here by fromRight
+      // (edge-relative) only for applyZoom to immediately reposition it by
+      // the time anchor — wasted work, and a frame positioned by the wrong
+      // rule. At rest pendingAnchor is null and this is the resting pin.
+      if (anchorMode === "right" && heightMode === "tiered") {
+        if (!pendingAnchor) applyFromRight(wrap);
+      } else wrap.scrollLeft = 0;
     }
   }
 
@@ -2083,6 +2210,7 @@ import {
       bars = [];
       gaps = [];
       dividers = [];
+      axis = null; // categorical axis — time has no meaning here
     } else {
       // Fences reinstated (spec §6, 2026-08-08): LOW runs collapse to sticks
       // again, with two independent split rules (clusterEvents: a recorded
@@ -2091,7 +2219,13 @@ import {
       // is read directly (closure) rather than threaded as a paint() param,
       // since relayout() (zoom) calls paint() without re-fetching data.
       const items = clusterEvents(events, lastLockIntervals);
-      ({ segs, plates, bars, gaps, dividers, total } = layout(items, expandedKey));
+      const laid = layout(items, expandedKey);
+      ({ segs, plates, bars, gaps, dividers, total } = laid);
+      // Publish this layout's coordinate system for callers outside layout()
+      // (applyZoom's time anchor, windowScrollLeft). Always the CURRENT one:
+      // it is replaced on every paint, so a stale axis can't outlive the
+      // geometry it describes — the same discipline as lastTotalPx.
+      axis = laid;
     }
 
     const ribbon = qs("ribbon");
@@ -2110,10 +2244,36 @@ import {
     // scrollable regime is untouched. Overlay + tiered only — same gate as
     // render()'s scroll reset.
     const padWrap = qs("ribbon-wrap");
-    ribbon.style.marginLeft =
-      anchorMode === "right" && heightMode === "tiered"
-        ? Math.max(0, (padWrap ? padWrap.clientWidth : 0) - total) + "px"
-        : "0px";
+    let padPx = 0;
+    let padRightPx = 0;
+    if (anchorMode === "right" && heightMode === "tiered") {
+      const vw = padWrap ? padWrap.clientWidth : 0;
+      const slack = Math.max(0, vw - total);
+      if (pendingAnchor && axis) {
+        // During a zoom gesture the anchor outranks the right pin (spec §7g).
+        // Two pads, because scrollLeft alone cannot express the anchor at
+        // either extreme: the LEFT pad shifts content right when there is
+        // nothing to scroll; the TRAILING pad extends the scroll range so the
+        // platform's own clamp to scrollWidth-clientWidth stops silently
+        // re-pinning the right edge as zoom-out shrinks that range.
+        const anchorX = axis.timeToX(pendingAnchor.t);
+        padPx = Math.max(0, pendingAnchor.viewportX - anchorX);
+        const wantScroll = Math.max(0, anchorX + padPx - pendingAnchor.viewportX);
+        padRightPx = Math.max(0, wantScroll + vw - (total + padPx));
+      } else {
+        // At REST the pad reverts to flush-right: the pin is deferred, not
+        // abandoned. Nothing eases back on its own after a gesture.
+        padPx = slack;
+      }
+    }
+    ribbon.style.marginLeft = padPx + "px";
+    ribbon.style.marginRight = padRightPx + "px";
+    // Authoritative geometry for every scroll calculation — see lastTotalPx.
+    // Written here, at the same moment the style is set, so the two can never
+    // disagree the way a scrollWidth read-back could.
+    lastTotalPx = total;
+    lastPadPx = padPx;
+    lastPadRightPx = padRightPx;
     ribbon.style.height = (heightMode === "uniform" ? bandBottom : bandBottom + AXIS_AREA) + "px";
     qs("ribbon-empty").hidden = segs.length > 0;
 
@@ -2348,7 +2508,9 @@ import {
       ? { left: bars[0].x, right: bars[0].x + bars[0].w, top: TITLE_AREA, bottom: bandBottom }
       : null;
 
-    const marks = hourMarks(segs, gaps);
+    // axis is null in strip mode (categorical, no time axis) — no hour ticks
+    // there, which is already the case: uniform mode reserves no axis area.
+    const marks = axis ? hourMarks(segs, gaps, axis) : [];
     let lastLabelRight = -Infinity;
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i];

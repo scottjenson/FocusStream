@@ -349,6 +349,18 @@ terse — write the entry there, then come back and add the one-line pointer.
   their contents vertically. Score-based eviction and the grace slot remain
   design-only, gated behind Phase 3's dry-run question and
   `eviction-fallback-tedium`.
+- **2026-08-23: §7g ribbon coordinate system + zoom anchoring** — spec §7g;
+  `decisions/tabmanager.md` ("Building the ribbon's coordinate system").
+  `layout()` now returns `timeToX`/`xToTime`, replacing four improvised
+  time↔x conversions — the missing abstraction behind a week of zoom bugs.
+  Zoom anchors on the instant under the cursor instead of a width fraction
+  (the ribbon deforms rather than scaling, so a fraction lands on a different
+  time). During a gesture the anchor outranks §7d's right pin, which returns
+  at rest. Two pads hold the anchor where `scrollLeft` cannot: a left pad on
+  underflow, and a trailing pad that stops the platform's own scroll clamp
+  from silently re-pinning the right edge. All scroll math now uses our own
+  recorded geometry rather than reading `scrollWidth` back, which raced with
+  Chrome's layout flush.
   Full story, every false lead, every specimen: `decisions/tabmanager.md`
   "Open-tab duration was fabricated, not real attention" and its three
   follow-on entries; spec §7c (rewritten in place).

@@ -633,3 +633,51 @@ whose height varies, but visibly top-heavy on a fixed 30px `STRIP_TILE_H`
 tile. Strip mode moves both to `top: 7px` — `(30 - 16) / 2`. The label also
 reserves the close box's lane (`right: 22px`) so a long name ellipsises
 rather than running underneath it.
+
+## 7g. Ribbon coordinate system + zoom anchoring (built 2026-08-23)
+
+**`layout()` returns `timeToX` / `xToTime` alongside its geometry.** Ribbon X
+is not linear in time and never has been — widths are floored (`MIN_W`, §7e's
+band ladders), gaps run on their own `GAP_HOUR_PX` scale (§6 two time
+scales), day dividers compress a whole night into a fixed width, and §7e
+drops whole bands out of the layout. So "where on screen is time T" is not
+computable from the total width; it can only be answered by walking what
+`layout()` actually produced. `axisOf` builds one ordered list of
+`{t0,t1,x0,x1}` spans and derives both directions from it — binary search per
+query, built once per layout.
+
+Holes (stretches with no drawn geometry, e.g. a band-dropped range)
+**interpolate** rather than clamping to the previous span's edge. Clamping
+collapsed an entire time range onto one pixel, which made the anchor snap
+whenever a band threshold was crossed mid-zoom. Interpolating keeps
+`timeToX` monotonic and continuous in time — the property the anchor
+depends on.
+
+**Zoom anchors on the instant under the cursor.** Read `xToTime` before
+relayout, `timeToX` after, and position so that instant lands back under the
+same pixel. This replaced a width-fraction proxy, which assumed zoom scales
+the ribbon uniformly — it deforms instead, so a fraction lands on a
+proportionally-similar pixel showing a different time. A timestamp is also
+unaffected by a day loading mid-gesture, where a fraction was not.
+
+**During a gesture the anchor outranks the right pin** (§7d). Holding the
+cursor's block steady proved the more important of the two rules: compacting
+toward a pinned right edge kept changing what sat under the cursor. The
+newest content may therefore sit left of the viewport's right edge, leaving a
+deliberate gap. At rest the pin returns — the next real render reasserts it
+via `fromRight`. Nothing eases back on its own after the gesture; moving the
+view after the user stopped touching it would undo what they just did.
+
+**Two pads, because `scrollLeft` alone cannot express the anchor at either
+extreme.** A LEFT pad (`marginLeft`) shifts content right when it underflows
+the viewport and there is nothing to scroll. A TRAILING pad (`marginRight`)
+extends the scroll range: the platform clamps `scrollLeft` to
+`scrollWidth - clientWidth`, and zoom-out shrinks that range, so the anchor's
+target was being silently clamped — which *is* right-pinning. A larger left
+pad cannot fix that (it grows the needed and available scroll equally); only
+trailing space can.
+
+**All scroll math uses our own geometry, never `scrollWidth`.** Reading it
+back raced with Chrome's layout flush and returned the previous frame's
+width. `paint()` records `total` and both pads at the moment it sets the
+styles, and every calculation reads those.

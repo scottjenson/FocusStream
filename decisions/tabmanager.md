@@ -1887,3 +1887,70 @@ rules anchor favicon/label to the top, which is right for a variable-height
 tiered block and visibly top-heavy on a fixed 30px tile. The label reserves
 the close box's lane (`right: 22px`) so long names ellipsise instead of
 running underneath it.
+
+---
+
+## Building the ribbon's coordinate system (2026-08-23)
+
+Zoom anchoring drifted badly when zoomed out and behaved fine when zoomed in.
+Chasing that surfaced a missing abstraction rather than a bug, and Scott made
+the call to fix it properly: "I find the tendency to code this way almost
+always ends up going towards shortcuts... the deeper full rewrites, especially
+if they solve the deeper problem, seem to bear fruit in the future."
+
+**The missing thing:** nothing could answer "where on screen is time T."
+Ribbon X is not linear in time — floored widths, a separate gap scale, day
+dividers, band drops — so every caller that needed the answer improvised.
+`applyZoom` used a width FRACTION as a proxy (the drift), `windowScrollLeft`
+scanned segs, `hourMarks` carried its own interpolation, and
+`applyDefaultZoomWindow` ran `layout()` twice as a probe. `layout()` had all
+the information and was handing back none of it.
+
+`axisOf` now returns `timeToX`/`xToTime` from the spans `layout()` just
+produced; four call sites migrated to it.
+
+**Why the fraction proxy failed exactly where it did:** at low zoom ~87% of
+blocks sit on their floors and do not scale at all, so the ribbon deforms
+rather than scaling. Zoomed in, most blocks clear their floors and scaling is
+roughly uniform again — hence "erratic far out, fine close in."
+
+**Three follow-on bugs, each a consequence of the same root:**
+
+1. **Stale `scrollWidth`.** `paint()` wrote `style.width`, `applyZoom`
+   immediately read `scrollWidth`, and Chrome had not flushed layout — so the
+   zoom math sized a target for the previous frame's ribbon. Measured
+   specimen: `total=74517` while `scrollWidth` still reported `90909`, leaving
+   content 13669px short of the right edge, corrected on the next tick. That
+   is the "jump then snap back" symptom, and the staleness magnitude tracked
+   the visual jump exactly. Fixed by never reading the DOM back — we set the
+   width, so our own number is authoritative.
+
+2. **A guard that became wrong.** `applyZoom` skipped its positioning whenever
+   a day loaded mid-relayout, deferring to `applyFromRight`. Correct when the
+   anchor was a fraction (prepending invalidates it); wrong once it was a
+   timestamp (prepending does not change when an instant occurred). The guard
+   silently swapped the time anchor for an edge-relative one on every day
+   load — which is exactly the jump Scott isolated to "when we add the second
+   day, then the third." Worth noting as a class: the guard was right when
+   written and quietly became a bug when the thing it guarded was replaced.
+
+3. **Holes collapsing to a point.** `timeToX` clamped any time with no drawn
+   geometry to the previous span's right edge, so a whole band-dropped range
+   mapped to one pixel and the anchor snapped when a threshold was crossed.
+   Fixed by interpolating across holes, restoring monotonicity.
+
+**The right-pin had to yield.** Scott: "even when we zoom out and see more and
+more stuff, we should also be anchoring the zoom effect around the current
+block even if it moves the right edge into the window and leaves a gap." The
+pin answers "where is now?" (a rest-state question); the anchor answers "what
+am I looking at?" (an active-gesture question). The active gesture wins, and
+the pin returns at rest. This also prepares for panning, where "the right edge
+is always now" was going to break regardless.
+
+**The trailing pad was the non-obvious part.** After the anchor was allowed to
+outrank the pin, zoom-out still felt pinned. Cause: the platform clamps
+`scrollLeft` to `scrollWidth - clientWidth`, zoom-out shrinks that range, and
+the clamped target *is* the right pin. A first attempt at enlarging the LEFT
+pad was checked numerically and made it worse — it grows the needed and the
+available scroll equally. Only trailing space extends the range without moving
+content; with it the anchor holds exactly across the whole overflow range.
