@@ -13,10 +13,11 @@ recorded in the relevant log itself, and `git log` is the change history.
 
 | Log | Covers |
 |---|---|
-| `timeline_design.md` | Display side: score/tiers, labels, the color/Kelly saga, fences, two time scales, visit merging, containers, transit filter, MEDIUM containers. Also the doc-structure decisions (2026-08-25). |
+| `timeline_design.md` | Display side (Track B): score/tiers, labels, the color/Kelly saga, fences, two time scales, visit merging, containers, transit filter, MEDIUM containers. Also the doc-structure decisions (2026-08-25) and, since 2026-08-25, the ribbon-navigation entries moved from `tabmanager.md` (zoom, cross-day, band ladders, coordinate system, panning — rules in `spec/ribbon.md`). |
 | `capture_design.md` | Capture side: session model, heartbeat hybrid counting, filters, audible continuity, SPA debounce, injection hardening, retention. |
-| `tabmanager.md` | Active Tab Manager (§7): origin (the source doc's agentic proposal), why it was scoped to a phased build, the four-phase roadmap, rejected alternatives. **Holds the phase roadmap** — phases never get their own file. |
+| `tabmanager.md` | **CLOSED 2026-08-25.** The injected tab strip (§7, §7b, §7c-strip, §7f, §7i): origin, the phased build, and the closing entry recording what the exploration returned. Its ribbon-side entries moved to `timeline_design.md`; its successor is `parkinglot.md`. |
 | `snapshot_implementation.md` | Tooltips + snapshots: original reasoning and knobs, the review fixes (flush-on-hidden trap, `getKeys()`, decode-then-position), the 3rd-heartbeat re-capture. |
+| `parkinglot.md` | The Parking Lot (§8): why the §7 tab/ribbon merge returned a negative result, the three tab populations, closure-not-attention as the discriminator, displacement over classification, and the four-phase roadmap. **Supersedes `tabmanager.md` as the live-surface direction.** |
 | `card_deck.md` | The stack-ribbon card deck: why it was attempted, what each stage delivered, and its migration status. Merged from the dissolved `plans/` directory 2026-08-25. |
 
 ## Retired logs (text recoverable from git history)

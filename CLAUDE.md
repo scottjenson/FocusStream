@@ -16,11 +16,27 @@ chronological, activity-weighted "Lifestreams" timeline.
 | `decisions/README.md` | Index of the decision logs — one line each, plus retired ones | It describes a decision FILE's scope, not a change |
 
 **Read `SPEC.md` before implementing anything** — it's the source of truth
-for rules, data structures, and edge cases, and the ~40-line index into its
-two sub-files (split 2026-08-09, one 301-line file was too much to read for
-any single change): `spec/capture.md` (§3–§4, capture-side) and
-`spec/display.md` (§5–§6, display-side) — section numbers carried over
-unchanged, so every existing `§N` reference elsewhere still resolves.
+for rules, data structures, and edge cases, and the index into its sub-files
+(first split 2026-08-09; one 301-line file was too much to read for any
+single change). Section numbers carry over unchanged through every split, so
+every existing `§N` reference elsewhere still resolves:
+| file | covers | status |
+|---|---|---|
+| `spec/capture.md` | §3–§4, capture-side | current |
+| `spec/display.md` | §5–§6, display-side | current |
+| `spec/ribbon.md` | §7c–§7h, ribbon navigation (zoom, cross-day, panning) | **temporary — drains into §6** |
+| `spec/parkinglot.md` | §8, the parking lot | current, nothing built yet |
+| `spec/tabmanager.md` | §7, the injected tab strip | **CLOSED, historical** |
+
+**Two tracks (2026-08-25).** Track A (live surface: extension icon, parking
+lot — §8) is phased; Track B (history surface: the ribbon — §5–§6 + §7c–§7h)
+is ongoing and unphased. They are orthogonal; the only coupling is §8 Phase
+1's handoff. **`spec/ribbon.md` and `spec/tabmanager.md` both disappear
+eventually** — the end state is one display spec (`spec/display.md`) and one
+display decision log (`decisions/timeline_design.md`). `ribbon.md` drains
+into §6 as Track B resolves the three §6/§7e conflicts; do not merge it
+early, since those conflicts are why it is separate. Full statement:
+`SPEC.md`, "7c–7h. Ribbon navigation".
 `decisions/` is not for in-flight drafts: a proposal either gets adopted
 (fold into SPEC.md/spec/ + its matching decisions/ log) or gets abandoned
 (delete; note it in the relevant `decisions/` log if worth a record).

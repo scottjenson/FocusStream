@@ -230,42 +230,128 @@ labels"; the watch no longer describes current behavior.)
   blocks + a long gap) where proportional and wall-clock position diverge
   more than on a typical day.
 
-## Tab Manager (§7)
+### Ribbon navigation (zoom, cross-day, panning)
 
-- **switcher-fixed-root-overlap (2026-08-21):** the live tab strip is
-  `position: fixed` with a companion `html { margin-top }` override on the
-  page's own root (spec §7 placement) — correct on every `position:
-  static` site, but a site whose OWN top-level container is `position:
-  fixed`/`absolute` over the full viewport (specimen: Google Voice) can't
-  be pushed down by a margin change, so that site's own top ~34px sits
-  under the strip. Known countermeasure (detect and nudge same-shape
-  fixed/sticky elements at mount) deferred, not built — first move in a
-  CSS arms race with no evidence yet of how many real sites it bites.
-  Watch for: real specimens beyond Voice (Meet is presumed same-shaped,
-  untested) and whether the overlap is annoying enough in practice to
-  justify the countermeasure. Story: `decisions/tabmanager.md`, "Voice
-  fixed-root specimen".
-- **switcher-navigation-flash (2026-08-21):** a real page navigation (any
-  link click, not just tab-switching) destroys and rebuilds the entire
-  document, including the strip — it re-injects and re-mounts from
-  scratch every time, unlike a genuine browser-chrome tab bar, which
-  never rebuilds on page navigation. Structural, not a bug: a
-  content-script-injected surface cannot live outside the page it's
-  injected into. Mitigation identified, not built: inject at
-  `document_start` with a synchronous placeholder (reserve the strip's
-  space/shell before first paint) instead of `document_idle`, then
-  hydrate with real tab data once the background responds — reduces the
-  visible jank without eliminating the rebuild. Deferred pending judgment
-  on whether the flash is bothersome enough in real use to justify it.
-  Story: `decisions/tabmanager.md`, "Navigation-flash structural limit".
-- **switcher-phase1-rough-edges (2026-08-21):** two small gaps noted
-  during Phase 1 verification, neither blocking: (1) no auto-scroll to
-  the active tile if it's off-screen in the strip — a many-tab window
-  needs manual horizontal scroll to find the highlighted tab; (2)
-  per-window scoping is implemented (`broadcastTabsForWindow`) but only
-  ever verified against a single window — a second-window scenario
-  (does each window's strip correctly show only its own tabs, does
-  switching windows behave sanely) is untested.
+Built as §7c–§7h for the overlay; the overlay is retiring (§8 Phase 1) and
+this behaviour moves to the dashboard with the ribbon, so these are display
+items, not tab-manager ones. Rules live in **`spec/ribbon.md`** (split out
+2026-08-25), which keeps the §7x numbering because ~85 code comments cite it;
+they fold into §6 later.
+
+- **night-break-midnight (2026-08-23):** §7e collapses overnight gaps to a
+  fixed-width labeled divider, and puts that break at midnight. Correct for
+  a day-shift user, wrong for a night owl: someone working 6pm-2am gets a
+  hard break slicing through the middle of active work, since their real
+  quiet stretch is 2am-10am. The better answer is already worked out and
+  deliberately unbuilt (`decisions/timeline_design.md`, "Cross-day"): collapse
+  any gap over a threshold (~3h) wherever it falls, and attach the day
+  *label* to the first block after midnight — label boundary stays midnight
+  because that is what the label means, visual break follows the real
+  absence. Watch for: a divider landing inside a work session, or a day's
+  blocks visually split across two dividers. Cheap to switch — both
+  versions are just "how wide is this gap and what is drawn in it," so the
+  upgrade is local to the gap-rendering path and needs no other change.
+- **band-drop-cliff (2026-08-23):** §7e's band ladders end by DROPPING the
+  band, and that last rung is a cliff — 131 LOW blocks vanish on one zoom
+  tick, 70 MEDIUM on another, while the 8-5-3 rungs before them shift a 4px
+  block to 3px. Predicted before it shipped ("it may feel like a large
+  jump") and shipped simple anyway, to be judged by use rather than
+  pre-engineered (`decisions/timeline_design.md`, "Band floor ladders"). It may
+  well be fine: the cliff lands at an explicit "show me only what mattered"
+  gesture, not somewhere a user drifts into. Watch for: the drop reading as
+  a glitch or data loss rather than a zoom level, or zooming back and forth
+  across the threshold feeling unstable. Planned response, already designed:
+  make the last rungs filter progressively BY DURATION (drop LOW under 30s,
+  then under 2min, then all) so the disappearances spread across three ticks
+  in a principled order — shortest first, keeping the odd long-LOW visits
+  longest. Do not respond by softening the ladder into more rungs; the rungs
+  are transition frames and adding more does not change where the mass is.
+- **band-drop-absence (2026-08-23):** dropping LOW/MEDIUM entirely at low
+  zoom means a day of nothing but low-value activity renders nearly empty —
+  a day divider with little between it. Honest under "lightweight opinion"
+  (see `eviction-fallback-tedium`), but it is the one place §7e can make the
+  fallback silently incomplete: a user hunting a demoted tab at 6-day zoom
+  sees no trace of it and may conclude it is not there, rather than that it
+  is below the current zoom. Watch for: concluding "that tab isn't in my
+  history" while zoomed out, then finding it on zoom-in. Candidate
+  responses if it fires: a faint density hint in the emptied stretch, a
+  count affordance ("+38 not shown"), or an explicit zoom-to-reveal cue —
+  all deliberately unbuilt, since the staged fade (LOW first, MEDIUM well
+  after) may already teach the rule well enough on its own.
+- **pan-ramp-tuning (2026-08-24, §7h; dead-zone knob turned 2026-08-25):**
+  `PAN_DEAD_FRAC` has since been widened 0.5 → 0.667 on a real play-test
+  (panning fired while still reading), so the dead-zone half of this entry
+  has had its first turn — story: `decisions/timeline_design.md`, "First turn of
+  the dead-zone knob". **Still open:** `PAN_CURVE` (2) and `PAN_MAX_RATE`
+  (1.2) remain first-guess numbers never judged against real use, and the
+  narrower ramp now reaches full speed over a shorter distance, which makes
+  the curve the more likely of the two to want turning. Watch for: max rate
+  overshooting so the target is repeatedly passed, or the ramp feeling too
+  steep now that it is a third of the viewport rather than half. Response:
+  `PAN_CURVE` next, one knob at a time. Do NOT respond by reintroducing
+  discrete zones — that trade was made deliberately and the exponent already
+  expresses "slow across most of the band, fast at the edge."
+- **pan-load-burst (2026-08-24, §7h):** proximity
+  loading means a sustained fast pan left can pull several days in a few
+  seconds, each one a full `render()`. §7e chose one-day-per-relayout
+  explicitly as "a calming action... spread the load out across multiple
+  scrolls," and panning is a much higher-frequency driver of `paint()` than
+  zoom ticks were. Watch for: frame drops or visible hitching during a long
+  fast pan, or the ribbon deforming under the cursor as several days land in
+  quick succession. Candidate responses: a minimum interval between loads,
+  or suppressing loads above a rate threshold and letting them land as the
+  pan slows. Both deliberately unbuilt — `MAX_WINDOW_DAYS` (7) caps the
+  worst case at six loads total, which may simply never be a problem. Scott
+  reported "an occasional glitch or a stutter" during 2026-08-24 testing,
+  not chased at the time — this is the first suspect if it persists.
+- **pan-hover-suppression (2026-08-24, §7h; core complaint FIRED and fixed
+  2026-08-25, narrowed doubt kept):** the original worry — the outer bands
+  are where panning lives, so a block reachable only by panning becomes
+  inspectable only after returning the cursor to the dead zone — fired
+  immediately and worse than written: suppression was keyed to cursor
+  POSITION, so merely RESTING in the ramp killed hover with nothing moving,
+  which at the right-wall rest position is most of the time. Fixed by
+  gating `.panning` on actual whole-pixel motion (§7h, `decisions/
+  timeline_design.md` "Hover suppression was keyed to cursor POSITION").
+  **Still open, narrower:** whether suppression during a genuinely slow
+  real pan also grates. The original candidate response (suppress only
+  above a rate floor) was never tested — motion-gating made it moot for the
+  reported bug — and remains the response if it does. Watch for: chasing a
+  block toward centre to read its tooltip *while actually panning*.
+
+## Parking Lot (§8)
+
+- **parkinglot-recovery-trust (2026-08-25):** §8 Phase 3 auto-closes tabs
+  into the lot on a displacement rule, and the whole design rests on an
+  unmeasured premise — Scott's hypothesis that "most people only have two or
+  three tabs that they stay active with, everything else is noise." If the
+  working set is instead broad and diffuse, N-displacement will repeatedly
+  park things the user still wanted, and the promise "we close your tabs and
+  the unfinished ones stay somewhere finite" stops being one the system can
+  keep. Watch for (Phase 2's measurement answers all three): whether `N` is a
+  real number or an arbitrary cut through a smooth distribution; whether
+  time-since-touch is bimodal (giving `X` a natural value) or continuous (in
+  which case `X` is a knob picked in the middle of a mass — the same
+  objection that rejected the `kbd` co-condition in §6); and how large the
+  lot actually gets, which decides whether Phase 4's categorization is
+  load-bearing or solves a problem that does not exist. Planned response if
+  the hypothesis fails: it falsifies *displacement*, not the lot — the answer
+  would be a larger bar and `X` doing the work, not a return to
+  classification or scoring, both of which failed for reasons unrelated to
+  this. **Blocking: no `chrome.tabs.remove()` ships until Phase 2 has run on
+  real days.** Carries forward §7 Phase 3's dry-run-before-destructive rule.
+- **parkinglot-counter-tension (2026-08-25):** the badge count is the forcing
+  function — it does the job the cluttered tab bar used to do, and it is
+  meant to be uncomfortable as it grows. Phase 4 (sorting/grouping the lot by
+  captured `pageText`) works directly against that: a lot pleasant enough to
+  browse stops nagging, and the result is Pocket — a place things go to die,
+  which is the documented failure of every read-later product. Not a bug and
+  not resolvable by tuning; the two goals are in genuine tension and the
+  counter was chosen to win. Watch for: the count climbing without the user
+  caring, or the lot becoming a destination rather than a relief valve.
+  Response if it fires: make the count louder (colour, growth) before making
+  the lot richer — and treat a large steady-state lot as evidence the bar is
+  too small, not that the lot needs better browsing.
 
 ## Cross-cutting (capture/display seams)
 
@@ -315,103 +401,28 @@ labels"; the watch no longer describes current behavior.)
   containers), that's the signal to stop patching with more passes and
   make assembly genuinely recursive with a threshold that scales with
   assembly depth, not add a third hardcoded pass.
-- **eviction-fallback-tedium (2026-08-23):** Phase 3's auto-close is
-  licensed by "lightweight opinion + fallback" — the system is *allowed* to
-  be wrong about importance because browsing the blocks is always the
-  recovery path (full reasoning: `decisions/tabmanager.md`, "Lightweight
-  opinion + fallback"). So the concern is NOT that score correlates poorly
-  with what you wanted back; that's expected and priced in. The concern is
-  that the recovery path is too tedious to actually use, which is the one
-  thing that would make being wrong expensive instead of cheap. Sharpened
-  by the fact that the opinion and the fallback share one surface: hunting
-  a demoted tab means searching a view that rendered it small *because* the
-  system was wrong about it. Watch for: wanting a closed tab back and
-  finding the hunt tedious — too much zooming/scrolling, or needing to
-  already know roughly when it happened to find it at all (Scott's
-  specimen: Google Keep, a thin sliver four hours back). The bar to hold
-  the design to is that a low-scored sliver stays findable *without*
-  knowing its time. Planned response if it fires: it's a browsing problem,
-  so the answer is in navigation (cross-day, overview/scan affordances,
-  possibly search as a second channel) — not in retuning the score, which
-  is not the thing that failed. Blocking: no `chrome.tabs.remove()` should
-  ship until retrieval has been exercised by hand on a real day's history.
-- **night-break-midnight (2026-08-23):** §7e collapses overnight gaps to a
-  fixed-width labeled divider, and puts that break at midnight. Correct for
-  a day-shift user, wrong for a night owl: someone working 6pm-2am gets a
-  hard break slicing through the middle of active work, since their real
-  quiet stretch is 2am-10am. The better answer is already worked out and
-  deliberately unbuilt (`decisions/tabmanager.md`, "Cross-day"): collapse
-  any gap over a threshold (~3h) wherever it falls, and attach the day
-  *label* to the first block after midnight — label boundary stays midnight
-  because that is what the label means, visual break follows the real
-  absence. Watch for: a divider landing inside a work session, or a day's
-  blocks visually split across two dividers. Cheap to switch — both
-  versions are just "how wide is this gap and what is drawn in it," so the
-  upgrade is local to the gap-rendering path and needs no other change.
-- **band-drop-cliff (2026-08-23):** §7e's band ladders end by DROPPING the
-  band, and that last rung is a cliff — 131 LOW blocks vanish on one zoom
-  tick, 70 MEDIUM on another, while the 8-5-3 rungs before them shift a 4px
-  block to 3px. Predicted before it shipped ("it may feel like a large
-  jump") and shipped simple anyway, to be judged by use rather than
-  pre-engineered (`decisions/tabmanager.md`, "Band floor ladders"). It may
-  well be fine: the cliff lands at an explicit "show me only what mattered"
-  gesture, not somewhere a user drifts into. Watch for: the drop reading as
-  a glitch or data loss rather than a zoom level, or zooming back and forth
-  across the threshold feeling unstable. Planned response, already designed:
-  make the last rungs filter progressively BY DURATION (drop LOW under 30s,
-  then under 2min, then all) so the disappearances spread across three ticks
-  in a principled order — shortest first, keeping the odd long-LOW visits
-  longest. Do not respond by softening the ladder into more rungs; the rungs
-  are transition frames and adding more does not change where the mass is.
-- **band-drop-absence (2026-08-23):** dropping LOW/MEDIUM entirely at low
-  zoom means a day of nothing but low-value activity renders nearly empty —
-  a day divider with little between it. Honest under "lightweight opinion"
-  (see `eviction-fallback-tedium`), but it is the one place §7e can make the
-  fallback silently incomplete: a user hunting a demoted tab at 6-day zoom
-  sees no trace of it and may conclude it is not there, rather than that it
-  is below the current zoom. Watch for: concluding "that tab isn't in my
-  history" while zoomed out, then finding it on zoom-in. Candidate
-  responses if it fires: a faint density hint in the emptied stretch, a
-  count affordance ("+38 not shown"), or an explicit zoom-to-reveal cue —
-  all deliberately unbuilt, since the staged fade (LOW first, MEDIUM well
-  after) may already teach the rule well enough on its own.
-- **pan-ramp-tuning (2026-08-24, §7h; dead-zone knob turned 2026-08-25):**
-  `PAN_DEAD_FRAC` has since been widened 0.5 → 0.667 on a real play-test
-  (panning fired while still reading), so the dead-zone half of this entry
-  has had its first turn — story: `decisions/tabmanager.md`, "First turn of
-  the dead-zone knob". **Still open:** `PAN_CURVE` (2) and `PAN_MAX_RATE`
-  (1.2) remain first-guess numbers never judged against real use, and the
-  narrower ramp now reaches full speed over a shorter distance, which makes
-  the curve the more likely of the two to want turning. Watch for: max rate
-  overshooting so the target is repeatedly passed, or the ramp feeling too
-  steep now that it is a third of the viewport rather than half. Response:
-  `PAN_CURVE` next, one knob at a time. Do NOT respond by reintroducing
-  discrete zones — that trade was made deliberately and the exponent already
-  expresses "slow across most of the band, fast at the edge."
-- **pan-load-burst (2026-08-24, §7h):** proximity
-  loading means a sustained fast pan left can pull several days in a few
-  seconds, each one a full `render()`. §7e chose one-day-per-relayout
-  explicitly as "a calming action... spread the load out across multiple
-  scrolls," and panning is a much higher-frequency driver of `paint()` than
-  zoom ticks were. Watch for: frame drops or visible hitching during a long
-  fast pan, or the ribbon deforming under the cursor as several days land in
-  quick succession. Candidate responses: a minimum interval between loads,
-  or suppressing loads above a rate threshold and letting them land as the
-  pan slows. Both deliberately unbuilt — `MAX_WINDOW_DAYS` (7) caps the
-  worst case at six loads total, which may simply never be a problem. Scott
-  reported "an occasional glitch or a stutter" during 2026-08-24 testing,
-  not chased at the time — this is the first suspect if it persists.
-- **pan-hover-suppression (2026-08-24, §7h; core complaint FIRED and fixed
-  2026-08-25, narrowed doubt kept):** the original worry — the outer bands
-  are where panning lives, so a block reachable only by panning becomes
-  inspectable only after returning the cursor to the dead zone — fired
-  immediately and worse than written: suppression was keyed to cursor
-  POSITION, so merely RESTING in the ramp killed hover with nothing moving,
-  which at the right-wall rest position is most of the time. Fixed by
-  gating `.panning` on actual whole-pixel motion (§7h, `decisions/
-  tabmanager.md` "Hover suppression was keyed to cursor POSITION").
-  **Still open, narrower:** whether suppression during a genuinely slow
-  real pan also grates. The original candidate response (suppress only
-  above a rate floor) was never tested — motion-gating made it moot for the
-  reported bug — and remains the response if it does. Watch for: chasing a
-  block toward centre to read its tooltip *while actually panning*.
+- **eviction-fallback-tedium (2026-08-23; narrowed 2026-08-25):** the system
+  is *allowed* to be wrong about importance, because browsing the blocks is
+  the recovery path (reasoning: `decisions/tabmanager.md`,
+  "Lightweight opinion + fallback"). So the concern is not that score correlates poorly
+  with what you wanted back — that is expected and priced in — but that the
+  recovery path is too tedious to use, which is what would make being wrong
+  expensive instead of cheap. Sharpened by the opinion and the fallback
+  sharing one surface: hunting a demoted page means searching a view that
+  rendered it small *because* the system was wrong about it.
+  **Narrowed by §8:** open loops now recover through the parking lot, not
+  through history (`parkinglot-recovery-trust` holds that half, including
+  the blocking clause that used to sit here). What remains is the other
+  population — a page genuinely visited, briefly, now wanted back. §8 makes
+  it *cleaner* rather than smaller: every LOW block in the ribbon is now a
+  real visit rather than a mixture of real visits and never-read deferrals,
+  which strengthens the case for keeping them browsable.
+  Watch for: needing to already know roughly when something happened in
+  order to find it at all (Scott's specimen: Google Keep, a thin sliver four
+  hours back). The bar: **a low-scored sliver stays findable without knowing
+  its time.** Planned response if it fires: it is a browsing problem, so the
+  answer is navigation (cross-day, overview/scan affordances, possibly
+  search as a second channel) — not retuning the score, which is not the
+  thing that failed. Directly at odds with §7e's band-drop ladder, which
+  currently removes LOW entirely at zoom-out; see `band-drop-absence` and
+  `decisions/parkinglot.md`, "The history view's mandate got clearer".

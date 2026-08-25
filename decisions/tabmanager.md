@@ -1288,95 +1288,6 @@ renders for one logical "expand" action was itself the wrong shape).
 
 ---
 
-## Zoom anchors right, not left (2026-08-23)
-
-**The trigger was the multi-day plan, not a bug.** The existing zoom was
-left-pinned: content laid out from x=0 and grew rightward, so zooming out
-compacted it toward the left and zooming in expanded it to the right.
-Scott: "that was the original model and worked well when we tried very
-hard to keep the day always within the width of the viewport. But now that
-we're going to get rid of the day navigation and be able to zoom out back
-into history, I think we need to switch this around." The reasoning holds
-independently of the multi-day work landing: `now` is the one landmark
-that is always meaningful, and once the ribbon reaches past today there is
-no natural left edge to anchor to at all.
-
-**First framing was wrong, and Scott corrected it.** The initial read was
-that right-pinning and cursor-anchored zoom were in conflict — you can pin
-the right edge or hold the instant under the cursor, not both — and that
-choosing the pin meant giving up zoom-into-a-specific-block. Scott
-rejected the premise: "even with the cursor focus that we have today, it
-still is pinned on the left and it expands to the right. So I don't think
-that the how you zoom around the cursor completely reframes it... I'm just
-asking that we keep the same basic model, but we just pin it to the
-right."
-
-That is correct, and it is the whole insight behind the implementation
-being as small as it is. **The pin is not a competing anchor — it is what
-the clamp does when the anchor runs out of room.** Today's left pin is not
-written anywhere; it is the platform clamping a negative `scrollLeft` to
-0. Adding a `min(..., maxScroll)` on the other end produces the right pin
-by exactly the same mechanism. Scott's own rule for which regime applies:
-cursor-anchoring matters specifically when content overflows, because
-"you often want to put the cursor over something that you cannot see very
-well and you want to blow it up." Below the fit threshold there is nothing
-to scroll and nothing to anchor, so the edge simply wins. One expression,
-two regimes, no mode flag, and the arms agree at the crossing so there is
-no visible jump.
-
-**The underflow pad, and why it is not the 2026-08-08 spacer.** The one
-case `scrollLeft` cannot express is content narrower than the viewport:
-scrolling is impossible, the blocks are laid out from x=0, so the leftover
-space lands on the right and the newest block drifts away from the right
-edge as you zoom out. Fixing that needs the leftover space on the *left*,
-i.e. a pad. A permanent lead spacer was tried and reverted on 2026-08-08
-(`timeline.css`'s `#ribbon-wrap` comment) — worth checking before
-repeating it. The reverted one existed at *every* zoom level, which made
-`scrollLeft: 0` show blank space in the *scrollable* regime and read as
-the ribbon centering itself and drifting under panning. This pad is
-`max(0, viewportW - total)`: it is exactly 0 whenever content overflows,
-so it never exists in the regime where the old one failed, and being
-absent there it cannot drift. The two differ precisely in the dimension
-that killed the first attempt.
-
-**Strip stays left-justified — caught live, not by review.** The pad's
-first cut sat above `paint()`'s uniform/tiered fork and so applied to the
-collapsed strip too. Scott found it testing: the strip "is supposed to
-look like a chrome tab view, in that case that one should be left
-justified," and asked whether having one view left-justified and the other
-right-justified would be a problem. It is not, and the reason is worth
-recording: the two views have different *axes*. The ribbon's is time, so
-its right edge means "now"; the strip's is categorical (Chrome tab order),
-where a right edge means nothing and pinning to it hides the first/pinned
-tabs. That is the same reasoning that produced the 2026-08-22 fix
-(§7c) — right-pinning the strip was importing the ribbon's "show now"
-logic into an axis with no now. Gated on `heightMode === "tiered"`, matching
-`render()`'s scroll reset.
-
-**`windowScrollLeft` as a resting position was deleted, and the view got
-better.** `applyDefaultZoomWindow` used to solve the 12-block zoom *and*
-snap `scrollLeft` to that window's left edge. Under the right pin the snap
-is redundant — pinning right at that same zoom shows the same window — and
-strictly worse in the clamped case: when `ZOOM_MIN`/`ZOOM_MAX` prevents
-the exact solve, the left-edge snap could leave "now" off-screen to the
-right, whereas the pin always shows "now" and whatever fits behind it. The
-function survives as `applyDefaultZoomWindow`'s own probe; only its use as
-a resting position is gone.
-
-**`ZOOM_MAX` 8 -> 16, provisional.** Raised in the same session, on
-Scott's call ("let's just double it to 16 for now... this is part of my
-experiment to make sure that we get zoom working properly") after 24 was
-proposed. The reason a ceiling was being felt at all: at 8x
-(`BASE_PX_PER_SEC` 0.0375 -> 1080 px/hour) a 30-second visit renders ~9px,
-barely clear of `MIN_W`'s 8px floor — and right-pinned zoom made zooming
-in the primary way to inspect exactly those short visits. Note the floor
-also means low zoom is *not* linear in time; zooming in makes the layout
-more honestly proportional, not just bigger, so there is little reason to
-cap it early. Left at 16 to watch rather than 24, per the project's
-one-knob-at-a-time rule.
-
----
-
 ## Lightweight opinion + fallback: what licenses aggressive eviction (stated 2026-08-23)
 
 Context captured mid-Phase-2, while working on ribbon zoom, because it is
@@ -1438,262 +1349,6 @@ different retrieval guarantees — the system took the action, so it owes a
 stronger one back. The data model has no such flag today. Not to be solved
 now, but Phase 3's design should decide it deliberately rather than
 inherit "indistinguishable" by default.
-
----
-
-## Cross-day: the feared bug wasn't there, the real one was elsewhere (2026-08-23)
-
-**Scott's stated worry, checked first, and it was unfounded:** "I believe a
-lot of your math and positioning is based entirely on time, not date and
-time... when we cross into the next day, we're going to be getting the
-meetings all mixed up. They won't know that a 9am yesterday is
-significantly earlier than a 9am today."
-
-Reading `layout()` settled it: every position comes from arithmetic on
-absolute epoch milliseconds (`(nextStart - prevEnd) / HOUR * GAP_HOUR_PX`),
-never from clock fields. Two 9am timestamps a day apart differ by
-86,400,000ms and lay out 24 hours apart with no day concept involved. The
-sole clock-relative call is `msPastHour()`, for whole-hour tick labels,
-which is correct. **The layout engine has always been multi-day capable; it
-drew single days only because `parseSessions` fed it one.** Worth recording
-because it inverts the expected difficulty: cross-day is a data-windowing
-change, not a geometry rewrite.
-
-**The real problem was the overnight gap.** §6's honest absence-proportional
-gaps work beautifully within a day and fail at the day scale, because a
-night is not the same *kind* of absence as a coffee break. At
-`GAP_HOUR_PX`, 8-10 hours of sleep is thousands of pixels of blank ribbon;
-zooming out to reach yesterday would mean zooming out *through* a vast
-empty corridor until yesterday finally crawled in, tiny. Precisely the
-tedium `eviction-fallback-tedium` warns about.
-
-Three options were put up: (A) fixed-width divider, (B) non-linear/log gap
-compression, (C) honest geometry plus a jump-navigation affordance so the
-corridor exists but is never traversed. **A was chosen** (Scott: agreed,
-"especially if that fixed block can contain some vertical text that says
-Sunday or Monday"). B was rejected as making the axis genuinely unreadable
-— two gap scales already exist (§6), a third with meaningless hour ticks
-inside compressed regions is too much. C is a reasonable complement but
-weak alone. A's decisive property is O(1) px per additional day, which is
-what makes zoom-out actually reach content.
-
-**Rotated day labels, accepted deliberately.** Normally avoided; fine here
-because the labels are short, fixed, and repetitive, and the vertical rule
-reads as a clean day separator rather than as text to be read carefully.
-
-**Night-owl boundary: the clean answer exists, and was deliberately not
-built.** Scott raised it directly — someone working 6pm-2am has a different
-"night," and a hard midnight break would slice through active work. The
-clean solution separates two things a single rule was conflating: the
-*label* boundary is midnight by definition (a divider labeled "Monday"
-would be lying if 1am Monday blocks sat on the Sunday side), while the
-*visual* break should land in whatever stretch is actually quiet. So:
-collapse any gap over a threshold (~3h), and attach the day label to the
-first block after midnight. A night owl then gets no divider at midnight
-(no long gap there) and one at their real 2am-10am gap; a long afternoon
-absence compresses the same way, which is honest. Consequence, judged
-acceptable and arguably correct: day labels can appear mid-stream rather
-than only at dividers — that is what actually happened. Not built because
-midnight is right for Scott's real usage, the simple version is ~10 lines,
-and both versions are just "how wide is this gap and what is drawn in it,"
-so the upgrade is local. Tracked as `night-break-midnight`.
-
-## Scroll anchoring: right-relative, and it subsumes the §7d pin (2026-08-23)
-
-**The prepend problem.** Scott's initial model: "when you're zooming,
-you've got a concept of an X location... if we store an X location based on
-today's time and date, loading additional information should not cause a
-glitch." Right in spirit, wrong about the mechanism as written —
-`scrollLeft` is measured from the *document's left edge*, so prepending a
-day invalidates it by exactly the width inserted. This is the classic
-scroll-upward prepend jump. Worse here than a constant shift, since
-`layout()` walks left-to-right accumulating a cursor: prepending yesterday
-re-runs the whole walk and today's blocks land at entirely new x values.
-
-**First proposal (mine) was over-engineered: a timestamp anchor.** Read the
-viewport edge as a time, load, convert that time back to a new x, restore.
-Correct, but it needs a time<->x conversion in both directions and is only
-exact at block edges (inside a `MIN_W`-floored block, time is not linear in
-x at all).
-
-**Scott's correction, which is better:** "if the constant of scrolling is
-leftmost... what would happen if we just switched the logic to be rightmost
-because that is fixed. There is no further right than now." Exactly right,
-with one wrinkle: there is no `scrollRight` property to switch to, so the
-"switch" is storing a right-relative number ourselves and deriving
-`scrollLeft` from it — `fromRight = scrollWidth - clientWidth - scrollLeft`,
-inverted after the load. Every pixel right of an insertion keeps its
-distance from the right edge, so `fromRight` survives a prepend untouched.
-Two lines, no conversions, no block-edge inexactness.
-
-**And it subsumes §7d.** `fromRight === 0` *is* the resting right pin, so
-the rest position and the preserved-anchor position become one expression
-instead of two mechanisms that have to agree. One concept covers both.
-
-**Its one precondition:** `fromRight` is a pixel distance, so it is stable
-only while pixels-per-time is stable — i.e. while zoom does not change
-across the load. That is already the rule ("loading a day never changes
-zoom"), so the precondition is satisfied by construction; noted here
-because a future change that re-zoomed on load would silently break it.
-
----
-
-## Fence retirement re-tested against cross-day zoom, and it holds (2026-08-23)
-
-Cross-day zoom-out hit a hard wall at ~3 days, and the obvious candidate fix
-was to un-retire fences in the overlay (§7c retired them entirely, gated on
-`anchorMode !== "right"`). Both of us reached for it independently; Scott
-added the right caution: "we should do some calculations to make sure that
-adding the fences back in will make a meaningful difference... I'm worried
-that the overall effect is going to be quite small." **Measured with a
-temporary what-if in the debug hook — laying the same events out with
-fencing forced on — and the worry was correct. Rejected on data.**
-
-**The wall itself, first.** At `zoom` 0.25 (`atZoomMin: true`) with 3 days
-loaded: 217 blocks, 188 of them (87%) pinned at exactly `MIN_W` = 8px, and
-floored blocks were 87% of total width. Gaps were down to 94px across three
-whole days. So zoom-out had nothing left to compress — it only scales
-`PX_PER_SEC`/`GAP_HOUR_PX`, and gaps were already gone. Lowering `ZOOM_MIN`
-further would have moved 2947px to roughly 2900px. The real ceiling is
-arithmetic: `viewport / MIN_W` ≈ 1721/8 ≈ **215 blocks, ever**, at any zoom.
-
-**What fencing would actually buy:** 616px saved, 21% — and the number that
-matters, days visible on screen, goes from **1.75 to 2.21**. Half a day.
-
-**Why so little, and this is the generalizable part:** fences collapse
-*consecutive runs* of LOW blocks, so the saving is driven by run LENGTH, not
-by how many LOW blocks exist. 50 fences swallowed 111 blocks — **average run
-length 2.2.** This user's LOW blocks are scattered, interleaved with
-MEDIUM/HIGH, not clustered into long grazing stretches. Collapsing two 8px
-blocks into two 3px sticks saves ~10px per fence; 50 of those is noise.
-
-**And the trade is worse than the number suggests.** It would make 111
-blocks require hover-to-expand — strictly harder to find — to gain 0.46 days
-of reach. Measured directly against `eviction-fallback-tedium`'s bar ("a
-low-scored sliver stays findable without already knowing when it happened"),
-that is a net loss. §7c's retirement stands, now on evidence from the
-situation most likely to overturn it rather than on the card-view analogy it
-was originally argued from.
-
-**The finding this leaves open.** 86% of ribbon width is spent on blocks the
-scoring model itself rates lowest, because every block claims `MIN_W`
-regardless of importance. Fences are the wrong lever for that (they need
-runs); the honest lever is importance-proportional floors or true
-aggregation at low zoom — not designed here, deliberately, since the same
-evidence standard should apply to whatever replaces it. Tracked as
-`zoom-out-block-floor`.
-
----
-
-## Band floor ladders: three attempts to reclaim zoom-out width (2026-08-23)
-
-Follows directly from "Fence retirement re-tested" above, which established
-that `MIN_W` (not `ZOOM_MIN`) capped cross-day reach at ~3 days, and that
-fences were the wrong lever. Three successive cuts, each corrected by
-measurement rather than argument — worth recording in order, because the
-first two both *looked* right and both quietly did nothing.
-
-**Attempt 1: shrink LOW's floor on a zoom ladder (8-4-2-1).** Scott's idea,
-and it fixed the mechanism fences couldn't: shrinking has no adjacency
-requirement, so scattered LOW blocks (the 2.2-average-run problem) all pay
-off. Framing that made it work: the intermediate rungs are **transition
-frames, not states** — "we either settle on the one pixel solution or the
-zero pixel solution, and we use the four and the two as intermediaries to
-make it look more natural." That killed the discrete-vs-continuous question
-and the hysteresis worry in one move, since nothing has to be *useful* at
-4px, only on its way somewhere. Hover drops below `MIN_W` (`.inert`): a
-1-4px hover target is worse than none — the user tries, misses, and reads
-the UI as broken.
-
-Result: worked, 2947px -> 2218px. But a bug caught in review first — the
-step lookup returned the FIRST matching rung, so the ladder never descended
-past 4px. Ordering the table most-zoomed-out-first fixed it; verified
-against a printed zoom/floor table rather than by reading.
-
-**Attempt 2: same ladder for MEDIUM, offset.** Scott predicted MEDIUM would
-now dominate, and the measurement confirmed it: at 3 days/zoom 0.25, MEDIUM
-held **722px from just 69 blocks (60 of them floored)** — more width than
-129 LOW blocks took (606px). Holding MEDIUM at `MIN_W` was the remaining
-cap. Both bands got the same 8-5-3-0 shape (Scott's call — "I would have
-the low and the medium ladders be exactly the same"), offset so LOW
-finishes before MEDIUM starts. **The offset is what makes vanishing
-legible**: the user watches LOW fade out first and learns the rule, so
-MEDIUM following later reads as "zoomed out past the small stuff" rather
-than "my data is missing." Two bands vanishing together would be a cliff.
-
-**Attempt 3, the actual fix: zero must mean DROPPED, not unfloored.** Both
-ladders reached a 0 floor and the ribbon still showed 224 blocks. The
-diagnostic caught why in one field: **`lowAtFloor: 0` of 131** — not a
-single LOW block was resting on the floor any more. `widthOf` takes
-`max(floor, realWidth)`, so once the floor hit 0 every block simply rendered
-at its honest duration width and the ladder stopped doing anything at all.
-A floor can only remove padding; it can never remove real data. The fix was
-to make the last rung a genuine filter, applied at `layout()`'s entry so
-dropped blocks consume no width and neighbouring gaps close over them.
-
-Scott's reasoning for dropping duration rather than preserving it: "duration
-is a signal, but it's not that important a signal, especially at low,
-because a longer low is an odd thing." Correct — at six days' range, a long
-LOW visit is an oddity, not something worth width.
-
-**Known and accepted: the last rung is a cliff.** Scott predicted it before
-it shipped ("it may feel like a large jump") and the numbers agree — 131
-LOW blocks vanish on one tick, 70 MEDIUM on another, while the 8-5-3 rungs
-before them shift a 4px block to 3px. A progressive duration-based filter
-across those rungs was designed and deliberately NOT built: the simple
-version shipped first to be judged by use, since the cliff lands at an
-explicit "show me only what mattered" gesture rather than somewhere a user
-drifts into.
-
-**Outcome: 6 days of reach** (from 3 with cross-day alone, ~1.75 before it).
-Scott: "I can see multiple days, I can now see the important events... the
-zooming seems to be reasonable." All thresholds provisional, pending use.
-
----
-
-## OPEN_TAB_MIN_W retired: a geometric answer to a visual question (2026-08-23)
-
-Found by Scott immediately after the band ladders shipped, from a screenshot
-of the five rightmost blocks: "their durations are all ridiculously short,
-like on the order of just a few minutes, and yet they're all equally wide.
-There's something weird going on there and it's affecting how much data we
-can show on the screen when we zoom out."
-
-**Diagnosis.** Those five were his open tabs, and `widthOf` floored every
-`isOpenTab` seg at `OPEN_TAB_MIN_W` = 96px — twelve times closed history's
-`MIN_W`. All five sat ON that floor, so their real durations never showed
-and they rendered identically. The check also ran FIRST and unconditionally,
-before the band ladder and with no zoom awareness at all.
-
-**Why it mattered more after §7e than before.** The floor was added
-2026-08-22 for a real reason (a just-opened tab has `durMs` near zero and at
-8px is an unreadable sliver where a favicon+label belongs), and while the
-ribbon only ever showed one day it cost little. Once zoom-out became the
-main way to reach history, five blocks claiming 480px sat exactly where
-width was scarcest — actively fighting the band ladders that had just been
-built to reclaim it. Worse in combination with the drop-exemption open tabs
-correctly have: the blocks *least* relevant to a multi-day time question got
-the *most* width at the zoom where width was most contested.
-
-**Fix: delete the floor, keep the exemption.** Open tabs take ordinary
-`MIN_W` and show honest duration like everything else; they are still never
-dropped by the band filter, because a tab reachable right now should stay
-visible whatever it scored. Visibility and width are separable, and
-conflating them was the mistake.
-
-**The generalizable point, and Scott's own framing of the fix:** "it can be
-solved in a different way — likely highlighting the block in a way that
-implies that it is open." Marking a block as open is a VISUAL job, not a
-geometric one. Geometry on this ribbon means time; spending it on identity
-corrupts the axis. The `.open-tab` class already exists in `paint()` as the
-hook, and the replacement treatment is deliberately left undesigned — it is
-tied to the pending strip→ribbon animation rework, which Scott flagged in
-the same message as the direction he wants to take open-tab visibility.
-
-Considered and rejected: making `OPEN_TAB_MIN_W` itself zoom-dependent
-(decay toward `MIN_W` as labels stop being legible). It would have worked,
-but it keeps a special case and adds a second ladder to reason about, to
-preserve a cue that was the wrong mechanism in the first place.
 
 ---
 
@@ -1925,267 +1580,6 @@ running underneath it.
 
 ---
 
-## Building the ribbon's coordinate system (2026-08-23)
-
-Zoom anchoring drifted badly when zoomed out and behaved fine when zoomed in.
-Chasing that surfaced a missing abstraction rather than a bug, and Scott made
-the call to fix it properly: "I find the tendency to code this way almost
-always ends up going towards shortcuts... the deeper full rewrites, especially
-if they solve the deeper problem, seem to bear fruit in the future."
-
-**The missing thing:** nothing could answer "where on screen is time T."
-Ribbon X is not linear in time — floored widths, a separate gap scale, day
-dividers, band drops — so every caller that needed the answer improvised.
-`applyZoom` used a width FRACTION as a proxy (the drift), `windowScrollLeft`
-scanned segs, `hourMarks` carried its own interpolation, and
-`applyDefaultZoomWindow` ran `layout()` twice as a probe. `layout()` had all
-the information and was handing back none of it.
-
-`axisOf` now returns `timeToX`/`xToTime` from the spans `layout()` just
-produced; four call sites migrated to it.
-
-**Why the fraction proxy failed exactly where it did:** at low zoom ~87% of
-blocks sit on their floors and do not scale at all, so the ribbon deforms
-rather than scaling. Zoomed in, most blocks clear their floors and scaling is
-roughly uniform again — hence "erratic far out, fine close in."
-
-**Three follow-on bugs, each a consequence of the same root:**
-
-1. **Stale `scrollWidth`.** `paint()` wrote `style.width`, `applyZoom`
-   immediately read `scrollWidth`, and Chrome had not flushed layout — so the
-   zoom math sized a target for the previous frame's ribbon. Measured
-   specimen: `total=74517` while `scrollWidth` still reported `90909`, leaving
-   content 13669px short of the right edge, corrected on the next tick. That
-   is the "jump then snap back" symptom, and the staleness magnitude tracked
-   the visual jump exactly. Fixed by never reading the DOM back — we set the
-   width, so our own number is authoritative.
-
-2. **A guard that became wrong.** `applyZoom` skipped its positioning whenever
-   a day loaded mid-relayout, deferring to `applyFromRight`. Correct when the
-   anchor was a fraction (prepending invalidates it); wrong once it was a
-   timestamp (prepending does not change when an instant occurred). The guard
-   silently swapped the time anchor for an edge-relative one on every day
-   load — which is exactly the jump Scott isolated to "when we add the second
-   day, then the third." Worth noting as a class: the guard was right when
-   written and quietly became a bug when the thing it guarded was replaced.
-
-3. **Holes collapsing to a point.** `timeToX` clamped any time with no drawn
-   geometry to the previous span's right edge, so a whole band-dropped range
-   mapped to one pixel and the anchor snapped when a threshold was crossed.
-   Fixed by interpolating across holes, restoring monotonicity.
-
-**The right-pin had to yield.** Scott: "even when we zoom out and see more and
-more stuff, we should also be anchoring the zoom effect around the current
-block even if it moves the right edge into the window and leaves a gap." The
-pin answers "where is now?" (a rest-state question); the anchor answers "what
-am I looking at?" (an active-gesture question). The active gesture wins, and
-the pin returns at rest. This also prepares for panning, where "the right edge
-is always now" was going to break regardless.
-
-**The trailing pad was the non-obvious part.** After the anchor was allowed to
-outrank the pin, zoom-out still felt pinned. Cause: the platform clamps
-`scrollLeft` to `scrollWidth - clientWidth`, zoom-out shrinks that range, and
-the clamped target *is* the right pin. A first attempt at enlarging the LEFT
-pad was checked numerically and made it worse — it grows the needed and the
-available scroll equally. Only trailing space extends the range without moving
-content; with it the anchor holds exactly across the whole overflow range.
-
-## Panning: edge-proximity pump, and the window stops being visible (2026-08-24)
-
-Designed and built the same day. Recorded because the reasoning that settled
-it will not be recoverable from the code.
-
-**Starting constraint, from Scott: no targetable scroll affordances.** No
-arrows, no visible scrollbar, no drag handle. What existed was two weak
-paths, neither adequate: the wheel handler's `wrap.scrollLeft += ev.deltaX`
-(trackpad horizontal only — a mouse emits no `deltaX`, so with a mouse there
-was no way to pan at all) and `#ribbon-wrap`'s native `overflow-x: auto` with
-the scrollbar hidden in CSS.
-
-**Three zones lost to a continuous ramp.** The first sketch was Scott's: a
-50% dead zone, a slow band, then a fast band at the outer 10%. Rejected on
-one argument — crossing a zone boundary is a step change in speed, felt as a
-jerk, and there is nothing meaningful at that boundary to justify it. The
-dead-zone edge is different: it is felt as motion starting, which is a real
-event. So one threshold survives and the rest becomes a curve. Scott agreed
-immediately and restated it better than the proposal did ("increment from one
-to two to three to four pixels gradually"). The curve exponent recovers the
-original intent — a high exponent IS "slow across most of the band, fast only
-at the very edge," expressed as a knob instead of a cliff.
-
-**Rate had to leave pixel-space.** A px/frame rate means one edge-hover
-crawls at 16x and tears across days at 0.25x, which contradicts the whole
-motivation ("as I zoom out and more days are shown, moving in that direction
-exposes them"). Viewport-widths per second is zoom-invariant and self-scaling.
-Scott arrived at the same place independently and drew the further conclusion
-that since rate depends only on viewport size, a load cannot perturb it.
-
-**Where that conclusion needed one correction.** Rate immunity is real, but
-the jump would never have come from the rate — it comes from the coordinate
-system the rate is applied TO. `scrollLeft` is measured from the content's
-left edge, so a prepend shifts every pixel right while the scroll value
-stands still. Two separate facts, both true.
-
-**Which led to the actual insight, and it was Scott's.** He connected it back
-to §7g: the zoom refactor from width-fraction to timestamp was "a much more
-mature definition of where the block is relative to everything else," and
-scrolling is the same problem wanting the same answer — "a good
-content-invariant way to discuss how to scroll the existing content."
-
-That reframe is what makes §7h coherent rather than a pile of compensations.
-Both gestures need to answer "where should the viewport be." Both were
-answering in a coordinate system unstable under what happens mid-gesture:
-zoom used width-fraction (broken by the ribbon deforming rather than
-scaling), pan would use `scrollLeft` (broken by prepends moving the origin).
-Same class of error, same fix — name the position in time, convert to pixels
-only when writing to the DOM. It also means `axis` becomes what §7g's title
-already claimed it was: the ribbon's coordinate system, with both gestures as
-clients, rather than a helper the zoom anchor happened to need.
-
-An honest note on what this does and does not buy: it does NOT make prepend
-compensation disappear. Something must always re-express position after a
-prepend; the question is only whether that something is `fromRight` or
-`axis`. `axis` is the better carrier — `fromRight` is invariant only under a
-pure left-prepend at constant zoom (its own comment says so), while a
-timestamp additionally survives zoom changes and §7e band thresholds crossing
-mid-motion, which move every pixel without moving any time. That matters
-concretely for a diagonal trackpad gesture, which the wheel handler already
-decomposes into zoom and pan simultaneously.
-
-**Reversing §7e's rejection of a scroll-position load trigger.** §7e rejected
-the infinite-scroll pattern because the signal is undefined in the underflow
-regime (`scrollLeft` pinned at 0, trigger can never re-fire). That specific
-objection does not survive panning — panning only exists in the overflow
-regime. But the real argument was Scott's, and it is a UX correction rather
-than a technical one:
-
-> "If we had an infinitely large computer with infinite memory, we would
-> always load all seven days of data and get rid of this. It is entirely an
-> efficiency trick... exposing to the user the fact that they need to zoom in
-> order to see more is a bad UX design."
-
-That is right, and it reclassifies the earlier rule. "Zoom is how you reach
-history" was never a design stance — it was a rationalization of a loading
-strategy that happened to be the only thing changing capacity. The window is
-an implementation detail that had leaked into the interaction model.
-
-**The fighting concern, and why it mostly dissolves.** The stated worry was
-zoom and pan contending. They do not contend for INPUT (wheel vs. cursor
-position, as Scott noted) — they contend for scroll position during a
-prepend, and only there. Two disciplines settle it: the pump is stateless
-with respect to pixel position (read fresh, add one frame's delta, write —
-so a load landing between frames is inherited, not fought), and loading stays
-in `paint()` behind its existing one-day-per-relayout throttle, triggered by
-a condition neither gesture knows about. Sustained fast panning can therefore
-pull several days in a few seconds; that is what the user asked for, and
-`MAX_WINDOW_DAYS` is the real backstop.
-
-**Deliberately not bundled: retiring `fromRight`.** Once the axis carries the
-moving position, `fromRight` is a pixel-currency holdover doing a job the
-axis does better. Retiring it touches `render()`, `applyFromRight()`, the
-scroll listener and §7d's right pin — real surgery on working code, for a
-gain that is coherence rather than behaviour. It stays the rest anchor, with
-handoff at pump start/stop mirroring `applyZoom`'s existing
-`captureFromRight()`. Revisit once panning has proven itself.
-
-**Two things the design missed, found in the build.** Both are the same
-mistake in different clothes: treating a resting state and a gesture as if
-they were the same situation.
-
-The proximity load arm, written exactly as designed, pulls all seven days the
-instant the ribbon first paints. `scrollLeft` is 0 at rest on every fresh
-render, so "within `LOAD_MARGIN_PX` of the left end" is trivially true before
-the user has touched anything — the arm defeats the window it exists to make
-invisible. Gating it on a pan actually being in progress is the fix, and the
-sharper statement of the rule: proximity is a claim about a gesture, not
-about a position. It also has to be asked from the pump, not only from
-`paint()` — `paint()` runs on renders, and panning triggers none.
-
-`applyFromRight` needed the same treatment: skip it during a pan, as it is
-already skipped during a zoom. Not just for the wasted work — a mid-pan load
-is precisely where `fromRight`'s "valid only at constant zoom" caveat is
-least safe, and the pump's next frame will place the instant correctly from
-the rebuilt axis regardless. That the fix was a one-word extension of an
-existing guard (`!pendingAnchor && !panning`) is a small sign the §7g/§7h
-framing is the right one: pan slotted into the place zoom had already made.
-
-**A third default-window regression, found by testing (2026-08-24).** On
-expand the ribbon showed far more than `DEFAULT_WINDOW_BLOCKS`. Cause: the
-one-shot `defaultZoomApplied` gate is spent by the first solve, but a day
-loading immediately afterwards (capacity arm, and now much more readily the
-proximity arm) prepends events that then render at a zoom solved for the
-smaller set. The gate had nothing to say about its premise changing.
-
-Worth noting the shape, since this is the third time: 2026-08-22's two bugs
-were both "the gate fired too early." This one is "the gate correctly refused
-to fire again, when it should have." A one-shot is a claim that the answer
-cannot change; that claim was true when the event set was fixed at one day,
-and §7e/§7h made it false. The fix re-arms at the load site rather than
-loosening the gate, which keeps "ordinary data ticks never re-solve" intact —
-the property the one-shot existed for in the first place.
-
-The `userAdjusted` flag it is conditioned on is also the cleaner statement of
-what the one-shot was always reaching for: not "solve once" but "solve until
-the user takes over." Panning sets it only once it has actually moved
-something, so resting a cursor in an outer band against a wall — where the
-rate is non-zero but nothing moves — does not count as taking over.
-
-**The vibration, diagnosed wrong once and then properly (2026-08-24).**
-Reported from use: zoomed out, panning right, the ribbon shakes between two
-positions a pixel or two apart instead of settling at the edge.
-
-**First diagnosis, wrong.** Blamed the CLAMP — a clamped frame re-deriving
-panT from a position `xToTime` cannot faithfully reproduce inside a floored
-block. Plausible, and it did remove one feedback path, but not the bug. The
-second report killed it: same shake, now stuck an hour BEFORE "now" and
-breaking through after ~20 frames. Neither fits a clamp (not at the edge, and
-a hard clamp never breaks through).
-
-**The actual cause.** Scott's question cracked it — "it implies that it's
-trying to move but it can't, and so it snaps back." Motion was being
-generated and thrown away. Two losses compounding. `scrollLeft` is stored at INTEGER device-pixel
-resolution, so a fractional write is rounded and the remainder is simply
-gone. And the per-frame `timeToX -> +delta -> xToTime` round trip is lossy
-inside a floored block, where 8px can span 40 minutes — one pixel is minutes,
-so a sub-pixel discrepancy returns as a visibly different pixel. Because panT
-was derived from a position the platform had ALREADY rounded, the timestamp
-encoded a different pixel than the one the delta was added to, and a frame
-could land behind where it started.
-
-Measured, which settled it: at 20px/sec, handing the fraction to the platform
-moves 0px in two seconds — every frame's 0.33px rounded away — against 40px
-when the fraction is banked. That is "trying to move but can't" exactly, and
-it explains breaking through after ~20 frames: near a floored block the
-effective delta collapses to sub-pixel until enough accumulates to escape.
-
-**Chose the accumulator over the round-up.** Scott's round-up (force >= 1px
-per frame) would also break the loop, and was offered as the fallback. The
-accumulator was preferred because it costs nothing in fidelity: round-up puts
-a speed floor under the gentle end of the ramp (77px/sec becomes at least
-60px/sec), while banking the fraction reproduces every rate exactly. It also
-removes the platform's rounding from the loop rather than out-muscling it.
-
-**And the "stateless" discipline was overapplied.** The original design said
-the pump must be stateless with respect to pixel position, re-deriving from
-the timestamp every frame so a load landing mid-gesture is inherited rather
-than fought. The robustness goal was right; paying a lossy conversion 60
-times a second to get it was not. Consulting the timestamp only when the
-geometry ACTUALLY changed — comparing paint()'s own recorded total and pads
-against the last frame's — buys the identical property at none of the cost.
-A good reminder that "recompute from the invariant every time" is a
-correctness strategy with a precision bill attached, and the bill comes due
-wherever the mapping is compressive.
-
-**The wall latch, kept from the wrong fix.** Stopping the pump at a wall only
-converts a 60fps shake into a jitter-frequency one: `pointermove` re-arms on
-any hand movement and walks straight back into the same wall. The latch
-(`panWall`) makes "against this wall" a state that outlives the gesture, so
-re-arming demands a real change — the other direction, the dead zone, or the
-wall moving. Zoom clears it explicitly, being exactly the event that turns a
-wall back into open road. Both the stop and the latch predate the real
-vibration fix and were kept: not running a rAF loop against an edge is right
-regardless of what caused the shake.
-
 ## Strip visual pass (2026-08-24)
 
 Prompted by an outside agent's redesign proposal for the strip. Most of it
@@ -2255,51 +1649,66 @@ should not be broadcast.** Broadcasting it turns one user action into N
 repaints and creates a resync problem that then needs its own machinery
 (debouncing, visibility gating) to manage.
 
-## Hover suppression was keyed to cursor POSITION, not motion (2026-08-25)
+## Closing entry: what the exploration returned (2026-08-25)
 
-`startPan()` raised `.panning` — which the `pointerover` handler
-early-returns on — the moment the cursor entered the ramp, so hover died
-across the outer quarter of the viewport whether or not anything moved, and
-worst at the right-wall rest position where the pump clamps without
-travelling. Reported as "hover sometimes fires": no per-block pattern
-because the state was never about blocks. Now gated on a frame moving whole
-pixels, the same evidence bar the wall latch uses. The JS `panning` flag
-(loading's proximity arm) was left on intent — see the entry below, which
-finished the job.
+This log stops accumulating here. The Active Tab Manager was an exploration
+of one question — *what does it mean for tabs to transition into a ribbon
+view* — and it has an answer. Successor log: `decisions/parkinglot.md`.
 
-Resolves `pan-hover-suppression`'s core complaint, but not via its proposed
-rate floor: the bug was that NOT panning counted as panning. Rate floor
-stays open for real slow pans.
+**The result is negative, and that is a real result.** Tabs do not transition
+into history, because half of them were never history. The tab bar holds a
+working set (genuinely the ribbon's leading edge), standing tabs (a user
+declaration telemetry cannot infer), and open loops (near-zero attention by
+construction). Only the first is what the ribbon shows. Full reasoning:
+`decisions/parkinglot.md`, "Origin".
 
-Found in the same pass: `.inert` (§7e) never worked — `paint()`'s inline
-`pointer-events: auto` beats any stylesheet rule, so every sub-`MIN_W`
-sliver stayed hoverable since it shipped. The floating quick label retires
-in the overlay as redundant with §7b's `.blk-label`, scoped by `anchorMode`
-so the standalone dashboard (still running `.rtitle`) keeps it.
+**This log had already recorded the evidence three times without naming it.**
+§7c's strip had to bypass the day-filtered ribbon pipeline entirely; the
+pinned-tab carve-out was written as an exemption from eviction when it is
+really an exemption from the attention model; and "Pending: strip -> ribbon
+animation rework" recorded the animation dying because the two orderings do
+not correspond. Each was read as a local problem. They were one fact.
 
-### First turn of the dead-zone knob (2026-08-25)
+**What died, and how.** Not by being fixed:
+* The injected strip surface, and with it three watch items that were
+  structural properties of content-script injection —
+  `switcher-fixed-root-overlap`, `switcher-navigation-flash`,
+  `switcher-phase1-rough-edges`. Deleted from `WATCHLIST.md`, not carried
+  forward.
+* The strip→ribbon animation rework (flagged twice, never designed) and
+  §7f's pending open-block visual treatment, which was that rework's second
+  job.
+* **Phase 3 (score-ranked eviction) — retired, not deferred.** A read-later
+  tab has zero attention and maximal intent, so "close the lowest score"
+  targets the most deliberately-opened tabs first. An inverted signal, not a
+  tuning gap.
+* **Phase 4 (active→historical reconciliation) — dissolved.** It asked
+  whether closing a tab should make it join an existing container. Under §8
+  the question does not arise: a parked tab was never attended, so there is
+  nothing to reconcile, and a user-closed tab already folds into history
+  correctly.
 
-`PAN_DEAD_FRAC` 0.5 → 0.667 — panning fired while still reading. First
-possible play-test of this knob: resting in the ramp used to cost you hover,
-so its width had never been judged. Curve and max rate untouched —
-`panRateFor` renormalizes the band, so a narrower ramp reaches the same top
-speed over a shorter distance. If it now feels too steep, `PAN_CURVE` is the
-next knob.
+**What survives, and where it goes.** Everything from §7c to §7h that is
+about the *ribbon* rather than the strip — right-anchored zoom, cross-day
+loading with day dividers and band ladders, the `timeToX`/`xToTime`
+coordinate system, edge-proximity panning, the default-window solve. This is
+the project's current ribbon behaviour and it moves to the dashboard in §8
+Phase 1. Its watch items moved to `WATCHLIST.md`'s Display section under
+"Ribbon navigation".
 
-## The same correction, one flag late: proximity loading (2026-08-25)
+**The premise that framed this whole file is superseded.** "Ribbon quality
+gates eviction" (see "The product goal, stated plainly" and "Lightweight
+opinion + fallback") assumed the ribbon was the recovery path for every
+closed tab. §8 splits the population: open loops recover through the parking
+lot, and only genuinely-visited pages recover through history. The safety
+argument is unchanged in shape — opinionated by default, recoverable by
+design — but it now rests on two surfaces instead of one, which is what makes
+aggressive closing shippable at all. `eviction-fallback-tedium` was narrowed
+accordingly; `parkinglot-recovery-trust` carries the blocking half.
 
-Entering the ribbon from the open button snapped the view to a much wider
-zoom. `startPan` sets `panning` the instant the cursor lands outside the dead
-zone, before any motion; the proximity arm read that, loaded a day, re-armed
-`defaultZoomApplied`, and re-solved the default 12-block window against the
-larger set.
-
-The entry above moved hover suppression to motion-ownership the same day but
-left this flag on cursor position, so §7h's stated contract — "proximity is a
-claim about a gesture, not a position" — was still false for the arm it was
-written about. Now a separate `pannedMoved`, set in `markPanningMoved` (the
-existing first-whole-pixel hook), cleared in `stopPan`.
-
-`panning` survives for its other reader, the render-time pin skip, which
-genuinely wants "pump running", not "pump moved". The capacity arm is
-untouched: underflow still loads with no gesture at all.
+**Worth keeping from the four days.** The work between §7c and §7h was
+correct work on a wrong host. It was done under the belief that it was Phase
+3 groundwork — making history navigable enough to license eviction — and
+that belief is what produced a genuinely good ribbon. The ribbon is now the
+history product on its own terms, which is a better outcome than the
+subordinate role this file had planned for it.

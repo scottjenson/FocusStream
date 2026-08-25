@@ -44,47 +44,74 @@ Design philosophy, the boundary/thread taxonomy, atomicity guards, Score v1,
 tiers, containers, fences, the horizontal timeline, tooltips/snapshots, and
 the UI/UX directives — **`spec/display.md`**.
 
-## Where the product is going (status, 2026-08-25)
+## Where the product is going (status, 2026-08-25, revised same day)
 
-**The Active Tab Manager (§7) is the direction.** It is where new display
-work goes, and §7's "product goal, stated plainly" is the product.
+**The Parking Lot (§8) is the direction.** It supersedes the Active Tab
+Manager (§7) as the live-surface product. Earlier the same day this section
+named §7 as the direction; that was revised by the design session recorded in
+`decisions/parkinglot.md`, "Origin" — the injected tab strip was an
+exploration of "what does it mean for tabs to transition into a ribbon," and
+it returned a clear negative result: **they don't, because half of them were
+never history.**
 
-**The migration is NOT complete, and the card deck stays until it is.** The
-standalone dashboard still opens in the card view (`ribbonMode` defaults to
-`"cards"`, `dashboard/timeline.js`), and several card capabilities have no
-§7 equivalent yet — the below-deck hover text, the expanded-card info panel,
-the child carousel, riffle-on-hover. Card code is deliberately kept, not
-retired, until its behavior is carried over.
+The project is now **two products with one capture pipeline**:
+| product | tense | ordering | retrieval | where |
+|---|---|---|---|---|
+| **Ribbon** (§5–§6) | past — what you did | time | temporal | the dashboard tab |
+| **Parking lot** (§8) | future — what you meant to do | none | semantic (eventually) | the extension icon |
 
-So three display paths exist on purpose right now:
+Every §7 attempt to bridge them was joining a to-do list to a diary through
+a time axis only one of them has.
+
+**Two orthogonal tracks, one capture pipeline.** Neither gates the other;
+the only coupling is §8 Phase 1's handoff (remove the strip, flip the
+dashboard's defaults).
+| track | surface | spec | decisions | shape |
+|---|---|---|---|---|
+| **A — live** | extension icon, parking lot | §8 `spec/parkinglot.md` | `decisions/parkinglot.md` | phased (each gate licenses something destructive) |
+| **B — history** | the ribbon, in the dashboard | §5–§6 `spec/display.md` + §7c–§7h `spec/ribbon.md` | `decisions/timeline_design.md` | ongoing, unphased |
+
+`spec/tabmanager.md` (§7) is **closed** — historical strip content only. Its
+ribbon content was split out to `spec/ribbon.md` (§7c-ribbon–§7h) on
+2026-08-25, keeping the §7x numbering because ~85 code comments cite it; those
+rules fold into §6 later, as a follow-on to §8 Phase 1 rather than part of it.
+
+**Nothing about §8 is built yet** (all four phases unstarted). Until Phase 1
+lands, the three display paths below still exist exactly as they did:
 | path | status |
 |---|---|
-| §7 strip + ribbon (`switcher.js`) | the direction; new work goes here |
-| block ribbon (`paint()`, §6) | shared by the overlay and the dashboard's `"blocks"` mode |
-| card deck (`paintCards()`) | still the dashboard default; migrating out |
+| §7 strip + ribbon (`switcher.js`) | **retiring** — the strip goes in §8 Phase 1; the ribbon moves to the dashboard |
+| block ribbon (`paint()`, §6) | shared by the overlay and the dashboard's `"blocks"` mode; becomes the primary path |
+| card deck (`paintCards()`) | still the dashboard default; migration closed out in §8 Phase 1 |
 
 Card-view reasoning and stage outcomes: `decisions/card_deck.md`. Its
-display rules are NOT yet in §6 — a known gap, tracked in `WATCHLIST.md`
-as `card-view-unspecced`. Don't read §6 as a description of what the
-dashboard opens with; it isn't, yet.
+display rules are NOT in §6 — a known gap (`card-view-unspecced`) that §8
+Phase 1 resolves by retiring the view rather than speccing it. Don't read §6
+as a description of what the dashboard opens with; it isn't, yet.
 
-## 7. Active Tab Manager
-Live, on-page tab-switcher UI — a third pillar alongside capture and the
-historical ribbon, covering live display, interactivity, and (as later
-phases land) how an active tab's state folds into the historical container
-view — **`spec/tabmanager.md`**. Terms: **strip** (collapsed, Chrome-tab-
-bar-like), **ribbon** (expanded, full-history), **block** (one item in the
-list, either state). Phase roadmap and reasoning: `decisions/tabmanager.md`.
+## 7. Active Tab Manager — CLOSED
+The injected tab strip — **`spec/tabmanager.md`**, historical. Terms:
+**strip** (collapsed, Chrome-tab-bar-like), **block** (one item). Retired by
+§8 Phase 1. Phase 3 (score-ranked eviction) and Phase 4 (active→historical
+reconciliation) are retired outright, not deferred — see that file's status
+header.
 
-**Read this before judging any tab-manager trade-off.** The product goal is
-that the user *stops managing tabs*: the system closes them aggressively
-(Phase 3), and everything else exists to make that safe. So the dependency
-runs — auto-close is the product → it is only acceptable if retrieval is
-trustworthy → the ribbon is the retrieval mechanism → **ribbon quality gates
-the product.** Zoom, cross-day reach, and legibility at range are not
-visualization polish alongside eviction; they are what earns the right to
-ship it. The system is allowed to be *wrong* about importance, because
-browsing is always the fallback — which makes the failure mode to watch
-**tedium, not inaccuracy**. Full statement: `decisions/tabmanager.md`, "The
-product goal, stated plainly" and "Lightweight opinion + fallback"; the
-blocking watch item is `eviction-fallback-tedium`.
+## 7c–7h. Ribbon navigation (temporary file — drains into §6)
+Zoom, cross-day reach, the coordinate system, panning — **`spec/ribbon.md`**.
+Live, current ribbon behaviour (Track B), split out of `spec/tabmanager.md`
+2026-08-25. **Two known conflicts with §6** — overnight gap compression vs.
+absence-proportional gaps, and band-dropping at zoom-out vs. LOW blocks
+staying browsable — are real design work, tracked in `WATCHLIST.md`.
+
+**Target end state: one display spec and one display decision log.** Each
+conflict resolved moves content permanently into §6; when `spec/ribbon.md` is
+empty it is deleted along with `spec/tabmanager.md`, and the `§7x` code
+comments are renumbered in that pass. Do not merge earlier — the conflicts
+are the reason the files are separate, not an accident of filing.
+
+## 8. Parking Lot
+Tabs the user opened and never finished, displaced out of the tab bar into a
+count on the extension icon — **`spec/parkinglot.md`**. Retires the injected
+strip, moves the ribbon to the dashboard, and replaces §7's eviction model.
+Phase roadmap and reasoning: `decisions/parkinglot.md`. **All phases
+unstarted as of 2026-08-25.**
