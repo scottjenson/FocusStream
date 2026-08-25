@@ -1,13 +1,16 @@
 ---
-name: docreview
-description: Periodic audit of the project's md files for drift — layered corrections, fused bullets, misfiled content, stale facts. Use when the user asks to review or clean up the documentation, check whether the docs have drifted, or asks for a docs pass. Deletes and restructures; does not commit.
+name: docaudit
+description: Occasional deep audit of the whole doc corpus — layered corrections, fused bullets, misfiled content, stale facts, and resolved watch items that should have been deleted. Use when the user asks to audit or clean up the documentation, check whether the docs have drifted, or asks for a docs pass. Deletes and restructures; not for recording a session's work (that is /updatedocs). Does not commit.
 ---
 
-# Docreview
+# Docaudit
 
-Audit the documentation corpus for drift and fix it. This is the periodic
-counterpart to `/updatedocs`: that skill ADDS today's entry, this one fixes what
-accumulated entries have become. Do NOT commit.
+Audit the whole documentation corpus for drift and fix it.
+
+**Cadence is the difference.** `/updatedocs` runs at the end of every
+session and adds today's entry. This runs occasionally — weekly at most —
+reads everything, and deletes. If you are here because a session just ended,
+you want `/updatedocs` instead. Do NOT commit.
 
 ## Scope: looking for trouble, on purpose
 
@@ -26,7 +29,8 @@ of mine were caught only by running it.
 
 ## What drift looks like
 
-Three diseases, each with its own detector. They do not overlap, and a
+Four diseases plus an index check. Each has its own detector, except stale
+watch items, which must be read. They do not overlap, and a
 detector for one is silent on the others.
 
 ### 1. Layering (spec files)
@@ -78,6 +82,54 @@ while `spec/capture.md` had zero coverage of any of it.
 No detector; it surfaces during a split. When a split produces a group that
 doesn't match its file's job, MOVE it rather than reflowing it in place.
 
+### 4. Stale watch items (`WATCHLIST.md`)
+
+`WATCHLIST.md`'s own header says an entry is DELETED when it resolves —
+"struck-through corpses don't accumulate here." Nothing enforces that, and a
+resolved item rarely announces itself: someone fixes the underlying rule and
+never revisits the entry. The three drift detectors are blind to this, since
+a six-week-dead watch item has perfect formatting.
+
+**No detector — this one is READ, per entry.** It is the one part of a
+review that cannot be automated, which is why it must be scheduled instead.
+Each entry states a concern, a trigger specimen, and a planned response. For
+each, ask:
+
+* **Did the rule it doubts still exist?** A watch item on a retired rule is
+  dead. (`OPEN_TAB_MIN_W` was retired 2026-08-23; anything watching it went
+  with it.)
+* **Did the trigger fire and get fixed?** Check `git log` and the relevant
+  `decisions/` log for the specimen it names.
+* **Does it self-declare?** Grep `superseded|no longer applies|RESOLVED`.
+  Rare but free — `contained-child-visibility` sat marked "superseded
+  2026-08-07, no longer applies as stated" for 18 days.
+* **Has it aged past usefulness?** An entry whose specimen has not appeared
+  in six weeks of real use is a candidate for settled-by-silence — the file
+  has struck items on exactly that basis before. Age alone is not proof;
+  pair it with "the rule has been stable and nobody has hit it."
+
+**Resolving one:** record the lesson in the relevant `decisions/` log (or
+confirm it is already there), then DELETE the entry. Never strike it
+through. If an entry is partly resolved, rewrite it to the narrower doubt
+that remains rather than deleting — `pan-hover-suppression` was handled that
+way on 2026-08-25.
+
+**Do not delete on suspicion.** Unlike a duplicated paragraph, a watch item
+is the only record of a doubt; if you cannot confirm it resolved, say so in
+the report and leave it.
+
+### 5. Index drift
+
+`decisions/README.md` indexes the decision logs. Cheap to verify, and nobody
+else checks it:
+
+    ls decisions/*.md          # every log has an index row?
+    grep '^| `' decisions/README.md   # every row points at a real file?
+
+Also confirm it has not grown session entries — it describes FILES, not
+changes, and reinventing a changelog there is the failure `HISTORY.md`'s
+deletion was meant to prevent.
+
 ## Where not to look
 
 `decisions/*.md` is large but healthy — 42 sections averaging 54 lines, no
@@ -128,22 +180,27 @@ would have edited the wrong bullet.
 
 ## Steps
 
-1. **Run all three detectors** across `SPEC.md`, `spec/*.md`, `WATCHLIST.md`.
+1. **Run the automated detectors** (1-3, plus 5) across `SPEC.md`,
+   `spec/*.md`, `WATCHLIST.md`, `decisions/README.md`.
    Report the sites found, worst first, before changing anything. This report
    is a survey, not a work order — its line numbers go stale on the first
    edit.
-2. **Pick the worst one or two.** Do not attempt the whole corpus in a pass —
-   each site needs real reading, and a rushed deletion is the failure mode.
-3. **For each: re-run the fusion detector to re-locate the site**, then read
+2. **Read `WATCHLIST.md` end to end** (detector 4). It is short, nothing
+   else checks it, and it is the only file whose entries are supposed to be
+   deleted on resolution. Do this every pass, not just when a detector fires.
+3. **Pick the worst one or two** of the drift sites. Do not attempt the whole
+   corpus in a pass — each needs real reading, and a rushed deletion is the
+   failure mode.
+4. **For each: re-run the fusion detector to re-locate the site**, then read
    it fully and **classify** into one of the four outcomes.
-4. **Check `decisions/` per story.** Write any missing reasoning first.
-5. **Make the change**, then verify by identifier diff.
-6. **Check for stale facts while you are in there.** Layering goes stale:
+5. **Check `decisions/` per story.** Write any missing reasoning first.
+6. **Make the change**, then verify by identifier diff.
+7. **Check for stale facts while you are in there.** Layering goes stale:
    retrofits found five spec facts silently overtaken by a later section —
    old constant values, a retired function still named as current. A reader
    following any of them would have been wrong. This is the real cost of
    drift, more than length.
-7. **Report** sites fixed, sites deliberately left, and what remains.
+8. **Report** sites fixed, sites deliberately left, and what remains.
 
 ## Feeding back into `/updatedocs`
 

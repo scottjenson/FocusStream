@@ -1990,14 +1990,14 @@ timeline.js`, `dashboard/index.html`) — the initial design below, THEN
 what changed once it was actually tried against a real ribbon (see
 "Rejected: promoting the traveling card with z-index" and the two real
 bugs further down). Full build-facing detail and as-built summary lives
-in `plans/stack-ribbon.md` Stage 5 — this entry is the durable why, per
+in `decisions/card_deck.md` Stage 5 — this entry is the durable why, per
 the doc map (plan doc tracks staging status/open items; this file is the
 permanent reasoning archive with the rejected alternatives). Not yet
 folded into `spec/display.md` — awaiting Scott browsing real data in it,
 same gate every other card-deck stage in the plan doc has gone through.
 
 **Problem:** cards' current stagger (`CARD_STEP` vs. `CARD_STEP_LOW`,
-plans/stack-ribbon.md Stage 1) still reads as cramped. Scott wants ALL
+decisions/card_deck.md Stage 1) still reads as cramped. Scott wants ALL
 tiers packed at the tighter LOW pitch — more cramped at rest, not less —
 offset by a hover effect that opens room around the focused card. This
 picks back up the "dock-style magnify-on-hover" idea Stage 2 explicitly
@@ -2123,7 +2123,7 @@ corrections (see above); not yet felt against a full real day or folded
 into `spec/display.md`. Known still-open items — perf at real card
 counts, first-guess tuning constants (`CARD_GAP_MAX_PX`, `CARD_GAP_LIFT_PX`,
 `GAP_EXIT_MS`), and cardHoverText's dual code path outside an active gap
-— are tracked in `plans/stack-ribbon.md` Stage 5, which also carries the
+— are tracked in `decisions/card_deck.md` Stage 5, which also carries the
 fuller build-facing (function-by-function) detail this entry summarizes.
 
 ## Gap-card highlight + expanded-card exclusion (2026-08-15)
@@ -2274,3 +2274,136 @@ and the Gemini split shows it reaches beyond Meet; expect more splits as
 back-to-back-meeting days accumulate. Watch whether the URL-change
 condition stays sufficient, or whether pass one eventually wants the same
 "edge fragment" treatment the weak-bridge guard needed (2026-08-14).
+
+## The doc map needed a slot for "shipped but still on trial" (2026-08-25)
+
+Found by auditing whether the doc structure was working: the standalone
+dashboard's DEFAULT view had no spec. `ribbonMode` defaults to `"cards"`,
+but `spec/display.md` — the display rulebook — mentioned cards twice against
+26 for the block ribbon. The card rules lived only in
+`decisions/card_deck.md`, a staging doc CLAUDE.md's five-file map didn't
+list. An agent following CLAUDE.md's own instructions would conclude the
+dashboard shows a block ribbon. It doesn't, and hadn't for two weeks.
+
+The cause was a missing category, not sloppy filing. CLAUDE.md said a
+proposal is either adopted (folded into SPEC.md + decisions/) or abandoned
+(deleted). Stack-ribbon did neither: Stages 0-2 shipped and became the
+default while the larger question — does this replace the ribbon? — stayed
+open. "Adopted or abandoned" is not exhaustive.
+
+Scott's framing, which is the durable point: this project explores by
+building, so accumulating superseded approaches is the normal output, and
+"the goal of these documents is to help manage this process, not to
+eliminate it." A rule against the state would be a rule against how the
+project works.
+
+The first fix tried was a sixth file type — `plans/` documented as "live
+explorations." It was reverted the same day. Scott's question ("the decisions
+document is in many ways parallel to the plans document") exposed why: both
+files claimed to be the reasoning archive for the same subject, each pointing
+at the other for the durable "why". A category invented to accommodate a file
+that duplicated an existing one.
+
+What replaced it: `plans/` dissolved into `decisions/card_deck.md` and the
+directory was removed, back to five file types. Staging status lives with the
+subsystem that owns it — the precedent is the tab manager, whose phase
+roadmap sits inside `decisions/tabmanager.md` and has never needed a file of
+its own. The real guard is that SPEC.md must carry a status section whenever
+what ships and what is specced diverge; the divergence is the problem, not
+where the notes live.
+
+**Status set the same day (Scott):** the Active Tab Manager (§7) is the
+direction; the card deck stays until its capabilities are carried over
+(below-deck hover text, expanded-card info panel, child carousel,
+riffle-on-hover — none have a §7 equivalent). Migration in progress, which
+is itself the third state the old map lacked.
+
+## How an exploration should start (2026-08-25)
+
+Two explorations, one that aged well and one that did not, differ at the
+starting line in exactly one way.
+
+Tab manager (2026-08-21, `0cfa685`): first commit created four things —
+`spec/tabmanager.md` as a 43-line stub *before Phase 1 was built*,
+`decisions/tabmanager.md` with an Origin section, a SPEC.md pointer, a
+HISTORY.md line. Card deck (2026-08-11, `42fb9dd`): first commit created one
+file, `plans/stack-ribbon.md`, framed "experiment, prototype-stage (may be
+reverted)". No spec file was ever written.
+
+The spec stub is the load-bearing difference. Without one, rules have
+nowhere to land, so they accumulate in the conversation doc, so that doc
+becomes load-bearing and cannot be deleted when the experiment stalls — which
+is exactly how the dashboard's default view ended up unspecced for two weeks.
+"May be reverted" reads as appropriate humility and is the trap: a stub costs
+~40 lines and is cheap to delete, and skipping it is what makes an
+exploration hard to unwind.
+
+Captured as `/newfeature`, whose real content is the framing questions, not
+the scaffolding — a stub reading "TBD" would reproduce the card deck's
+problem exactly. The questions are taken from what the tab manager's Origin
+section actually captured: the prompt, what was rejected and why, phases as
+separate go/no-go decisions, what the first phase validates before anything
+risky is built on it, and what is explicitly undecided.
+
+## HISTORY.md deleted; the index survives it (2026-08-25)
+
+470 lines, 54 entries, against 116 commits saying the same things. Its
+stated job — "what shipped when, pointing at the SPEC.md rule and the
+decisions/ story" — is what `git log` does, and the honest test was
+behavioural: across a long session of real investigation (a hover bug, a doc
+audit, comparing two explorations) the file was consulted exactly once, to
+append to it. Every actual lookup went to `git log`, the code, or
+`decisions/`. A file whose only reader is its own upkeep is not earning 470
+lines.
+
+Three things in it were NOT in git and moved to `decisions/README.md`: the
+one-line-per-log index, the retired-log records, and the note that
+`plans/`-era docs were folded in. Two stale "current state" entries were
+deleted outright — `SPEC.md`'s status section and
+`decisions/tabmanager.md`'s "Phase status" already own that, and HISTORY's
+copy predated both.
+
+**The distinction that makes the index safe where the changelog was not:
+it describes FILES, not changes.** Upkeep is proportional to file count
+(five logs, changing perhaps six times in three months), not change count
+(116 commits). That is why `/updatedocs` no longer touches it at all,
+`/newfeature` owns adding a row when it creates a log, and `/docaudit`
+checks it for accuracy periodically. The failure mode to guard against is an
+agent "helpfully" appending session entries and reinventing HISTORY.md
+inside the index; all three skills say so explicitly.
+
+Accepted loss: a few dated entries synthesised across several commits in a
+way no single commit message did. Judged small (Scott) — the same reasoning
+lives in the `decisions/` logs at more depth.
+
+## WATCHLIST had no reviewer (2026-08-25)
+
+`WATCHLIST.md`'s header has always said an entry is deleted when it resolves
+— "struck-through corpses don't accumulate here" — and nothing ever checked.
+`/docaudit`'s three drift detectors are structurally blind to it: a watch
+item six weeks dead has perfect formatting and trips none of them.
+
+Confirmed by reading: `contained-child-visibility` carried "superseded
+2026-08-07 ... no longer applies as stated" for 18 days. Only two of 38
+entries self-declare at all, which is the real lesson — a resolved item
+normally does NOT announce itself, because whoever fixed the rule never went
+back to the watch entry. Self-declaration is a free grep, not a method.
+
+Added as detector 4, deliberately with no automation: the check is reading
+each entry and asking whether the rule it doubts still exists, whether its
+trigger fired, and whether it has aged past usefulness. Because it cannot be
+automated it has to be scheduled, so it is now step 2 of every pass rather
+than a conditional. The guard against over-zealous cleanup: a watch item is
+the only record of a doubt, so an entry that cannot be confirmed resolved
+stays, and a partly-resolved one is rewritten to the narrower doubt rather
+than deleted.
+
+## Skill naming: /docreview -> /docaudit (2026-08-25)
+
+Renamed the same day it was written. "/docreview" and "/updatedocs" were too
+close to distinguish at invocation time, and neither name carried the
+property that actually separates them: cadence. One runs every session and
+only adds; the other runs occasionally, reads everything, and deletes.
+"Audit" carries the periodic, deeper, higher-stakes weight that "review"
+does not. Descriptions were rewritten at the same time — the old one still
+said "review", which was the giveaway that the rename alone was not enough.

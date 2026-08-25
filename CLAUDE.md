@@ -13,7 +13,7 @@ chronological, activity-weighted "Lifestreams" timeline.
 | `SPEC.md` + `spec/capture.md` + `spec/display.md` | What the system currently does | It has a truth-value today (does X happen, what's the threshold) — rules only, 2-4 sentences + date tag, no story |
 | `WATCHLIST.md` | Open doubts about current SPEC.md rules | It's a live trade-off, not yet a bug, not yet resolved |
 | `decisions/*.md` | Permanent per-subsystem reasoning archive — evidence, rejected alternatives, dated story | It's the durable "why" behind an *adopted* SPEC.md rule |
-| `HISTORY.md` | Chronological index — what shipped when, pointing at the SPEC.md rule and the decisions/ story | It's a dated pointer entry, not content itself |
+| `decisions/README.md` | Index of the decision logs — one line each, plus retired ones | It describes a decision FILE's scope, not a change |
 
 **Read `SPEC.md` before implementing anything** — it's the source of truth
 for rules, data structures, and edge cases, and the ~40-line index into its
@@ -23,14 +23,13 @@ any single change): `spec/capture.md` (§3–§4, capture-side) and
 unchanged, so every existing `§N` reference elsewhere still resolves.
 `decisions/` is not for in-flight drafts: a proposal either gets adopted
 (fold into SPEC.md/spec/ + its matching decisions/ log) or gets abandoned
-(delete; note in `HISTORY.md` if worth a one-line record).
+(delete; note it in the relevant `decisions/` log if worth a record).
 
-**Order when closing out a change that involved real reasoning (evidence,
-an alternative that lost, a specimen that forced it):** update SPEC.md
-and/or `decisions/` FIRST, `HISTORY.md` LAST — HISTORY.md only ever points at
-the other two, it never carries the reasoning itself. A HISTORY.md line
-with nothing in SPEC.md or decisions/ to point at is incomplete; see the
-checklist at the top of `HISTORY.md` before appending there.
+**When closing out a change that involved real reasoning (evidence, an
+alternative that lost, a specimen that forced it):** update SPEC.md and/or
+the relevant `decisions/` log. There is no separate changelog to update —
+`git log` is the change history (`HISTORY.md` was deleted 2026-08-25 as 470
+lines duplicating it; see `decisions/timeline_design.md`).
 
 ## Workflow
 - **Understand in code, then write it down** (revised 2026-08-25, replacing
@@ -42,8 +41,16 @@ checklist at the top of `HISTORY.md` before appending there.
 - **Docs earn their length.** They are ~16:1 reasoning-to-rules and too long to
   be read, which makes them worse than shorter ones. Record what a future
   reader needs and can't recover from the code — not how the answer was found.
-  **`/updatedocs`** writes today's entry (adds only, never restructures);
-  **`/docreview`** is the occasional pass that fixes accumulated drift.
+  Three skills cover the lifecycle: **`/newfeature`** starts an exploration
+  (spec stub + decision log), **`/updatedocs`** records each session (adds
+  only, never restructures), **`/docaudit`** is the occasional deep pass that
+  deletes accumulated drift.
+- **Starting a new exploration: `/newfeature`.** It runs the framing
+  questions, then creates `spec/<feature>.md` (a stub, before building) and
+  `decisions/<feature>.md` (origin + phase roadmap). **Write the spec stub
+  even when the idea might be reverted** — that is exactly when it matters.
+  The card deck skipped it as appropriate humility, and its rules ended up
+  with nowhere to live but a plan doc (`decisions/card_deck.md`).
 - Never `git commit`/`git push` proactively. If asked to commit directly you can 
   proceed without further confirmation.
 - **Score weights are provisional** (Desktop4-inherited) — keep them named
@@ -79,7 +86,6 @@ checklist at the top of `HISTORY.md` before appending there.
 - **The timeline is the PRIMARY view** see SPEC.md §5 for
   the intent/duration rules this stance motivates.
 
-## History
-`HISTORY.md` holds the full chronological changelog and the `decisions/` index —
-read it once when picking up the project cold; not needed for most individual
-tasks. Append new dated entries there, never here.
+## Picking up cold
+`decisions/README.md` indexes the decision logs — read it first to see which
+subsystem holds what. For when a change happened, use `git log`.

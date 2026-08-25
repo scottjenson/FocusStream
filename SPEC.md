@@ -44,6 +44,30 @@ Design philosophy, the boundary/thread taxonomy, atomicity guards, Score v1,
 tiers, containers, fences, the horizontal timeline, tooltips/snapshots, and
 the UI/UX directives — **`spec/display.md`**.
 
+## Where the product is going (status, 2026-08-25)
+
+**The Active Tab Manager (§7) is the direction.** It is where new display
+work goes, and §7's "product goal, stated plainly" is the product.
+
+**The migration is NOT complete, and the card deck stays until it is.** The
+standalone dashboard still opens in the card view (`ribbonMode` defaults to
+`"cards"`, `dashboard/timeline.js`), and several card capabilities have no
+§7 equivalent yet — the below-deck hover text, the expanded-card info panel,
+the child carousel, riffle-on-hover. Card code is deliberately kept, not
+retired, until its behavior is carried over.
+
+So three display paths exist on purpose right now:
+| path | status |
+|---|---|
+| §7 strip + ribbon (`switcher.js`) | the direction; new work goes here |
+| block ribbon (`paint()`, §6) | shared by the overlay and the dashboard's `"blocks"` mode |
+| card deck (`paintCards()`) | still the dashboard default; migrating out |
+
+Card-view reasoning and stage outcomes: `decisions/card_deck.md`. Its
+display rules are NOT yet in §6 — a known gap, tracked in `WATCHLIST.md`
+as `card-view-unspecced`. Don't read §6 as a description of what the
+dashboard opens with; it isn't, yet.
+
 ## 7. Active Tab Manager
 Live, on-page tab-switcher UI — a third pillar alongside capture and the
 historical ribbon, covering live display, interactivity, and (as later

@@ -60,8 +60,17 @@ grouping, evidence trimmed to pointers).
 ### Scoring
 (medium-threshold, duration-bias, passive-reading-undercount,
 bsky-scroll-premium, and w-nav-single-day were struck 2026-08-09 —
-settled-by-silence/superseded, no specimen in weeks of real use; see
-HISTORY.md.)
+settled-by-silence/superseded, no specimen in weeks of real use.)
+
+### Display surfaces
+- **card-view-unspecced (2026-08-25):** the standalone dashboard opens in
+  the card view, whose display rules are in no spec file — `spec/display.md`
+  §6 describes the block ribbon. Deliberate for now: §7 is the direction and
+  the card deck is migrating out, so writing §6 rules for it would document
+  something being retired. The risk is an agent reading §6 as "what the
+  dashboard shows" and being wrong. Resolve by finishing the §7 migration
+  (then delete the card path), or by specing §6 if cards outlive the
+  migration. Reasoning: `decisions/card_deck.md`.
 
 ### Assembly (merging, containers, fences)
 - **earned-high-pass-one-reach (2026-08-24):** extending earned-HIGH
@@ -148,7 +157,7 @@ containers" and "Continuation merge + MEDIUM containers".)
 ### Layout, labels, visuals
 (gap-loudness and week-strip-legibility were struck 2026-08-09 —
 settled-by-silence through the monochrome redesign and weeks of real use,
-no specimen; see HISTORY.md.)
+no specimen.)
 - **fixed-overhead-dilation (2026-07-17):** `MIN_W`/`STICK_W`/`GAP` don't
   scale with `PX_PER_SEC`, so floored blocks (anything under ~3m33s) and
   fence sticks claim a larger share of the ribbon — busy sections shrink
@@ -162,14 +171,14 @@ no specimen; see HISTORY.md.)
   Candidate fix if a bloated specimen appears: render uncovered interior
   stretches at gap scale, at the cost of children no longer sitting at
   linearly-proportional positions.
-- **contained-child-visibility (2026-07-17; superseded 2026-08-07):** the
-  original concern (children paint MEDIUM-dim on a full-brightness container
-  fill) no longer applies as stated — contained children now render at one
-  uniform height and the same importance-based fill as any other block
-  (SPEC.md §6). Whether a genuinely-important excursion still reads as lost
-  inside a container is worth re-watching under the new system, but the
-  original brightness-follows-true-band fallback no longer maps onto
-  current rules.
+- **contained-child-visibility (2026-07-17; narrowed 2026-08-25):** does a
+  genuinely-important excursion still read as lost inside a container? The
+  original concern — children painting MEDIUM-dim on a full-brightness
+  container fill — died with the 2026-08-07 rules (contained children now
+  take one uniform height and the same importance-based fill as any other
+  block, §6), and the brightness-follows-true-band fallback it proposed no
+  longer maps onto anything. Watch for: a HIGH excursion inside a container
+  that a reader scanning the ribbon misses entirely.
 - **earned-high-second-line (2026-08-06):** earned-HIGH blocks (SPEC.md §6)
   are usually wider than accumulated-HIGH ones — a single fragment rarely
   reaches `HIGH_SCORE` without real dwell. Untested whether the correlation

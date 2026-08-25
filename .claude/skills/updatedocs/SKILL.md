@@ -6,8 +6,9 @@ description: Record what this session learned into the project's md files — th
 # Updatedocs
 
 Record what this session established, in the project's md files, at the
-shortest length that stays true. Do NOT commit — that's `/skill commit`,
-invoked separately.
+shortest length that stays true. Runs at the end of every session; the
+occasional deep pass over everything is `/docaudit`. Do NOT commit — that's
+`/skill commit`, invoked separately.
 
 ## Scope: aware of history, does not act on it
 
@@ -19,7 +20,7 @@ amends, and where the reasoning already lives. That reading will surface
 problems in text you did not write: a bloated neighbouring bullet, an old
 rule never cleaned up, content sitting in the wrong file.
 
-**Note those; do not fix them.** They belong to `/docreview`, which exists
+**Note those; do not fix them.** They belong to `/docaudit`, which exists
 to go looking for exactly that and has the verification discipline for it.
 Acting on them here turns a five-minute closeout into an unrequested audit,
 and does it without the safety checks that work needs.
@@ -58,7 +59,7 @@ denser prose to sneak past.
 
 | File | Cap per entry |
 |---|---|
-| `HISTORY.md` | 1-3 lines, pointer only |
+| `decisions/README.md` | one line per LOG, and only when a log is added/retired |
 | `SPEC.md`, `spec/*.md` | 2-4 sentences + date tag |
 | `decisions/*.md` | **15 lines**, hard |
 | `WATCHLIST.md` | entry shape in that file's header |
@@ -86,8 +87,13 @@ Keep out of the spec: anything not built. Proposals, deferred phases, and
 designed-but-unshipped rules go to `decisions/` with a pointer.
 
 Cleaning up drift that is ALREADY there — layered sections, fused bullets,
-misfiled content — is `/docreview`, not this skill. Don't start a retrofit
+misfiled content — is `/docaudit`, not this skill. Don't start a retrofit
 during a closeout; note it and move on.
+
+Starting a NEW feature or exploration is `/newfeature`, which creates its
+spec stub and decision log from a framing conversation. If this session began
+one without those files existing, say so — writing today's entry into a
+subsystem with no home is how drift starts.
 
 ## Steps
 
@@ -95,18 +101,19 @@ during a closeout; note it and move on.
    not your memory of it.
 2. **Apply the "did this earn an entry" test.** Real reasoning — evidence, a
    rejected alternative, a specimen, a corrected model — earns a
-   `decisions/` entry. A small fix does not: code plus at most a HISTORY.md
-   line. **Writing nothing is a valid and common outcome.** Say so and stop.
-3. **Write in CLAUDE.md's order:** `SPEC.md`/`spec/` and `decisions/` first,
-   `HISTORY.md` LAST and pointer-only. Check `HISTORY.md`'s own header
-   checklist before appending.
+   `decisions/` entry. A small fix does not: code, and nothing else.
+   **Writing nothing is a valid and common outcome.** Say so and stop.
+3. **Write the rule, then the reasoning:** `SPEC.md`/`spec/` for anything
+   whose truth-value changed, the relevant `decisions/` log for the why.
+   There is no changelog to update — `git log` is the change history. Touch
+   `decisions/README.md` ONLY if you created or retired a decision log.
 4. **Trim the code comments you wrote this session** to the budget above.
    The comment says what; the md file says why; the comment names which file.
 5. **Check tense.** An amended rule must not leave older text reading as
    current. Fix the old passage or date-stamp it.
 6. **Check your OWN edit for rot** — did it layer, fuse, or overrun a
    budget? Fix that. Pre-existing problems in text you did not write get
-   NOTED in the report for `/docreview`, never fixed here (Scope, above).
+   NOTED in the report for `/docaudit`, never fixed here (Scope, above).
 7. **Report** what you wrote, what you deliberately left out, and any
    pre-existing drift you noticed and left alone.
 
