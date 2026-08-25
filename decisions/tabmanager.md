@@ -410,7 +410,7 @@ a delivery path into the overlay's shadow root.
 * **Duplicate the CSS inline in `switcher.js`**, matching how the strip
   already inlines its own CSS. No manifest change, no fetch. **Rejected**:
   ~600 lines of card CSS would need hand-sync between two copies on every
-  visual tweak — and this project's `HISTORY.md` shows card visuals (tier
+  visual tweak — and git history shows card visuals (tier
   colors, borders, hover, perspective) are tuned often, making that an
   ongoing tax, not a one-time cost.
 * **Extract to a shared CSS file, fetched by both** `index.html` (linked

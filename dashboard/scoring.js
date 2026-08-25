@@ -1,5 +1,5 @@
 // FocusStream session scoring (spec §6) — split out of timeline.js
-// (2026-08-15, file-size pass: see HISTORY.md) because this is the one
+// (2026-08-15, file-size pass, 2026-08-15) because this is the one
 // self-contained region of that file: pure functions over a session/event
 // object, no shared mutable state, no DOM. Imported by assembly.js (scoring
 // feeds thread assembly's merge/container math) and by timeline.js itself

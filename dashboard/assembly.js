@@ -1,5 +1,5 @@
 // FocusStream session parsing + thread assembly (spec §3/§6) — split out of
-// timeline.js (2026-08-15, file-size pass: see HISTORY.md). Owns the
+// timeline.js (2026-08-15, file-size pass, 2026-08-15). Owns the
 // sessions-in → threads-out pipeline: admission filtering, visit merging,
 // container detection, thread assembly, and the site-name/label-key
 // machinery threads are displayed under. Imported by timeline.js, which

@@ -20,7 +20,7 @@
 //
 // Scoring (session -> score/band) and assembly (sessions -> parsed/merged/
 // containerized threads) split out to scoring.js/assembly.js (2026-08-15,
-// file-size pass: see HISTORY.md) — this file keeps layout, paint, and
+// file-size pass, 2026-08-15) — this file keeps layout, paint, and
 // interaction (zoom/pan, card expand, gap-drag), which stayed together
 // because that state is genuinely one coupled subsystem, not artificially
 // glued.
@@ -196,12 +196,12 @@ import {
   // second pass) made adjacent events run together with only fill/border to
   // separate them; a height step gives HIGH a second, stronger signal.
   // MEDIUM and LOW still share one height (fill/border is what splits them).
-  // Dormant since the Stage 1 stack-ribbon rewrite (plans/stack-ribbon.md)
+  // Dormant since the Stage 1 stack-ribbon rewrite (decisions/card_deck.md)
   // — kept, not deleted, as the fallback block-ribbon layout's own sizing;
   // CARD_TIER_H below is what the live card layout actually reads.
   const TIER_H = { high: 144, medium: 108, low: 108 };
 
-  // --- Stack-ribbon card layout (plans/stack-ribbon.md Stage 1,
+  // --- Stack-ribbon card layout (decisions/card_deck.md Stage 1,
   // 2026-08-11): replaces width-as-duration with height-as-tier. Cards are
   // laid out left-to-right in chronological order with no gap-as-absence
   // scaling (explicitly dropped for Stage 1 — see the plan doc's
@@ -248,7 +248,7 @@ import {
   // fraction into each card's own local pivot Y in px (transform-origin/
   // perspective-origin are relative to each element's own box, so the
   // shared value can't be written as a plain CSS %). See
-  // plans/stack-ribbon.md Stage 5 for the exploration behind 0.8.
+  // decisions/card_deck.md Stage 5 for the exploration behind 0.8.
   const CARD_PIVOT_Y_FRAC = 0.8;
   const CARD_SWIVEL_DEG = 64;
   // LOW rotates 10° less than every other tier (2026-08-15) — a small
@@ -281,7 +281,7 @@ import {
   function swivelPivotPx(cardTopAbs) {
     return CARD_TIER_H.high * CARD_PIVOT_Y_FRAC - cardTopAbs;
   }
-  // Hover-gap effect (Stage 5, 2026-08-15 — see plans/stack-ribbon.md
+  // Hover-gap effect (Stage 5, 2026-08-15 — see decisions/card_deck.md
   // Stage 5 and decisions/timeline_design.md for the full design
   // discussion this implements). Exactly ONE card is ever offset from its
   // rest position at a time — the "traveling" card — determined purely by
@@ -342,7 +342,7 @@ import {
   // #ribbon-wrap sizes to, not below it. Three lines at 12px/16px line-
   // height plus a little breathing room.
   const CARD_HOVER_TEXT_H = 56;
-  // Click-to-expand (plans/stack-ribbon.md Stage 2, 2026-08-11): a clicked
+  // Click-to-expand (decisions/card_deck.md Stage 2, 2026-08-11): a clicked
   // card animates down below the deck, flattens (rotateY -> 0), and grows
   // to the snapshot's native size (capped to fit the viewport). Duration
   // and easing tuned by feel (Scott: "a little bit of weight… bounces
@@ -709,7 +709,7 @@ import {
       // switch to shouldn't disappear into a tiny non-clickable stick just
       // because it currently scores LOW) — widened per Scott's direct
       // call to match the same "no fences" precedent the card-view rework
-      // already established (plans/stack-ribbon.md dropped fences
+      // already established (decisions/card_deck.md dropped fences
       // outright, the big learning from that rework). A LOW run of real
       // CLOSED history in the overlay now renders as ordinary individual
       // blocks too, same as open tabs already did — anchorMode === "right"
@@ -976,7 +976,7 @@ import {
     return { segs, plates, bars, gaps, dividers, total, ...axisOf(segs, gaps, dividers, total) };
   }
 
-  // --- Card layout (plans/stack-ribbon.md Stage 1, 2026-08-11; rotation/
+  // --- Card layout (decisions/card_deck.md Stage 1, 2026-08-11; rotation/
   // overlap deepened, then width tied to CARD_ASPECT, same day): flat
   // left-to-right deck, one card per assembled event (thread/container),
   // chronological order — the fence/stick and gap-as-absence machinery
@@ -1603,7 +1603,7 @@ import {
     quickLabel.hidden = true;
   }
 
-  // Card hover text (plans/stack-ribbon.md Stage 1 follow-up, 2026-08-11):
+  // Card hover text (decisions/card_deck.md Stage 1 follow-up, 2026-08-11):
   // replaces the on-face .card-label AND the floating #tip tooltip for
   // cards. Same one-shared-floating-element pattern as quickLabel above
   // (repositioned per hover, not per-card DOM) — sits below the card deck,
@@ -2177,7 +2177,7 @@ import {
   // an actual reason (new data, day paging, fence expand/collapse).
   let lastAssembly = null; // { sessions, dayThreads, hostNames, events }
 
-  // Ribbon view mode (plans/ribbon-toggle.md, 2026-08-12): a standing
+  // Ribbon view mode (decisions/card_deck.md, 2026-08-12): a standing
   // toggle between the live card deck and the dormant-but-intact block
   // ribbon, not a migration — both stay permanently available. A viewing
   // preference like `zoom`, not part of a day's data, so it lives in
@@ -3160,7 +3160,7 @@ import {
     return out;
   }
 
-  // --- Card paint (plans/stack-ribbon.md Stage 1, 2026-08-11): the live
+  // --- Card paint (decisions/card_deck.md Stage 1, 2026-08-11): the live
   // paint path. paint() above (block-ribbon: width=duration, fence/stick,
   // hour axis) is kept dormant, not deleted, per the plan's explicit
   // "keep the code to the side" direction — this is a different display

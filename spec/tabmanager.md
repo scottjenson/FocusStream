@@ -219,7 +219,7 @@ the dataset.
 
 **Fences are retired entirely in this view** (`clusterEvents`, gated on
 `anchorMode !== "right"`) — for real closed history as well as open tabs,
-matching the card view's own fence retirement (`plans/stack-ribbon.md`). The
+matching the card view's own fence retirement (`decisions/card_deck.md`). The
 standalone dashboard's fencing (§6) is unchanged.
 
 **Animation is intersection-only:** a tab animates strip→ribbon only if it
