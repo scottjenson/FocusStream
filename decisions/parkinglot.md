@@ -250,3 +250,21 @@ lives in `decisions/timeline_design.md`, "The history view's mandate got
 clearer, not narrower". Short version: removing open loops from the ribbon's
 concern does not license dropping LOW blocks — it makes every LOW block a
 real visit, which strengthens the case for keeping them browsable.
+
+## Phase 1 shipped (2026-08-25)
+
+**The day picker was not a separate feature — it was the left anchor's
+consequence.** `layout()` positions from absolute epoch ms and has no day
+concept, so §7e's cross-day reach was only ever a data-*windowing* change
+gated on `anchorMode === "right"`. A left-anchored ribbon can show exactly
+one day, which is why it needed a picker; a right-anchored one reaches back
+by zoom. Flipping the default retired the week strip, arrow paging, and
+`viewDayStart`'s mutability in one step.
+
+**Sequencing held up.** Flipping defaults first, with `switcher.js` still
+present as a comparison, confirmed §7c–§7h worked outside the overlay before
+anything was deleted — the diagnostic the phase was designed around.
+
+**Lost:** the week strip's vertical hour-alignment across days, which the
+ribbon's two time scales structurally cannot give. Accepted on Scott's
+"weren't that helpful"; nothing replaces it.

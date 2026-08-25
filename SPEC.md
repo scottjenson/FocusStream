@@ -32,7 +32,7 @@ The extension relies on a hybrid "Batch and Flush" messaging architecture to ens
 * **Service Worker / Background Script (`background.js`):** The session lifecycle manager. Listens to Chrome-level events (navigation, tab close, tab switch) and receives heartbeats from the Content Script. Constructs Session Blocks and finalizes them to storage.
 * **Storage:**
     * `chrome.storage.session` holds the **current (unfinalized) session** — MV3 service workers are killed after ~30s idle and in-memory state dies with them; `storage.session` survives worker restarts. No keepalive hacks or alarms.
-    * `chrome.storage.local` is the database of **finalized Session Blocks**. **Retention (agreed 2026-07-15):** blocks older than 7 days are pruned at finalize time — the array is rewritten in full on every finalize, so unbounded growth would make every tab switch serialize the entire history and walk toward the 10MB quota. 7 days keeps headroom for day paging (live since 2026-07-16 — paging reach is exactly the retention window). **Snapshots (agreed 2026-07-16)** live under separate `snap:<sessionId>` keys — never inside SessionBlocks, which are read in full on every render — and die with their session (a failed capture leaves a `snapErr:<sessionId>` breadcrumb — `{when, message}` — instead, same lifecycle; added 2026-07-16 because worker-console logs rarely survive long enough to diagnose a missing screenshot): pruned in the same finalize pass, plus an **orphan sweep** on worker startup (`getKeys()`, names only — never `get(null)`, which would deserialize every stored image) so no snapshot can outlive its session even across long browser-closed stretches. The `unlimitedStorage` permission lifts the 10MB cap (~20MB steady state at 7 days).
+    * `chrome.storage.local` is the database of **finalized Session Blocks**. **Retention (agreed 2026-07-15):** blocks older than 7 days are pruned at finalize time — the array is rewritten in full on every finalize, so unbounded growth would make every tab switch serialize the entire history and walk toward the 10MB quota. 7 days keeps headroom for the ribbon's cross-day reach (live since 2026-07-16 — that reach is exactly the retention window). **Snapshots (agreed 2026-07-16)** live under separate `snap:<sessionId>` keys — never inside SessionBlocks, which are read in full on every render — and die with their session (a failed capture leaves a `snapErr:<sessionId>` breadcrumb — `{when, message}` — instead, same lifecycle; added 2026-07-16 because worker-console logs rarely survive long enough to diagnose a missing screenshot): pruned in the same finalize pass, plus an **orphan sweep** on worker startup (`getKeys()`, names only — never `get(null)`, which would deserialize every stored image) so no snapshot can outlive its session even across long browser-closed stretches. The `unlimitedStorage` permission lifts the 10MB cap (~20MB steady state at 7 days).
 * **Dashboard (`dashboard/index.html`):** Opens in a **full tab** (via the toolbar icon), not a popup — a timeline needs the space, and a tab is easy to keep open and refresh while testing. Reads Session Blocks from `storage.local` and renders the time-ordered, activity-weighted Lifestreams UI.
 
 ## 3–4. Capture rules
@@ -76,18 +76,17 @@ ribbon content was split out to `spec/ribbon.md` (§7c-ribbon–§7h) on
 2026-08-25, keeping the §7x numbering because ~85 code comments cite it; those
 rules fold into §6 later, as a follow-on to §8 Phase 1 rather than part of it.
 
-**Nothing about §8 is built yet** (all four phases unstarted). Until Phase 1
-lands, the three display paths below still exist exactly as they did:
+**§8 Phase 1 shipped 2026-08-25; Phases 2-4 are unstarted** — the parking
+lot itself does not exist. Two display paths remain, down from three:
 | path | status |
 |---|---|
-| §7 strip + ribbon (`switcher.js`) | **retiring** — the strip goes in §8 Phase 1; the ribbon moves to the dashboard |
-| block ribbon (`paint()`, §6) | shared by the overlay and the dashboard's `"blocks"` mode; becomes the primary path |
-| card deck (`paintCards()`) | still the dashboard default; migration closed out in §8 Phase 1 |
+| block ribbon (`paint()`, §6 + §7c–§7h) | **the primary path** — right-anchored, cross-day, the dashboard's default |
+| card deck (`paintCards()`) | retiring — kept only as a live A/B while its layout ideas are harvested into `layout()` |
 
-Card-view reasoning and stage outcomes: `decisions/card_deck.md`. Its
-display rules are NOT in §6 — a known gap (`card-view-unspecced`) that §8
-Phase 1 resolves by retiring the view rather than speccing it. Don't read §6
-as a description of what the dashboard opens with; it isn't, yet.
+The §7 strip (`switcher.js`) was deleted in Phase 1. Card-view reasoning and
+stage outcomes: `decisions/card_deck.md`; its display rules are still NOT in
+§6 (`card-view-unspecced`), a gap that closes when the view is deleted rather
+than by speccing it.
 
 ## 7. Active Tab Manager — CLOSED
 The injected tab strip — **`spec/tabmanager.md`**, historical. Terms:
@@ -113,5 +112,5 @@ are the reason the files are separate, not an accident of filing.
 Tabs the user opened and never finished, displaced out of the tab bar into a
 count on the extension icon — **`spec/parkinglot.md`**. Retires the injected
 strip, moves the ribbon to the dashboard, and replaces §7's eviction model.
-Phase roadmap and reasoning: `decisions/parkinglot.md`. **All phases
-unstarted as of 2026-08-25.**
+Phase roadmap and reasoning: `decisions/parkinglot.md`. **Phase 1 done
+2026-08-25; Phases 2-4 unstarted.**

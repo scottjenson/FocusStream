@@ -11,11 +11,10 @@ const log = (...args) => console.log("[FS bg]", ...args);
 // predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one heartbeat window"
 // constant reused below instead of a second local copy (rules audit,
 // 2026-08-06 — WATCHLIST.md `threshold-sprawl`). background.js is a
-// module worker ("type": "module", manifest.json, 2026-08-21 — needed to
-// import shared/utility.js for the live tab strip's site-name reuse), so
-// this is a real static import, not importScripts().
+// module worker ("type": "module", manifest.json, 2026-08-21), so this is a
+// real static import, not importScripts(). shared/utility.js went with the
+// tab strip in §8 Phase 1 (spec/parkinglot.md).
 import { isTransit, TRANSIT_MS } from "./shared/transit.js";
-import { computeHostNames, labelKeyOf, hostOf } from "./shared/utility.js";
 
 // SPA URL changes arriving faster than this are view-state churn (map pans,
 // filter tweaks), not navigation — absorbed into the current session.
@@ -488,14 +487,14 @@ async function injectIntoExistingTabs() {
       // subframes self-gate on origin, so blanket injection is safe.
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, allFrames: true },
-        files: ["vendor/Readability.js", "content.js", "switcher.js"],
+        files: ["vendor/Readability.js", "content.js"],
       });
       injected++;
     } catch (e) {
       log("inject failed for tab", tab.id, tab.url, "-", e.message);
     }
   }
-  log(`injected content.js/switcher.js into ${injected}/${tabs.length} existing tabs`);
+  log(`injected content.js into ${injected}/${tabs.length} existing tabs`);
 }
 
 // Seed audible continuity for tabs already making sound when the extension
@@ -981,192 +980,5 @@ chrome.action.onClicked.addListener(() => {
     );
     console.log("[FS bg] raw SessionBlocks:", sessions);
     console.log("[FS bg] current (unfinalized):", current);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Active Tab Manager — Phase 1 live tab strip (spec §7; decisions/tabmanager.md)
-//
-// Scope invariant: purely a second, parallel VIEW of tab state this file
-// already observes for session-lifecycle purposes above — nothing here
-// reads or writes a SessionBlock, and nothing here calls chrome.tabs.remove.
-// Scoped per-window (not global), matching a real Chrome tab bar, which
-// only ever shows its own window's tabs.
-// ---------------------------------------------------------------------------
-
-// Tile label = the same short site name the dashboard's timeline shows
-// (shared/utility.js computeHostNames, reused live rather than forked —
-// spec §7, 2026-08-21). Falls back to the bare hostname for a tab with no
-// admitted history yet (freshly opened site, or a host computeHostNames
-// found no confident name for). Cached rather than recomputed per broadcast
-// — ~1700+ stored sessions is real work, and every tab event in a window
-// would otherwise redo it. Invalidated on any write to storage.local's
-// "sessions" key (chrome.storage.onChanged) and lazily rebuilt on next use.
-let hostNamesCache = null;
-async function getHostNames() {
-  if (hostNamesCache) return hostNamesCache;
-  const { sessions = [] } = await chrome.storage.local.get("sessions");
-  hostNamesCache = computeHostNames(sessions, isTransit);
-  return hostNamesCache;
-}
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && "sessions" in changes) hostNamesCache = null;
-});
-
-function labelFor(tab, hostNames) {
-  const host = hostOf({ url: tab.url || "" });
-  if (!host) return tab.title || tab.url || "";
-  const name = hostNames.get(labelKeyOf(host, tab.url || ""));
-  return name || host;
-}
-
-function toStripTab(tab, hostNames) {
-  return {
-    id: tab.id,
-    title: tab.title || "",
-    label: labelFor(tab, hostNames),
-    favIconUrl: tab.favIconUrl || "",
-    url: tab.url || "",
-    // `active` is deliberately NOT sent (2026-08-24). Whether a tab is
-    // focused is a fact about the BROWSER at one instant, and broadcasting it
-    // made every strip in the window repaint on every switch just to move a
-    // rim. Each strip marks its own tile instead (selfTabId, switcher.js):
-    // that tile is by definition the active one whenever the user can see
-    // that strip at all, so it is drawn once at mount and never changes.
-    // pinned (strip-ordering rework, spec §7c): chrome.tabs.query already
-    // returns tabs in Chrome's own strip order (pinned tabs first, by
-    // Chrome's own construction) — passed straight through as array order,
-    // no sort of our own. `pinned` itself is only needed downstream for the
-    // icon-only (no label) treatment Chrome gives pinned tabs, not for
-    // ordering.
-    pinned: !!tab.pinned,
-  };
-}
-
-// Event-driven, no polling (spec §7 data-flow rule) — every trigger below
-// already fires for session-lifecycle reasons; this just also re-queries
-// and re-sends the same window's tab list. chrome.tabs.sendMessage rejects
-// for any tab with no content script listening (chrome://, the Web Store,
-// a tab predating this extension's load) — expected and harmless, since
-// that tab has no strip to update anyway.
-async function broadcastTabsForWindow(windowId) {
-  if (windowId == null || windowId === chrome.windows.WINDOW_ID_NONE) return;
-  const [tabs, hostNames] = await Promise.all([chrome.tabs.query({ windowId }), getHostNames()]);
-  const payload = { type: "FS_TABS_UPDATE", tabs: tabs.map((t) => toStripTab(t, hostNames)) };
-  await Promise.all(
-    tabs.map((t) => (t.id == null ? null : chrome.tabs.sendMessage(t.id, payload).catch(() => {})))
-  );
-}
-
-chrome.tabs.onCreated.addListener((tab) => {
-  enqueue("switcher: onCreated", () => broadcastTabsForWindow(tab.windowId));
-});
-
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-  enqueue("switcher: onRemoved", () => broadcastTabsForWindow(removeInfo.windowId));
-});
-
-// onActivated no longer broadcasts (2026-08-24, Scott's rule: "the only
-// events that should be broadcast to the other tabs is adding or removing
-// tabs; the active tab should never change for that specific tab"). Focus is
-// not a fact the OTHER strips need — each one marks its own tile as active
-// (selfTabId, switcher.js), which cannot go stale. Broadcasting it meant a
-// single click repainted every strip in the window, and the repaint that
-// landed after the destination page became visible was the border flicker.
-// The session-lifecycle onActivated listener above is untouched.
-
-// Title/favicon only — a tab's own label/icon changing is a genuine content
-// change other strips must show. `status: "complete"` was dropped from this
-// filter (2026-08-24): it carries no strip-visible information of its own,
-// fires right after a switch, and was the specific broadcast that repainted
-// the newly-visible strip.
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.title === undefined && changeInfo.favIconUrl === undefined) return;
-  enqueue("switcher: onUpdated", () => broadcastTabsForWindow(tab.windowId));
-});
-
-// FS_FLUSH_CURRENT (spec §7c, 2026-08-22): the strip/ribbon overlay's
-// markOpenTabs (timeline.js) was fabricating duration for open tabs
-// because the ACTIVE tab's in-progress visit lives only in
-// chrome.storage.session's currentSession, never in the real, finalized
-// `sessions` array `switcher.js` reads. Rather than keep inventing
-// display-side timing to paper over that gap, this forces a real flush —
-// same finalizeCurrent/startSession pair chrome.tabs.onActivated already
-// calls on every real tab switch (below), same endReason too
-// (Scott, 2026-08-22: opening the strip overlay IS the user's focus
-// leaving the underlying page for our UI, the same real thing a tab
-// switch is — reusing "tab_hidden" keeps the well-tested
-// departure/return container-qualification logic (assembly.js Guard 1)
-// completely untouched, rather than teaching it a new endReason). Only
-// flushes when the CURRENT session actually belongs to the requesting
-// tab — a strip in some other, non-active tab must never finalize a
-// session it doesn't own. Routed through the same `chain` as every real
-// Chrome event (enqueue) so this can never interleave with/race a real
-// navigation or close landing at the same moment; the caller awaits
-// completion (enqueue's returned promise) before replying, so
-// switcher.js's subsequent chrome.storage.local.get("sessions") is
-// guaranteed to see the flushed data, not a stale read.
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.type !== "FS_FLUSH_CURRENT") return;
-  if (sender.tab?.id == null) return;
-  const tabId = sender.tab.id;
-  enqueue("switcher: flush-current", async () => {
-    const current = await getCurrent();
-    if (current && current.tabId === tabId) {
-      await finalizeCurrent("tab_hidden");
-      const tab = await chrome.tabs.get(tabId).catch(() => null);
-      await startSession(tab);
-    }
-  }).then(() => sendResponse({ ok: true }));
-  return true; // keep the message channel open for the async sendResponse
-});
-
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.type !== "FS_GET_TABS") return;
-  // A freshly-injected strip has missed every past broadcast (spec §7) and
-  // needs the current state once, on load, rather than waiting for the next
-  // event. sender.tab is set because switcher.js only ever runs in a real
-  // tab's top frame.
-  if (sender.tab?.windowId == null) return;
-  // selfTabId (2026-08-24): which tab this strip is in. `active` is a LOCAL
-  // fact — a strip marks its OWN tile, permanently — so it never needs to be
-  // told about focus changes elsewhere. See toStripTab's own note.
-  const selfTabId = sender.tab.id;
-  Promise.all([chrome.tabs.query({ windowId: sender.tab.windowId }), getHostNames()]).then(([tabs, hostNames]) => {
-    sendResponse({ type: "FS_TABS_UPDATE", selfTabId, tabs: tabs.map((t) => toStripTab(t, hostNames)) });
-  });
-  return true; // keep the message channel open for the async sendResponse
-});
-
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type !== "FS_SWITCH_TAB" || typeof msg.tabId !== "number") return;
-  // The strip never calls chrome.tabs.* itself (spec §7) — only the service
-  // worker holds that capability from a content-script trigger.
-  enqueue("switcher: FS_SWITCH_TAB", async () => {
-    const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
-    if (!tab) {
-      log("switch requested for gone tab", msg.tabId);
-      return;
-    }
-    await chrome.tabs.update(msg.tabId, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
-  });
-});
-
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type !== "FS_CLOSE_TAB" || typeof msg.tabId !== "number") return;
-  // Same pattern as FS_SWITCH_TAB above — the strip never calls chrome.tabs.*
-  // itself. chrome.tabs.onRemoved (already wired below) does the rest: it
-  // fires for this close exactly as it would for a native Chrome tab close,
-  // and broadcastTabsForWindow re-syncs every other strip in the window.
-  enqueue("switcher: FS_CLOSE_TAB", async () => {
-    const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
-    if (!tab) {
-      log("close requested for already-gone tab", msg.tabId);
-      return;
-    }
-    await chrome.tabs.remove(msg.tabId).catch((e) => {
-      log("close failed for tab", msg.tabId, e.message);
-    });
   });
 });

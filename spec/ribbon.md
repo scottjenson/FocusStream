@@ -6,6 +6,15 @@ ribbon's *navigation* — zoom, cross-day reach, the coordinate system, panning
 They were written during the Active Tab Manager era and numbered accordingly;
 `spec/tabmanager.md` keeps only the retiring strip content and is closed.
 
+**"The overlay" now means the dashboard (2026-08-25).** These rules were
+written when they applied only to the injected overlay, with the standalone
+dashboard named as the unchanged contrast case. §8 Phase 1 deleted the
+overlay and flipped the dashboard's defaults to `blocks` + `right`, so every
+rule below reading "overlay only" / "the standalone dashboard is unchanged"
+now describes the dashboard itself. Only the collapsed-strip carve-outs are
+dead. Left as written rather than rewritten in place — that pass belongs with
+the drain into §6.
+
 **The §7x numbering is deliberately unchanged.** ~85 code comments in
 `dashboard/timeline.js` and 11 `WATCHLIST.md` entries cite `§7d`/`§7e`/`§7h`
 as the rule for what a function does. Renumbering here without editing all of
@@ -39,40 +48,30 @@ entries moved from `decisions/tabmanager.md`). Open doubts: `WATCHLIST.md`,
 
 ## 7c-ribbon. Ribbon default window (2026-08-22)
 
-The strip half of the original §7c stays in `spec/tabmanager.md` (it
-describes `stripEventsFromOpenTabs` and the retiring strip's ordering).
-Retained here: what the ribbon itself does.
-
 **The ribbon shows only real, already-finalized session data — no fabricated
-timing of any kind.** `markOpenTabs` tags a real finalized session in place
-(`isOpenTab`/`openTabId`/`tabIndex`/`pinned`, shallow copy, never mutating
-the original). Only a tab with ZERO real history anywhere gets a placeholder,
-`durMs: 0`, anchored at `now`. Deriving a duration from "time since last
-visit began" measures the wrong thing and violates §1's "activity is the sole
-proxy for importance".
+timing of any kind.** Deriving a duration from "time since last visit began"
+measures the wrong thing and violates §1's "activity is the sole proxy for
+importance".
 
-**The focused tab's in-progress visit is flushed into real `sessions` before
-the ribbon paints** (`FS_FLUSH_CURRENT`, `background.js`) — the same
-`finalizeCurrent`/`startSession` pair and `endReason: "tab_hidden"` that
-`chrome.tabs.onActivated` already uses, deliberately reused so
-`detectContainers`' departure/return logic needs no changes. Every other open
-tab was already finalized when the user switched away, so only the focused
-tab can lag.
+**Open-tab awareness is gone entirely (2026-08-25, §8 Phase 1).** The strip
+took `markOpenTabs`, `stripEventsFromOpenTabs` and `FS_FLUSH_CURRENT` with it;
+`isOpenTab` is now always false, so no block wears the open-tab rim and the
+focused tab's in-progress visit lags until it finalizes normally. The
+`.open-tab` class hook survives unset — the parking lot (§8 Phase 2+) is the
+intended source for it.
 
 **First expand defaults to a `DEFAULT_WINDOW_BLOCKS` (12) top-level-block
 lookback** (a container counts as one). Computed via two real `layout()`
 passes (`windowScrollLeft`/`applyDefaultZoomWindow`, O(n)), never a time-span
 estimate — `ZOOM_MAX` clamping and min-width/gap error can silently blow past
-one. Fires only on a `tiered` render (the overlay's first `render()` happens
-at mount while still collapsed) and once per page lifetime; later renders
-right-justify normally so a manual zoom is never fought. `switcher.js`'s
-`expand()` passes `skipPaint` so the flush lands before the zoom calc reads
-the dataset.
+one. Fires once per page lifetime; later renders right-justify
+normally so a manual zoom is never fought.
 
 **Fences are retired entirely in this view** (`clusterEvents`, gated on
 `anchorMode !== "right"`) — for real closed history as well as open tabs,
-matching the card view's own fence retirement (`decisions/card_deck.md`). The
-standalone dashboard's fencing (§6) is unchanged.
+matching the card view's own fence retirement (`decisions/card_deck.md`).
+Since 2026-08-25 the dashboard IS this view, so §6's fencing is dormant
+everywhere; the code path remains.
 
 ## 7d. Ribbon zoom anchors right (built 2026-08-23)
 
@@ -108,13 +107,6 @@ anchor target runs past the right end and clamps, producing the pin. The
 agree exactly at the crossing point, so there is no jump through the fit
 threshold.
 
-**The collapsed strip stays left-justified** (`heightMode === "uniform"`,
-same gate on both the pad and `render()`'s scroll reset). Its axis is
-categorical (Chrome tab order), not time, so a right edge means nothing
-there and pinning to it would hide the first/pinned tabs — the 2026-08-22
-bug recorded in §7c. Left- and right-justification coexist as the two arms
-of the `heightMode` branch, not as an inconsistency to reconcile.
-
 **`applyDefaultZoomWindow` no longer computes a `scrollLeft`.** It still
 solves the zoom that makes `DEFAULT_WINDOW_BLOCKS` (12) fill the viewport;
 right-pinning at that zoom shows that same window. The removed left-edge
@@ -137,9 +129,9 @@ currently bottoms out at the day's own extent.
 
 Replaces the deferral noted at the end of §7c. The ribbon starts at today
 and reaches backward through history as the user zooms out, up to a 7-day
-cap. Supersedes the week strip's day-*picker* model for this view (Scott:
-the per-day mini-summaries "weren't that helpful"); the standalone
-dashboard's own day paging (§6) is unchanged.
+cap. Retired the week strip's day-*picker* model outright (Scott: the per-day
+mini-summaries "weren't that helpful") — including the dashboard's own day
+paging, which went with it in §8 Phase 1 (§6).
 
 **The layout engine already spans days; only the data window was
 single-day.** `layout()` positions everything from absolute epoch

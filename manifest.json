@@ -12,23 +12,10 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["vendor/Readability.js", "content.js", "switcher.js"],
+      "js": ["vendor/Readability.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": true,
       "match_about_blank": true
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "dashboard/timeline.js",
-        "dashboard/scoring.js",
-        "dashboard/assembly.js",
-        "dashboard/timeline.css",
-        "shared/utility.js",
-        "shared/transit.js"
-      ],
-      "matches": ["<all_urls>"]
     }
   ],
   "icons": {

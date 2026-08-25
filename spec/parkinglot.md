@@ -7,10 +7,9 @@ the card deck's failure was having nowhere. Grows by dated entry like
 decided and true today; the phase roadmap and all reasoning live in
 `decisions/parkinglot.md`. Open doubts: `WATCHLIST.md`.
 
-**Nothing in this file is built yet.** Every phase is unstarted as of
-2026-08-25. What follows is the decided model, not a description of running
-code — the one thing this file must never do is describe an intention as if
-it shipped.
+**Phase 1 shipped 2026-08-25; Phases 2-4 are unstarted.** The parking lot
+itself — badge, popup, displacement — does not exist yet. What follows below
+the phase table is the decided model, not a description of running code.
 
 **Relationship to §7:** §8 supersedes the Active Tab Manager. §7's Phase 3
 (score-ranked eviction) is **retired, not deferred** — a read-later tab has
@@ -81,12 +80,19 @@ only interaction.
 ### Phase status (2026-08-25)
 | phase | what | status |
 |---|---|---|
-| 1 | Handoff: remove injected strip, flip dashboard defaults to `blocks`+`right` | not started |
+| 1 | Handoff: remove injected strip, flip dashboard defaults to `blocks`+`right` | **done 2026-08-25** |
 | 2 | Badge + popup + measurement instrumentation, **no auto-close** | not started |
 | 3 | Displacement live (`N`, then `X`) | not started, gated |
 | 4 | Sorting/grouping the lot via captured `pageText` | not started |
 
-**Phase 1 is a handoff, not a redesign.** What the ribbon should *gain* after
+**Phase 1 shipped 2026-08-25.** The injected strip and all its plumbing are
+gone; no content script is injected into every page any more, and
+`chrome.tabs.remove()` is untouched as predicted — the strip was a *caller*,
+not the capability. The day picker went with it (§6): right-anchoring and
+cross-day loading are one change, since the picker only existed to navigate a
+left-anchored single-day ribbon.
+
+**Phase 1 was a handoff, not a redesign.** What the ribbon should *gain* after
 the move — click-to-reveal, whatever else it inherits from the card deck — is
 Track B (see below) and does not gate any §8 phase. Search is not a gap: the
 dashboard already has it (§6).

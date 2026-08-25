@@ -63,14 +63,14 @@ bsky-scroll-premium, and w-nav-single-day were struck 2026-08-09 —
 settled-by-silence/superseded, no specimen in weeks of real use.)
 
 ### Display surfaces
-- **card-view-unspecced (2026-08-25):** the standalone dashboard opens in
-  the card view, whose display rules are in no spec file — `spec/display.md`
-  §6 describes the block ribbon. Deliberate for now: §7 is the direction and
-  the card deck is migrating out, so writing §6 rules for it would document
-  something being retired. The risk is an agent reading §6 as "what the
-  dashboard shows" and being wrong. Resolve by finishing the §7 migration
-  (then delete the card path), or by specing §6 if cards outlive the
-  migration. Reasoning: `decisions/card_deck.md`.
+- **card-view-unspecced (2026-08-25; narrowed same day):** the card view's
+  display rules are in no spec file — `spec/display.md` §6 describes the
+  block ribbon. **Narrowed by §8 Phase 1:** the dashboard now DEFAULTS to
+  blocks, so §6 finally describes what opens; the card path survives only as
+  a toggle, kept as a live A/B while its layout ideas (uniform width per
+  tier — the sliver fix) are harvested into `layout()`. Still unspecced, so
+  the gap persists for anyone who toggles. Resolve by deleting the card path
+  once the harvest is done. Reasoning: `decisions/card_deck.md`.
 
 ### Assembly (merging, containers, fences)
 - **earned-high-pass-one-reach (2026-08-24):** extending earned-HIGH
