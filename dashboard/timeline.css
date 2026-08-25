@@ -169,6 +169,17 @@
        the left edge; assigning a negative value is simply clamped to 0 by
        the platform — the left edge always wins, by construction, no
        special-casing required. */
+    /* The collapsed strip's ground is full black (2026-08-24), not the
+       ribbon's #14161a: at 30-34px tall the bar is read as a tab strip, and
+       the tiles need real separation from it to sit on it as objects. Scoped
+       via :has() to the collapsed state only — the tiered ribbon and the
+       standalone dashboard keep #14161a, and PAGE_BG (timeline.js) is
+       untouched since it also serves as the container cut-out seam colour.
+       :has() rather than a second class because setHeightMode already
+       maintains exactly one source of truth for this state on #ribbon;
+       mirroring it onto the wrapper would be a second thing to keep in sync.
+       Chrome-only extension, so :has() support is not a concern. */
+    #ribbon-wrap:has(#ribbon.uniform-height) { background: #000; }
     #ribbon { position: relative; }
     #ribbon-empty { color: rgba(255,255,255,0.5); font-size: 13px; padding: 24px 4px; }
     .blk {
@@ -227,16 +238,70 @@
        both views). Shape still does the identifying; this just gives the
        shape an edge to be seen against. */
     .blk.open-tab {
-      border-radius: 8px 8px 0 0;
+      border-radius: 6px 6px 0 0;
+    }
+    /* Strip tiles sit on a lighter ground than the ribbon's dark page
+       background (2026-08-24), so a tab reads as a raised object against the
+       bar rather than a hole cut in it. Scoped to the strip and set here
+       rather than by moving TIER_FILL: those values are the shared
+       importance channel (§6) and the tiered ribbon still wants them.
+       !important because paint() inline-writes background on every repaint.
+       Band still shows through the rim and (in the ribbon) the fill ladder;
+       in the strip, tier was never the point — it's a tab bar. */
+    #ribbon.uniform-height .blk {
+      background: #333 !important;
+      /* Flat, band-blind rim in the strip (2026-08-24). paint() inline-writes
+         borderColor from TIER_RIM every repaint, and a single tab click fires
+         2-3 broadcasts (onActivated, then onUpdated/status-complete) with a
+         session finalize landing between them — which changes the outgoing
+         tab's most-recent session, so its score, band and rim colour all move
+         mid-sequence. border-color is not in .blk's transition list, so each
+         repaint snapped to a different rim: the flicker.
+         Debouncing the broadcasts would only hide it. The real point is that
+         band is a historical-attention fact with no meaning in a tab bar —
+         every tile here is an open tab, and at #333 the tier rims were nearly
+         invisible against their own fill anyway. Pinning the rim makes the
+         strip immune to score churn by construction, and leaves the bright
+         rim (.active-tab, below) as the one edge that means anything. */
+      border-color: #3F3F46 !important;
+    }
+
+    /* The high-contrast rim is scoped to the TIERED ribbon (2026-08-24).
+       In the strip every tile is an open tab, so the mark carried no
+       information there — it just made the whole row read as a line of
+       white-outlined boxes. In the ribbon, where open blocks sit among real
+       closed history, it still does the job §7f gave it: an edge for the
+       tab shape to be seen against, since the LOW/MEDIUM rims sit too close
+       to their own fills for a rounded corner to show. */
+    #ribbon:not(.uniform-height) .blk.open-tab {
+      border-color: rgba(255,255,255,0.85) !important;
+      border-bottom-color: transparent !important;
+    }
+    /* The currently-focused tab (2026-08-24). Takes over the bright rim in
+       the strip, so the rim means exactly one thing in each view — "open" in
+       the ribbon, "active" here — instead of meaning nothing in the strip,
+       where every tile is an open tab.
+       Colour is deliberately NOT used: fill/rim luminance carry importance
+       (§6) and an accent hue was tried and reverted once already
+       (earned-HIGH's gold, 2026-08-08, "an unexplained extra difference").
+       !important for the same reason .open-tab needs it — paint() inline-
+       writes borderColor from TIER_RIM on every repaint. Carries the ID
+       selector so it matches the ribbon rule's specificity rather than
+       losing to it: both rules are !important, so specificity decides and
+       source order would NOT have saved a bare .blk.active-tab. The two rims
+       are the same value today, which is exactly why the mismatch would have
+       been invisible until someone changed one of them. */
+    #ribbon.uniform-height .blk.active-tab {
       border-color: rgba(255,255,255,0.85) !important;
       border-bottom-color: transparent !important;
     }
     /* Strip tiles centre their contents vertically (2026-08-23). The base
        rules anchor favicon/label at top:4px, which is right for a tiered
        block (content hugs the top of a variable-height bar) but leaves a
-       30px STRIP_TILE_H tile visibly top-heavy. (30 - 16) / 2 = 7. */
+       STRIP_TILE_H tile visibly top-heavy. (34 - 16) / 2 = 9 (2026-08-24:
+       was 7, for the 30px tile this predates). */
     #ribbon.uniform-height .blk .fav,
-    #ribbon.uniform-height .blk .blk-label { top: 7px; }
+    #ribbon.uniform-height .blk .blk-label { top: 9px; }
     /* Reserve the close box's lane so a long label ellipsises before it
        rather than running underneath. */
     #ribbon.uniform-height .blk .blk-label { right: 22px; }
@@ -249,7 +314,7 @@
     .blk-close {
       display: none;
       position: absolute;
-      top: 7px;
+      top: 9px; /* centred in STRIP_TILE_H, same math as .fav above */
       right: 4px;
       width: 16px;
       height: 16px;

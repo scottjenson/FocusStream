@@ -228,11 +228,19 @@
   // is a heightMode toggle inside timeline.js's own paint(), not a
   // different function to call here.
   let latestTabs = [];
+  // Which tab this strip lives in, from background.js's FS_GET_TABS reply.
+  // `active` is derived from this locally and never from a broadcast
+  // (2026-08-24) — this strip's own tile is the active one by definition
+  // whenever the user can see this strip at all.
+  let selfTabId = null;
 
   async function paintRibbon() {
     if (!moduleLoaded) return;
     const { sessions = [] } = await chrome.storage.local.get("sessions");
-    window.FS_renderOpenTabs?.(latestTabs, sessions);
+    // Stamp `active` here rather than trusting the payload: exactly one tile
+    // (this page's own) is marked, in every strip, always.
+    const tabs = latestTabs.map((t) => (t.id === selfTabId ? { ...t, active: true } : t));
+    window.FS_renderOpenTabs?.(tabs, sessions);
   }
 
   // --- Expand / collapse -------------------------------------------------
@@ -309,6 +317,13 @@
   // data-flow rule). One paint path now regardless of expand state
   // (2026-08-22 unification) — heightMode (already set) decides how it
   // looks, paintRibbon() itself is the same call either way.
+  // No visibility gating (2026-08-24): the only broadcasts left are genuine
+  // content changes — a tab added, removed, or its title/favicon changed —
+  // which every strip should absorb whether or not it is on screen. Focus
+  // changes no longer broadcast at all (background.js), so a tab switch
+  // causes no repaint anywhere. An earlier fix here deferred painting while
+  // hidden; that was compensating for the activation broadcast rather than
+  // removing it, and is unnecessary now that it is gone.
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type !== "FS_TABS_UPDATE") return;
     latestTabs = msg.tabs;
@@ -320,6 +335,7 @@
   // collapsed (__fsHeightMode "uniform", set in ensureModuleLoaded above).
   chrome.runtime.sendMessage({ type: "FS_GET_TABS" }).then(async (res) => {
     latestTabs = res?.tabs || [];
+    selfTabId = res?.selfTabId ?? null;
     await ensureModuleLoaded();
     await paintRibbon();
     syncHostHeight();

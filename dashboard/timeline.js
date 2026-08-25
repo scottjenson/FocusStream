@@ -1051,6 +1051,12 @@ import {
         band: bandFor(score),
         isOpenTab: true,
         pinned: !!t.pinned,
+        // The currently-focused tab, straight from background.js's own
+        // broadcast (toStripTab already ships `active`) — the strip had no
+        // "which tab am I on" cue at all before this. Chrome owns this fact
+        // and re-broadcasts on every switch, so paint() re-derives it every
+        // repaint rather than any local class toggle going stale.
+        active: !!t.active,
         tabIndex,
       };
     });
@@ -1073,10 +1079,10 @@ import {
     const segs = openTabSessions.map((e) => {
       const w = e.pinned ? STRIP_PINNED_TILE_W : STRIP_TILE_W;
       const seg = { e, key: e.id, band: e.band, collapsed: false, w, x };
-      x += w + GAP;
+      x += w + STRIP_GAP;
       return seg;
     });
-    return { segs, total: Math.max(x - GAP, 0) };
+    return { segs, total: Math.max(x - STRIP_GAP, 0) };
   }
 
   // Ribbon X is NOT linear time (widths are floored), so each whole hour is
@@ -2208,7 +2214,12 @@ import {
   // position at all — paint()'s existing per-call `seen`/removal sweep
   // handles that with no new code, same as any other departed element.
   let heightMode = (typeof window !== "undefined" && window.__fsHeightMode) || "tiered";
-  const STRIP_TILE_H = 30;
+  // Matches switcher.js's STRIP_HEIGHT_PX (34) so a tile fills the host's
+  // full height and sits flush on the strip's bottom edge (2026-08-24). At
+  // 30 the ribbon collapsed to 30px inside the 34px host and the leftover
+  // 4px painted as a black band under every tile — which stopped them
+  // reading as tabs, since a tab meets the edge it sits on.
+  const STRIP_TILE_H = 34;
   // Fixed pitch for the Chrome-order strip (spec §7c) — same idea as the
   // dormant cardLayout()'s CARD_STEP, just for .blk instead of .card. Not
   // duration-derived at all: a real Chrome tab bar doesn't widen a tab
@@ -2219,6 +2230,12 @@ import {
   // treatment) — narrower pitch since there's no label to reserve room
   // for, same favicon size as any other tile.
   const STRIP_PINNED_TILE_W = 30;
+  // The strip's own inter-tile gap, separate from the ribbon's shared GAP
+  // (2px) on purpose: GAP is time-geometry spacing that layout() also uses,
+  // while this is pure visual separation between categorical tiles. At the
+  // ribbon's 2px the 120px tiles butted together and read as one continuous
+  // bar rather than a row of tabs.
+  const STRIP_GAP = 6;
   // skipPaint (bug fix, spec §7c, 2026-08-22): switcher.js's expand()
   // flushes the active tab's in-progress visit (FS_FLUSH_CURRENT) AFTER
   // flipping to tiered, then calls its own fresh paintRibbon() once the
@@ -2592,6 +2609,13 @@ import {
       // can identify "this block represents a tab the user has open right
       // now" the same way .earned-high/.incomplete/.cut already work.
       el.classList.toggle("open-tab", !!s.e.isOpenTab);
+      // .active-tab (2026-08-24): the one currently-focused tab. Only ever
+      // set from the strip's own event list (stripEventsFromOpenTabs) —
+      // the tiered ribbon's blocks come from real finalized sessions, where
+      // "active" is not a property of a historical visit. Carries the
+      // high-contrast rim that .open-tab used to wear in the strip, where
+      // every tile is open and the mark distinguished nothing (timeline.css).
+      el.classList.toggle("active-tab", !!s.e.active);
       el.style.background = fill;
       // Sticks paint the border in their own fill — at 3px wide a 1px
       // outline IS the stick, so "borderless" means border = fill. Dormant

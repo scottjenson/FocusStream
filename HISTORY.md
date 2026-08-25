@@ -393,6 +393,15 @@ terse — write the entry there, then come back and add the one-line pointer.
   than Phase 2 polish, since this file's own premise makes the navigable
   ribbon the precondition for eviction. Phase 3 is gated (dry-run-vs-live
   answer + `eviction-fallback-tedium`), not merely unstarted.
+- **2026-08-24: §7i strip visual pass + `active` stops being broadcast** —
+  spec §7i (and §7's Data flow bullet, narrowed); `decisions/tabmanager.md`
+  ("Strip visual pass", "Active is a local fact"). Tile gap/height/ground/fill
+  retuned, the bright rim reassigned to the active tile in the strip (open
+  blocks keep it in the ribbon), and the flicker on clicking a tab traced past
+  two symptom-level fixes to the real cause: `active` was being broadcast to
+  every strip when each strip can derive it from its own `selfTabId`. Only
+  add/remove and title/favicon broadcast now; a tab switch causes zero
+  repaints.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

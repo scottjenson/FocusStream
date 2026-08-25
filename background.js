@@ -1027,7 +1027,12 @@ function toStripTab(tab, hostNames) {
     label: labelFor(tab, hostNames),
     favIconUrl: tab.favIconUrl || "",
     url: tab.url || "",
-    active: !!tab.active,
+    // `active` is deliberately NOT sent (2026-08-24). Whether a tab is
+    // focused is a fact about the BROWSER at one instant, and broadcasting it
+    // made every strip in the window repaint on every switch just to move a
+    // rim. Each strip marks its own tile instead (selfTabId, switcher.js):
+    // that tile is by definition the active one whenever the user can see
+    // that strip at all, so it is drawn once at mount and never changes.
     // pinned (strip-ordering rework, spec §7c): chrome.tabs.query already
     // returns tabs in Chrome's own strip order (pinned tabs first, by
     // Chrome's own construction) — passed straight through as array order,
@@ -1061,15 +1066,22 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   enqueue("switcher: onRemoved", () => broadcastTabsForWindow(removeInfo.windowId));
 });
 
-chrome.tabs.onActivated.addListener(({ windowId }) => {
-  enqueue("switcher: onActivated", () => broadcastTabsForWindow(windowId));
-});
+// onActivated no longer broadcasts (2026-08-24, Scott's rule: "the only
+// events that should be broadcast to the other tabs is adding or removing
+// tabs; the active tab should never change for that specific tab"). Focus is
+// not a fact the OTHER strips need — each one marks its own tile as active
+// (selfTabId, switcher.js), which cannot go stale. Broadcasting it meant a
+// single click repainted every strip in the window, and the repaint that
+// landed after the destination page became visible was the border flicker.
+// The session-lifecycle onActivated listener above is untouched.
 
-// Title/favicon/load-complete only — onUpdated fires far more often than
-// that (e.g. mid-load status churn) and the strip has nothing worth
-// repainting on those.
+// Title/favicon only — a tab's own label/icon changing is a genuine content
+// change other strips must show. `status: "complete"` was dropped from this
+// filter (2026-08-24): it carries no strip-visible information of its own,
+// fires right after a switch, and was the specific broadcast that repainted
+// the newly-visible strip.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.title === undefined && changeInfo.favIconUrl === undefined && changeInfo.status !== "complete") return;
+  if (changeInfo.title === undefined && changeInfo.favIconUrl === undefined) return;
   enqueue("switcher: onUpdated", () => broadcastTabsForWindow(tab.windowId));
 });
 
@@ -1116,8 +1128,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // event. sender.tab is set because switcher.js only ever runs in a real
   // tab's top frame.
   if (sender.tab?.windowId == null) return;
+  // selfTabId (2026-08-24): which tab this strip is in. `active` is a LOCAL
+  // fact — a strip marks its OWN tile, permanently — so it never needs to be
+  // told about focus changes elsewhere. See toStripTab's own note.
+  const selfTabId = sender.tab.id;
   Promise.all([chrome.tabs.query({ windowId: sender.tab.windowId }), getHostNames()]).then(([tabs, hostNames]) => {
-    sendResponse({ type: "FS_TABS_UPDATE", tabs: tabs.map((t) => toStripTab(t, hostNames)) });
+    sendResponse({ type: "FS_TABS_UPDATE", selfTabId, tabs: tabs.map((t) => toStripTab(t, hostNames)) });
   });
   return true; // keep the message channel open for the async sendResponse
 });

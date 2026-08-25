@@ -61,7 +61,8 @@ user-initiated action, not scored eviction.
   `onRemoved` / `onUpdated` / `onActivated` for session-lifecycle purposes;
   Phase 1 broadcasts that same event stream to the injected strip via
   `chrome.tabs.sendMessage` — event-driven, no polling (matches the
-  no-keepalive posture in §2).
+  no-keepalive posture in §2). **Narrowed 2026-08-24, see §7i:** only
+  add/remove and title/favicon changes broadcast now; focus changes do not.
 * **Switching:** a tile click posts `{type:'FS_SWITCH_TAB', tabId}` to the
   background, which calls `chrome.tabs.update(tabId,{active:true})`
   (+ `windows.update` if the tab is in a different window). The strip never
@@ -788,3 +789,39 @@ inspection; panning is navigation, and they are not simultaneous intents.
 Without this, a block hovered in the outer band slides out from under the
 cursor mid-tooltip. Precedent: `.zooming` already suspends transitions for a
 zoom gesture. Watch item: `pan-hover-suppression`.
+
+## 7i. Strip visual pass + broadcast narrowing (2026-08-24)
+
+Visual tuning of the collapsed strip, plus the messaging rule the border
+flicker turned out to be about. Reasoning: `decisions/tabmanager.md`,
+"Strip visual pass" and "Active is a local fact".
+
+**Visual (all strip-scoped, `heightMode: "uniform"` only — `TIER_FILL`/
+`TIER_RIM`/`PAGE_BG` are untouched and the tiered ribbon is unchanged):**
+* `STRIP_GAP` (6px) separates tiles, replacing reuse of the ribbon's shared
+  `GAP` (2px) — at 2px the 120px tiles butted together and read as one bar.
+* `STRIP_TILE_H` is 34, matching `switcher.js`'s `STRIP_HEIGHT_PX`. At 30 the
+  ribbon collapsed to 30px inside a 34px host and the leftover 4px painted as
+  a black band under every tile, which stopped them reading as tabs.
+* Strip ground is `#000` (via `#ribbon-wrap:has(#ribbon.uniform-height)`),
+  tiles are `#333`; open-tab corner radius 8px → 6px.
+* **The strip's rim is flat (`#3F3F46`), band-blind.** Band is a historical-
+  attention fact with no meaning in a tab bar where every tile is an open tab,
+  and the tier rims were nearly invisible against `#333` anyway.
+* **The active tile carries the bright rim; open blocks carry it in the
+  tiered ribbon.** The two rules are disjoint by `heightMode`, so the rim
+  means exactly one thing per view — "active" in the strip, "open" in the
+  ribbon (where §7f's shape mark needs an edge to be seen against).
+
+**`active` is a LOCAL fact, never broadcast.** `toStripTab` no longer sends
+it. Each strip is told its own `selfTabId` (in the `FS_GET_TABS` reply) and
+stamps `active: true` on that one tile at paint time — a strip marks itself,
+permanently, and cannot go stale: the tile it marks is the tab the user is
+looking at whenever that strip is visible at all.
+
+**Only add/remove and title/favicon broadcast to other tabs** (Scott's rule).
+The `switcher: onActivated` broadcast is deleted and `status: "complete"` is
+out of the `onUpdated` filter; both carried no strip-visible information and
+fired on every switch. The session-lifecycle `onActivated` listener is
+untouched — that is capture, not display. **A tab switch now causes zero
+repaints in any strip.**

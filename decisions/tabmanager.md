@@ -2185,3 +2185,72 @@ wall moving. Zoom clears it explicitly, being exactly the event that turns a
 wall back into open road. Both the stop and the latch predate the real
 vibration fix and were kept: not running a rAF loop against an edge is right
 regardless of what caused the shake.
+
+## Strip visual pass (2026-08-24)
+
+Prompted by an outside agent's redesign proposal for the strip. Most of it
+was written against a DOM that does not exist here — `.tab-bar`/`.tab`/
+`.is-active`, flexbox layout, a JS click handler toggling an active class —
+and several items would have undone working decisions: flexbox breaks the
+one-pipeline invariant (§7b) and the height animation that depends on
+absolute positioning; removing all borders removes §6's importance channel
+*and* §7f's shape-marking rim; a `#3b82f6` accent for "active" is exactly the
+second colour channel earned-HIGH's gold was reverted for; `flex: 1 1 180px`
+re-litigates `STRIP_TILE_W`'s fixed pitch. Adopted from it: the observation
+that the strip had **no active-tab cue at all**, which was a real gap.
+
+Kept the fixes strip-scoped rather than editing `TIER_FILL`/`TIER_RIM`/
+`PAGE_BG`: those serve the tiered ribbon and (for `PAGE_BG`) the container
+cut-out seam, and this was a tab-bar visual question, not an importance-
+encoding one.
+
+**The rim was reassigned rather than duplicated.** In the strip every tile is
+an open tab, so §7f's white "this is open" rim distinguished nothing there —
+it just made the row read as white-outlined boxes. Scoping that rim to the
+tiered ribbon freed it for the active tile, which is why "one rim, one
+meaning per view" fell out rather than needing a new channel. A CSS
+specificity trap on the way: both rim rules are `!important`, so source order
+does not decide between them — the two rules are now disjoint by `heightMode`
+(`:not(.uniform-height)` vs `.uniform-height`) so neither can shadow the
+other. The first version had a bare `.blk.active-tab` (0,2,0) losing to an
+ID-carrying ribbon rule (1,2,1), invisible only because both rims are
+currently the same colour.
+
+## Active is a local fact (2026-08-24)
+
+**Symptom:** clicking a tab flickered its border several times.
+
+**Two wrong fixes preceded the right one, both worth recording because each
+was a plausible-looking read of the same evidence.**
+
+*First:* a click fires 2-3 broadcasts (`onActivated`, then `onUpdated`/
+`status: "complete"`) with a session finalize landing between them; the
+finalize changes the outgoing tab's most-recent session, hence its score,
+band, and inline-written `borderColor`. `border-color` is not in `.blk`'s
+transition list, so each repaint snapped. Real, and the fix (pinning the
+strip's rim band-blind) was kept on its own merits — band is a historical-
+attention fact with no meaning in a tab bar. But it was treating a symptom:
+it made the churn invisible instead of stopping the repaint.
+
+*Second:* gating repaints on `document.hidden`, so an arriving strip paints
+while still hidden and is never redrawn on screen. This worked, but it was
+compensating for a broadcast that should not have existed. Deleted when the
+real fix landed.
+
+**The actual insight (Scott):** every tab has its own strip, and a strip's own
+tile is the active one *by definition* whenever the user can see that strip at
+all. So `active` is not something a strip needs to be told — it is a local
+fact, derivable from identity alone. `toStripTab` stops sending it; each strip
+learns its own `selfTabId` from the `FS_GET_TABS` reply and stamps that one
+tile at paint time. It cannot go stale, so there is nothing to resync.
+
+That collapses the messaging rule too: **only add/remove and title/favicon
+broadcast to other tabs.** Focus changes carried no information any *other*
+strip could use, and the `status: "complete"` broadcast carried none at all
+while firing right after every switch. A tab switch now causes zero repaints
+anywhere, which is why the visibility gate stopped earning its complexity.
+
+The general shape, worth remembering: **a fact that is derivable locally
+should not be broadcast.** Broadcasting it turns one user action into N
+repaints and creates a resync problem that then needs its own machinery
+(debouncing, visibility gating) to manage.
