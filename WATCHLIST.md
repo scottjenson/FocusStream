@@ -64,6 +64,19 @@ settled-by-silence/superseded, no specimen in weeks of real use; see
 HISTORY.md.)
 
 ### Assembly (merging, containers, fences)
+- **earned-high-pass-one-reach (2026-08-24):** extending earned-HIGH
+  atomicity to the raw-fragment pass (gated on URL change) is a real
+  widening of a guard, adopted on ONE specimen day — four back-to-back Meet
+  calls. Replay showed it reaches past the specimen: it also split an Aug 22
+  `gemini.google.com` container, accepted at the time as plausibly correct
+  but never confirmed. Watch for a same-host URL change that SHOULD stay one
+  event splitting in two — a doc moved between sections, a queue tool
+  advancing to the next item. If it fires, the likely response is the
+  "edge fragment" treatment the weak-bridge guard already needed
+  (2026-08-14): test the fragment actually touching the seam rather than the
+  assembled object's summed band. Re-measure with `testing/replay-rules.mjs`.
+  (Story + blast-radius table: `decisions/timeline_design.md`,
+  "Back-to-back same-host events".)
 - **meeting-mute-bridge (2026-07-24):** a meeting platform whose audible
   flag drops mid-gap (Chrome's hysteresis rides short silences, but a long
   mute would break continuity) fails the gap-audio bridge closed — two
