@@ -1,11 +1,57 @@
-# testing/ — Playwright verification harness
+# testing/ — verification harnesses
 
-Structural-regression tooling only. It answers "did this render correctly"
-(console errors, layout/overlap, tier heights, transforms applied) — it
-never answers "does this feel more browsable," which stays Scott's call.
+Two independent tools, different questions, no shared dependencies:
+
+| tool | question | needs |
+|---|---|---|
+| `screenshot-real-data.js` | did this RENDER correctly? | Playwright |
+| `replay-rules.mjs` | how many containers did this RULE change? | plain Node |
+
+Neither answers "does this feel more browsable," which stays Scott's call.
 Background/rationale: `../plans/stack-ribbon.md` Stage 0.
 
-Introduces this project's first `npm`/Node dependency (Playwright), scoped
+## replay-rules.mjs — assembly rule changes
+
+Runs the REAL pipeline (`dashboard/assembly.js` + `scoring.js` are pure ES
+modules with no DOM dependency) over a real `chrome.storage.local` export,
+and reports block/container counts per day plus exactly which containers
+changed. Imports the shipping modules directly, so it can never drift from
+what the dashboard renders.
+
+**The acceptance test it exists to serve:** a chaining-rule change must
+split the specimen while leaving the total block/container count nearly
+unmoved. A large increase means the rule is shattering containers
+elsewhere — the warning sign.
+
+```sh
+# 1. In the DASHBOARD console (not the ribbon — that's a content script
+#    with no chrome.storage.local access):
+#      var d = await chrome.storage.local.get(["sessions","lockIntervals"]);
+#      var slim = d.sessions.map(({pageText, ...s}) => s);
+#      copy(JSON.stringify({sessions: slim, lockIntervals: d.lockIntervals || []}));
+pbpaste > sessions.json
+
+# 2. Baseline BEFORE editing a rule, then again after:
+node replay-rules.mjs sessions.json
+node replay-rules.mjs sessions.json meet.google.com   # + per-block detail for one host
+```
+
+Record the baseline numbers before you edit — the harness reports whatever
+the current code does, so the comparison is yours to hold. For a true A/B
+in one run, gate the candidate on a `globalThis` flag inside `assembly.js`
+and add it to `VARIANTS` at the top of the script.
+
+Data only reaches back as far as the 7-day retention window (spec §2), so
+specimens older than a week cannot be replayed.
+
+**Known-good reference** (2026-08-24, 1888 sessions / 8 days): 389 blocks /
+185 containers before the back-to-back-Meet rules, 394/187 after — see
+`../decisions/timeline_design.md`, "Back-to-back same-host events", for the
+full blast-radius table this harness produced.
+
+## screenshot-real-data.js — Playwright render check
+
+Introduces this project's only `npm`/Node dependency (Playwright), scoped
 entirely to this directory — the extension itself stays a no-build-step
 vanilla JS extension (CLAUDE.md). Nothing here ships in the extension.
 

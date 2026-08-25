@@ -2,3 +2,4 @@
 testing/node_modules/
 testing/package-lock.json
 testing/dashboard-real-data.png
+testing/*.json

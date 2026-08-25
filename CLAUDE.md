@@ -56,6 +56,16 @@ checklist at the top of `HISTORY.md` before appending there.
   the worker console. The dashboard's **Score table** button scores every session with
   the live §6 formula (`window.FS_SCORING`, exported by timeline.js — single source of
   truth) and copies TSV — the tool for threshold/weight tuning sessions.
+- **Before changing an assembly rule (chaining, merging, containers), replay it
+  against real data:** `testing/replay-rules.mjs` runs the actual pipeline
+  (`dashboard/assembly.js` is a pure ES module) over an exported
+  `chrome.storage.local` dump and reports how many containers changed and
+  which ones. Plain Node, no dependencies; usage in `testing/README.md`.
+  The standing acceptance test is that the specimen splits while the total
+  block/container count barely moves — **a large increase means the rule is
+  shattering containers elsewhere.** Reaches back only as far as the 7-day
+  retention window. Worked example: `decisions/timeline_design.md`,
+  "Back-to-back same-host events".
 - **The timeline is the PRIMARY view** see SPEC.md §5 for
   the intent/duration rules this stance motivates.
 
