@@ -388,13 +388,17 @@ labels"; the watch no longer describes current behavior.)
   worst case at six loads total, which may simply never be a problem. Scott
   reported "an occasional glitch or a stutter" during 2026-08-24 testing,
   not chased at the time — this is the first suspect if it persists.
-- **pan-hover-suppression (2026-08-24, §7h):** §7h has
-  panning suppress tooltips/`cardHoverText`/gap plates outright, on the
-  argument that navigation and inspection are not simultaneous intents. The
-  risk is the converse: the outer bands are where panning lives, so any
-  block reachable only by panning to it becomes inspectable only after
-  returning the cursor to the dead zone — which may read as the ribbon
-  refusing to explain itself exactly where the user is hunting. Watch for:
-  chasing a block toward centre just to read its tooltip. Candidate
-  response: suppress only while the rate is above some floor, so the slow
-  inner band stays inspectable.
+- **pan-hover-suppression (2026-08-24, §7h; core complaint FIRED and fixed
+  2026-08-25, narrowed doubt kept):** the original worry — the outer bands
+  are where panning lives, so a block reachable only by panning becomes
+  inspectable only after returning the cursor to the dead zone — fired
+  immediately and worse than written: suppression was keyed to cursor
+  POSITION, so merely RESTING in the ramp killed hover with nothing moving,
+  which at the right-wall rest position is most of the time. Fixed by
+  gating `.panning` on actual whole-pixel motion (§7h, `decisions/
+  tabmanager.md` "Hover suppression was keyed to cursor POSITION").
+  **Still open, narrower:** whether suppression during a genuinely slow
+  real pan also grates. The original candidate response (suppress only
+  above a rate floor) was never tested — motion-gating made it moot for the
+  reported bug — and remains the response if it does. Watch for: chasing a
+  block toward centre to read its tooltip *while actually panning*.

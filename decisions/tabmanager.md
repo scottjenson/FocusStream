@@ -2254,3 +2254,33 @@ The general shape, worth remembering: **a fact that is derivable locally
 should not be broadcast.** Broadcasting it turns one user action into N
 repaints and creates a resync problem that then needs its own machinery
 (debouncing, visibility gating) to manage.
+
+## Hover suppression was keyed to cursor POSITION, not motion (2026-08-25)
+
+`startPan()` raised `.panning` — which the `pointerover` handler
+early-returns on — the moment the cursor entered the ramp, so hover died
+across the outer quarter of the viewport whether or not anything moved, and
+worst at the right-wall rest position where the pump clamps without
+travelling. Reported as "hover sometimes fires": no per-block pattern
+because the state was never about blocks. Now gated on a frame moving whole
+pixels, the same evidence bar the wall latch uses. The JS `panning` flag
+(loading's proximity arm) still sets on intent — only the CSS class moved.
+
+Resolves `pan-hover-suppression`'s core complaint, but not via its proposed
+rate floor: the bug was that NOT panning counted as panning. Rate floor
+stays open for real slow pans.
+
+Found in the same pass: `.inert` (§7e) never worked — `paint()`'s inline
+`pointer-events: auto` beats any stylesheet rule, so every sub-`MIN_W`
+sliver stayed hoverable since it shipped. The floating quick label retires
+in the overlay as redundant with §7b's `.blk-label`, scoped by `anchorMode`
+so the standalone dashboard (still running `.rtitle`) keeps it.
+
+### First turn of the dead-zone knob (2026-08-25)
+
+`PAN_DEAD_FRAC` 0.5 → 0.667 — panning fired while still reading. First
+possible play-test of this knob: resting in the ramp used to cost you hover,
+so its width had never been judged. Curve and max rate untouched —
+`panRateFor` renormalizes the band, so a narrower ramp reaches the same top
+speed over a shorter distance. If it now feels too steep, `PAN_CURVE` is the
+next knob.

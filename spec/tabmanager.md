@@ -89,291 +89,144 @@ Scoring/band on tiles, scored auto-eviction (Phase 3), and how a closed tab
 folds into an existing historical container (Phase 4). Full roadmap and
 reasoning: `decisions/tabmanager.md`.
 
-## 7b. Animated Open-Tabs View (Phase 2, built 2026-08-22, rebuilt three times same week — see `decisions/tabmanager.md` for the prior architectures this superseded, most recently "Open-tabs/history unification")
+## 7b. Animated Open-Tabs View (Phase 2, 2026-08-22)
 
-**Core model, UNIFIED (2026-08-22):** there is exactly ONE ribbon pipeline
-— `render()` → `assembleThreads()` → `clusterEvents()` → `layout()` →
-`paint()`/`.blk`, `dashboard/timeline.js`'s pre-existing "Classic view"
-(genuinely time/tier-reactive; NOT `paintCards()`/`.card`, confirmed
-zoom-inert — `decisions/tabmanager.md` "Retargeted mid-build"). Every open
-tab is a genuine, session-SHAPED entry spliced into the same array as the
-day's real finalized sessions and run through this one pipeline — same
-container/thread/tier treatment as any closed visit, keyed by
-`assembleThreads()`'s own scheme once it runs. **There is no separate
-open-tabs geometry, assembly, or draw function anymore** — the earlier
-hyperlocal, `tabId`-keyed side-pipeline (`openTabSegsBase`/
-`layoutStripGeom`/`layoutRibbonGeom`/`drawOpenTabSegs`) is retired; it's
-why zoom never worked (see below). `decisions/tabmanager.md` "Open-tabs/
-history unification."
+Reasoning, and the three architectures this replaced: `decisions/tabmanager.md`,
+"Open-tabs/history unification".
+
+**One pipeline.** `render()` → `assembleThreads()` → `clusterEvents()` →
+`layout()` → `paint()`/`.blk` serves both states. Every open tab is a
+session-shaped entry spliced into the same array as the day's finalized
+sessions and gets the same container/thread/tier treatment as any closed
+visit. There is no separate open-tabs geometry, assembly, or draw function.
 
 **Right-anchored to "now":** the overlay sets `window.__fsTimelineAnchor =
-"right"` (scaffolding that existed since 2026-08-21 but was unused until
-this rework) — today's open tabs sit at the ribbon's right edge, with real
-closed history to their left, revealed by zooming/panning out. The
-standalone dashboard is unaffected (defaults to `"left"`, unchanged).
+"right"` — today's open tabs at the right edge, closed history to their left.
+The standalone dashboard defaults to `"left"`.
 
-**Collapsed vs. expanded is a HEIGHT-ONLY toggle, not a geometry system:**
-`heightMode` (`"uniform"` | `"tiered"`, `timeline.js`, set via
-`window.__fsHeightMode` at module-init and `setHeightMode()` afterward) is
-read only inside `paint()`'s own per-seg height calculation:
-* `"uniform"` (collapsed): every top-level block forces `STRIP_TILE_H`
-  (30px) regardless of band — tier shows via fill/border color only, like
-  a real Chrome tab strip. Contained children are skipped entirely (no
-  room, no need at rest). `#ribbon`'s own frame collapses to exactly
-  `STRIP_TILE_H`, no title/axis reservation. No hover chrome of any kind
-  (tooltip, quickLabel, `:hover` brightness) — `dataset.tip`/`_tipData`
-  are deleted on every block while uniform, and `.blk:hover` is scoped to
-  `#ribbon:not(.uniform-height)`. Mouse-wheel zoom is also disabled while
-  uniform (see below).
-* `"tiered"` (expanded): the historical three-height (`TIER_H`) behavior,
-  contained children visible, full title/axis frame, hover chrome active.
+**Collapsed vs. expanded is HEIGHT ONLY.** `heightMode` (`"uniform"` |
+`"tiered"`, set via `window.__fsHeightMode` / `setHeightMode()`) is read only
+in `paint()`'s per-seg height calculation. Horizontal geometry (`x`/`w`,
+`PX_PER_SEC`/zoom) is deliberately not part of it (Scott, 2026-08-22: "expand
+does not change the zoom level... only vertical reveal"), so expand/collapse
+changes only `top`/`height` and the existing CSS transition animates it free.
+* `"uniform"`: every top-level block forces `STRIP_TILE_H` regardless of
+  band; contained children skipped; no title/axis frame; no hover chrome at
+  all (`dataset.tip`/`_tipData` deleted per block, `.blk:hover` scoped to
+  `#ribbon:not(.uniform-height)`); wheel zoom disabled.
+* `"tiered"`: three-height `TIER_H` behavior, contained children visible,
+  full frame, hover chrome active.
+* Collapsing resets `scrollLeft` to the right-anchored resting edge, so a
+  strip scrolled into history returns to today's tabs. Zoom LEVEL survives.
 
-**Horizontal geometry (`x`/`w`, `PX_PER_SEC`/zoom) is NOT part of
-`heightMode` on purpose** (Scott, 2026-08-22: "expand does not change the
-zoom level... only vertical reveal, not two-dimensional"). Expand/collapse
-therefore only ever changes each `.blk`'s `top`/`height` — its existing
-CSS transition (`timeline.css`) animates that for free, same free-
-animation mechanism as every prior architecture here, just now backed by
-the real pipeline instead of a parallel one. Zoom is the ribbon's own
-pre-existing wheel handler, independent of expand/collapse, and now
-actually works (previously dead — see "Why zoom was dead" below):
-* Gated to only respond while `heightMode === "tiered"` (Scott: "zoom
-  only works once expanded") — collapsed stays a clean, static, non-
-  interactive-beyond-click strip. Naturally a no-op distinction on the
-  standalone dashboard, which never sets `__fsHeightMode` and is always
-  `"tiered"`.
-* Collapsing resets `#ribbon-wrap`'s `scrollLeft` back to the right-
-  anchored resting edge (`setHeightMode`) — if the user zoomed/panned into
-  history while expanded, collapsing reliably shows today's open tabs
-  again rather than leaving the (now very short) strip scrolled into old
-  content. Zoom LEVEL itself is untouched by collapsing — resuming the
-  same zoom on re-expand is the default.
-
-**Open tabs as synthetic sessions (`syntheticSessionsForOpenTabs`,
-`timeline.js`):** for each open tab, one session-shaped record — real
-`id` (`"open:"+tabId`, stable across repaints), `startTime` (from the
-tab's most recent finalized session when one exists, else `now`),
-`endTime: Date.now()` **re-set on every repaint**, so `durMs` grows
-naturally and the record continues clearing `parseSessions()`'s
-`endTime`-in-viewed-day filter for as long as the tab stays open. Carries
-`isOpenTab: true` and `incomplete` (true only when there's no prior
-finalized session at all — a genuinely brand-new tab; a tab WITH prior
-history is scored on its real merits like ordinary data, not forced LOW —
-narrower than the retired pipeline's "every open tab is incomplete until
-finalized" rule). Not written to `chrome.storage.local` — display-only,
-spliced into the array `render()` assembles; `background.js`'s
-finalize-only write contract for real `sessions` is untouched.
-
-* **`isTransit` applies uniformly, no bypass** (Scott, 2026-08-22): a
-  synthetic record for a JUST-opened tab can clear the 10s transit floor
-  on a later repaint as long as the tab stays open — a tab closed within
-  10s was never going to be visible for this conversation to matter, so
-  the edge case doesn't need special-casing.
+**Open tabs are synthetic session-shaped records** (see §7c for the current
+producer): `id` `"open:"+tabId`, `endTime` re-set every repaint so `durMs`
+grows, `isOpenTab: true`. Display-only — never written to
+`chrome.storage.local`; `background.js`'s finalize-only write contract is
+untouched.
+* **`isTransit` applies uniformly, no bypass** (Scott, 2026-08-22).
 * **`isOpenTab`/`openTabId` propagate through merges and containers**
-  (`assembly.js`'s `mergeVisits`/container-building, both OR-of-members —
-  same convention as `scrollable`): a container that includes a currently-
-  open tab, directly or via an already-merged fragment, still switches to
-  the real tab on click rather than opening a duplicate. `openTabId`
-  (not the container's own possibly-`undefined` `tabId`) is what the
-  click handler reads, since a merge can span tabs.
-* **Open tabs never fence-collapse** (`clusterEvents`, Scott's call,
-  2026-08-22): a LOW-band run only fences when `!event.isOpenTab` — a tab
-  the user can still switch to right now must never disappear into a tiny
-  non-clickable stick just because it currently scores LOW. Same
-  precedent as the card view's fence retirement (`plans/stack-ribbon.md`),
-  scoped here to `isOpenTab` only, not global.
-* **`OPEN_TAB_MIN_W` (96px) — RETIRED 2026-08-23, see §7e.** Open tabs now
-  take the ordinary `MIN_W` floor and show honest duration like every other
-  block. They keep their exemption from the band-drop filter (a tab reachable
-  right now stays visible whatever it scored), but no longer get extra width
-  for it.
+  (`assembly.js`, OR-of-members, same convention as `scrollable`) — so a
+  container holding an open tab switches to it rather than duplicating it.
+  The click handler reads `openTabId`, since a merge can span tabs.
+* **Open tabs never fence-collapse** (Scott, 2026-08-22): a tab reachable
+  right now must not vanish into a non-clickable stick for scoring LOW.
 
-**Why zoom was dead before this rework:** the retired open-tabs pipeline
-never called `render()`/`assembleThreads()` at all, so `lastAssembly` (what
-the zoom wheel handler's `relayout()` repaints from) was never populated in
-the overlay's context — the wheel math fired correctly, `relayout()`
-just had nothing real to redraw. Routing open tabs through the real
-`render()` pipeline fixes this as a side effect, not a separate patch.
+**Shadow-root hosting.** `switcher.js` mounts one `#fs-switcher-host` whose
+height animates between `STRIP_HEIGHT_PX` and the painted content height
+(`ResizeObserver` on `#ribbon`). Requirements that are easy to break:
+* A real `<body>`-tagged element as the shadow root's one child, `height:
+  100%` — `timeline.css` styles `body`, and a shadow root has no implicit one.
+* `#ribbon-wrap` padding overridden to `0` in this copy only.
+* `#ribbon`/`#ribbon-wrap`/`#ribbon-empty`/`#week-strip` are the only IDs
+  `timeline.js` looks up; `week-strip` exists solely because
+  `renderWeekStrip()` looks for it, hidden by attribute AND inline
+  `display: none` (the stylesheet's ID selector beats the `hidden` UA rule).
+* **DOM-root parameterization:** `timeline.js`'s `document.getElementById`
+  call sites go through `qs()`/`rootContainer()`, reading
+  `window.__fsTimelineRoot` at MODULE-INIT (several elements are created in
+  the top-level IIFE, before any render call). One render path, two hosts.
+* **Module loading:** `switcher.js` dynamic-`import()`s the ES modules (MV3
+  content scripts can't be `"type": "module"`), `shared/transit.js` first
+  since `assembly.js`/`timeline.js` read its `window.FS_TRANSIT` side-effect.
+  All declared in `web_accessible_resources` with `dashboard/timeline.css`.
+* **CSS delivery:** one `dashboard/timeline.css`, linked by the standalone
+  dashboard and fetched/injected into this shadow root.
 
-* **One host, one shadow root, one `<body>`:** unchanged from the prior
-  architecture — `switcher.js` mounts a single `#fs-switcher-host` (fixed,
-  top of viewport, same placement rule as Phase 1 below), whose height
-  itself animates (CSS `transition: height`) between `STRIP_HEIGHT_PX`
-  (34px) and the real content height of whatever's painted (`ResizeObserver`
-  on `#ribbon`, ratcheted to at least 34px). A real `<body>`-tagged element
-  is the shadow root's one child, with `height: 100%` (2026-08-22 fix —
-  `timeline.css`'s `#ribbon-wrap` sets its own `height: 100%`, which
-  resolved against nothing and collapsed the whole ribbon invisible
-  without this) — required because `timeline.css`'s base rule is `body {
-  font-family/background/color/color-scheme }`; a shadow root has no
-  implicit `body`, and without a real one every element silently fell back
-  to browser default (serif) styling — first-run bug, fixed 2026-08-21.
-* **`#ribbon-wrap` padding overridden to `0`** in this shadow-root copy
-  only (2026-08-22 fix): the shared stylesheet's `padding: 8px 16px`,
-  fine on the full dashboard page, ate most of a 30-34px collapsed strip.
-* **`#ribbon`/`#ribbon-wrap`/`#ribbon-empty`/`#week-strip`** are the only
-  IDs `timeline.js`'s DOM lookups need — `week-strip` exists (permanently
-  `hidden` via both the attribute AND an explicit inline `display: none`,
-  2026-08-22 fix — the stylesheet's `#week-strip { display: flex }` ID
-  selector otherwise beats the `hidden` attribute's own low-specificity
-  UA rule) only because `renderWeekStrip()` unconditionally looks it up;
-  day-paging/the week picker are otherwise entirely absent from this view
-  and untouched in the standalone dashboard.
-* **DOM-root parameterization:** `timeline.js`'s ~18 `document.getElementById`
-  call sites (plus tooltip's `document.body.appendChild`) are indirected
-  through `qs()`/`rootContainer()`, reading `window.__fsTimelineRoot` at
-  MODULE-INIT time (set synchronously before `import()`, since several
-  elements — the tooltip, quick-label — are created at top-level IIFE
-  execution, before any render call). Lets the identical render code work
-  against `document` (standalone dashboard, unchanged) or this shadow
-  root.
-* **Module loading:** `timeline.js`/`scoring.js`/`assembly.js` are ES
-  modules; MV3 content scripts can't declare `"type": "module"`.
-  `switcher.js` loads them via dynamic `import()` on mount. `shared/
-  transit.js` is imported explicitly first, since `assembly.js`/
-  `timeline.js` read its `window.FS_TRANSIT` global side-effect rather
-  than a named export. All four files declared in `manifest.json`'s
-  `web_accessible_resources`, alongside `dashboard/timeline.css`.
-* **CSS delivery:** `dashboard/index.html`'s inline `<style>` block lives
-  in `dashboard/timeline.css`, linked normally by the standalone dashboard
-  and fetched/injected into this shadow root's own `<style>` (shadow DOM
-  doesn't inherit light-DOM stylesheets). One source of truth for ongoing
-  visual tuning, both consumers.
-* **Block label:** always-on, clipped domain/site-name label on every
-  `.blk` (favicon unchanged — `.blk` already draws one). Not hover-gated.
-  Side-by-side with the favicon (not stacked/bottom-anchored) while
-  `#ribbon.uniform-height` — the historical stacked favicon-top-left +
-  label-bottom-left arrangement applies once tiered (plenty of room
-  there).
-* **Click:** an `isOpenTab` seg always posts `{type:'FS_SWITCH_TAB',
-  tabId: openTabId}` — never `chrome.tabs.create` (the historical
-  ribbon's own click behavior for ordinary closed-history segs, which
-  would wrongly duplicate an already-open tab).
-* **Background:** one shared dark ground (`body`'s `#14161a`,
-  `timeline.css`) for both height modes — not part of what animates.
-* **Toggle:** dedicated `expandBtn`/`collapseBtn` carets (top-right,
-  mutually exclusive visibility) — not a click-anywhere-on-background
-  listener (that fired on nearly every click, since blocks are narrow and
-  the bar spans the full viewport). Escape also collapses.
+**Block label:** always-on `.blk-label` on every `.blk`, one unconditional
+rule — top-anchored, side-by-side with the favicon, identical in both
+`heightMode`s (expand changes height only, never label position).
 
-**Block label position, fixed 2026-08-22:** `.blk-label` is one
-unconditional rule — top-anchored, side-by-side with the favicon — the
-same in both `heightMode`s. (Previously only correct while
-`uniform`, via a height-scoped override; expanding to `tiered` visibly
-dropped the label to the block's bottom edge, since the override no
-longer applied — expand must change height only, never label position.)
+**Persistent run-title (`.rtitle`) suppressed here** (2026-08-22): redundant
+with `.blk-label` plus the hover tooltip. Gated on `anchorMode === "right"`;
+the standalone dashboard keeps it. The floating quick label retired the same
+way on 2026-08-25 (§7h).
 
-**Persistent run-title (`.rtitle`) suppressed in this view, 2026-08-22:**
-every block here already carries its own always-on `.blk-label` plus the
-existing hover tooltip/snapshot; the separate floating "HIGH-run title"
-bar (spec §6, pre-existing, unrelated to Phase 2) is pure duplication on
-top of both — true for real closed history same as for open tabs, not an
-open-tab-specific issue. Suppressed whenever `anchorMode === "right"`
-(this overlay); the standalone dashboard (`anchorMode === "left"`) is
-unaffected, keeping `.rtitle` as its one on-face title mechanism.
+**Click:** an `isOpenTab` seg posts `{type:'FS_SWITCH_TAB', tabId:
+openTabId}` — never `chrome.tabs.create`, which would duplicate an open tab.
 
-### Deferred (Phase 2)
-Multi-day/unbounded zoom-out beyond what real stored history covers;
-scored auto-eviction (Phase 3); active→historical reconciliation beyond
-what this unification already gives for free (Phase 4, may now be largely
-subsumed — an open tab already IS a real thread/container member, not a
-separate thing needing to "fold in" later). `decisions/tabmanager.md`.
+**Toggle:** dedicated `expandBtn`/`collapseBtn` carets, top-right; Escape
+also collapses. Not a click-anywhere listener (blocks are narrow, the bar
+spans the viewport, so it fired on nearly every click).
 
-## 7c. Strip ordering + ribbon default window (built 2026-08-22, corrected through 2026-08-23)
+## 7c. Strip ordering + ribbon default window (2026-08-22)
 
-Corrects 7b's `now`-anchoring, which conflated "currently open" (a
-Chrome-level fact) with "recently attended" (a telemetry fact) — a pinned
-tab idle for hours rendered identically to one just switched into,
-always glued to the ribbon's right edge, and (worse, found later)
-fabricated multi-hour durations for tabs whose real attention was brief.
-Full reasoning, every rejected alternative, and the full real-bug trail
-are in `decisions/tabmanager.md` under "Strip ordering rethink" and its
-several follow-on entries — this section states only the current, live
-rules.
+Separates "currently open" (a Chrome fact) from "recently attended" (a
+telemetry fact) — 7b's original `now`-anchoring conflated them. The bug
+trail and every rejected alternative: `decisions/tabmanager.md`, "Strip
+ordering rethink", "Strip data source", "Strip scroll-justify was
+backwards", "applyDefaultZoomWindow's one-shot fired at the wrong moment".
 
-**Strip (`heightMode: "uniform"`) is built directly from the live open-tab
-list, bypassing the day-filtered ribbon pipeline entirely**
-(`stripEventsFromOpenTabs`, reading `lastOpenTabs`/`lastSessions` set by
-`FS_renderOpenTabs`) — categorical Chrome order, not temporal, and NOT
-scoped to today: an open tab whose last real activity was yesterday (or
-never) still gets a tile. (Earlier version built the strip from
-`assembleThreads(parseSessions(sessions, viewDayStart)).filter(isOpenTab)`
-— the same day-filtered array the ribbon uses — which silently dropped
-any open tab whose most recent real session wasn't from today; real
-specimen: 3 of 4 pinned tabs and 1 of 6 regular tabs vanished.) Each
-tile's `band`/`score` come from real prior evidence when it exists (LOW
-otherwise — nothing earned yet, not a guess); `tabIndex` is the tab's
-real position in `chrome.tabs.query`'s own order (pinned tabs first, by
-Chrome's own construction) and is what `stripLayout()` (fixed pitch,
-`STRIP_TILE_W`/`STRIP_PINNED_TILE_W`, no time math — modeled on the
-dormant `cardLayout()`) sorts by. **Pinned tabs are icon-only, no label**
-— matches real Chrome's own pinned-tab treatment. **The strip's resting
-scroll position is ALWAYS the left edge** (`scrollLeft: 0`, both on
-render and on collapse) — a real Chrome tab bar never hides its first
-(pinned) tabs; an earlier version right-justified uniform mode too
-(reasoning at the time, wrong: "Chrome-order rightmost slot is always
-correct"), which scrolled pinned tabs off-screen by default.
+**The strip is built directly from the live open-tab list, bypassing the
+day-filtered ribbon pipeline** (`stripEventsFromOpenTabs`, reading
+`lastOpenTabs`/`lastSessions`). Categorical Chrome order, not temporal, and
+NOT scoped to today: an open tab last active yesterday, or never, still gets
+a tile.
+* `band`/`score` come from real prior evidence when it exists, LOW otherwise
+  (nothing earned yet — not a guess).
+* `tabIndex` is the tab's real position in `chrome.tabs.query` order (pinned
+  first, by Chrome's construction); `stripLayout()` sorts by it at fixed
+  pitch (`STRIP_TILE_W`/`STRIP_PINNED_TILE_W`, no time math).
+* **Pinned tabs are icon-only, no label** — matches real Chrome.
+* **Resting scroll is ALWAYS the left edge** (`scrollLeft: 0`, on render and
+  on collapse): a real tab bar never hides its first pinned tabs.
 
-**Ribbon (`heightMode: "tiered"`) shows only real, already-finalized
-session data — no fabricated timing of any kind.** `markOpenTabs`
-(replaces the retired `syntheticSessionsForOpenTabs`) tags a real,
-already-finalized session in place (`isOpenTab`/`openTabId`/`tabIndex`/
-`pinned`, shallow copy, never mutating the original) when one exists for
-an open tab; only a tab with ZERO real history anywhere gets a genuinely
-new placeholder, `durMs: 0`, anchored at `now`. (Earlier version computed
-`durMs = now - priorStartTime` for EVERY open tab, real specimen: an
-85-second real bsky visit at 2:49pm rendered as a 2.5-hour-wide block by
-5pm — `durMs` measures "time since last visit began," not attention,
-violating spec §1's "activity is the sole proxy for importance." It also
-duplicated data: a separate synthetic object for a tab that already had a
-real session in `sessions`, with no dedup.) **The currently-focused tab's
-in-progress visit is flushed into real `sessions` before the ribbon
-paints** (`FS_FLUSH_CURRENT` message, `background.js` — same
-`finalizeCurrent`/`startSession` pair `chrome.tabs.onActivated` already
-uses on a real tab switch, same `endReason: "tab_hidden"` too, deliberately
-reused rather than inventing a new reason so the well-tested departure/
-return container-qualification logic in `detectContainers` needs no
-changes at all) — every OTHER open tab was already finalized the moment
-the user switched away from it, so only the actively-focused tab could
-ever have lagged, and only until this flush or the next real boundary.
+**The ribbon shows only real, already-finalized session data — no fabricated
+timing of any kind.** `markOpenTabs` tags a real finalized session in place
+(`isOpenTab`/`openTabId`/`tabIndex`/`pinned`, shallow copy, never mutating
+the original). Only a tab with ZERO real history anywhere gets a placeholder,
+`durMs: 0`, anchored at `now`. Deriving a duration from "time since last
+visit began" measures the wrong thing and violates §1's "activity is the sole
+proxy for importance".
 
-Defaults on first real expand to a **last-`DEFAULT_WINDOW_BLOCKS` (12)
-top-level-blocks lookback** (a container counts as one block; no
-fence-detection or secondary adjustment — deliberately the simplest
-version). Computed via two real `layout()` passes
-(`windowScrollLeft`/`applyDefaultZoomWindow`, both O(n), no search) — NOT
-a time-span estimate (an early cut used `spanMs × BASE_PX_PER_SEC`, which
-`ZOOM_MAX` clamping and min-width-floor/gap error could silently blow
-past). Gated to fire only on a `heightMode === "tiered"` render — the
-overlay's very first `render()` call happens at page MOUNT while still
-collapsed (`switcher.js` paints once on load), and the one-shot gate
-(`defaultZoomApplied`) was being spent there uselessly before an earlier
-fix added this gate. `switcher.js`'s `expand()` also calls
-`setHeightMode("tiered", true)` (the new `skipPaint` param) instead of
-letting it paint immediately — expand() flushes (above) THEN does its own
-single fresh render, and letting `setHeightMode` paint first, before the
-flush's data existed, meant the zoom calc locked onto a smaller dataset
-than what actually painted moments later. Applied once per page lifetime;
-every later render falls back to the ordinary right-justify (tiered mode
-only) so a manual zoom/scroll is never fought.
+**The focused tab's in-progress visit is flushed into real `sessions` before
+the ribbon paints** (`FS_FLUSH_CURRENT`, `background.js`) — the same
+`finalizeCurrent`/`startSession` pair and `endReason: "tab_hidden"` that
+`chrome.tabs.onActivated` already uses, deliberately reused so
+`detectContainers`' departure/return logic needs no changes. Every other open
+tab was already finalized when the user switched away, so only the focused
+tab can lag.
+
+**First expand defaults to a `DEFAULT_WINDOW_BLOCKS` (12) top-level-block
+lookback** (a container counts as one). Computed via two real `layout()`
+passes (`windowScrollLeft`/`applyDefaultZoomWindow`, O(n)), never a time-span
+estimate — `ZOOM_MAX` clamping and min-width/gap error can silently blow past
+one. Fires only on a `tiered` render (the overlay's first `render()` happens
+at mount while still collapsed) and once per page lifetime; later renders
+right-justify normally so a manual zoom is never fought. `switcher.js`'s
+`expand()` passes `skipPaint` so the flush lands before the zoom calc reads
+the dataset.
 
 **Fences are retired entirely in this view** (`clusterEvents`, gated on
-`anchorMode !== "right"`) — not just for open tabs (7b's original,
-narrower exemption) but for real closed history too, matching the
-card-view's own prior fence retirement (`plans/stack-ribbon.md`). The
-standalone dashboard's fencing (spec §6) is unchanged.
+`anchorMode !== "right"`) — for real closed history as well as open tabs,
+matching the card view's own fence retirement (`plans/stack-ribbon.md`). The
+standalone dashboard's fencing (§6) is unchanged.
 
-**Animation is intersection-only:** a tab animates strip→ribbon only if
-it has a valid position under the ribbon's current zoom/scroll; a tab
-outside that window simply isn't part of the tiered paint pass — no
-fade-out, no edge-pinned placeholder (considered, rejected). Nothing about
-a stale tab's real reachability changes: it's still fully present in the
-strip (Chrome order, any day) and in the ribbon once zoomed/scrolled to
-its real time position, same as any historical event.
-
-**Deferred, not started:** real cross-day zoom-out for the ribbon
-(reintroducing multi-day data into a view that currently loads only one
-day's `sessions`) — a separate, bigger discussion.
+**Animation is intersection-only:** a tab animates strip→ribbon only if it
+has a position under the ribbon's current zoom/scroll. A tab outside that
+window isn't part of the tiered paint — no fade-out, no edge-pinned
+placeholder. Its reachability is unchanged: still in the strip (Chrome order,
+any day) and in the ribbon once scrolled to its real time position.
 
 ## 7d. Ribbon zoom anchors right (built 2026-08-23)
 
@@ -526,7 +379,12 @@ regardless of score, capping the view at `viewport / MIN_W` ≈ 215 blocks at
 *any* zoom. Re-enabling fences was measured as the alternative and rejected
 — +0.46 days in exchange for 111 blocks made hover-only
 (`decisions/tabmanager.md`, "Fence retirement re-tested"). Blocks narrower
-than `MIN_W` lose hover (`.inert`): a 1-4px target is worse than none.
+than `MIN_W` lose hover: a 1-4px target is worse than none. **Enforced
+inline since 2026-08-25** — the `.inert` class carrying this in
+`timeline.css` was silently defeated from the day it shipped by `paint()`'s
+own inline `pointer-events: auto` write (inline beats any stylesheet rule),
+so every sliver stayed hoverable at every zoom. The width condition now sits
+in that inline write; the class stays as documentation of the intent.
 
 **Measured reach: 6 days** (was 3 before the ladders, ~1.75 before
 cross-day). All ladder thresholds, `ZOOM_MIN` (0.25, was 0.5) and
@@ -547,93 +405,43 @@ block as open is a VISUAL job (the `.open-tab` class), not a geometric one;
 the visual treatment that replaces the width cue is not yet designed and is
 tied to the pending strip→ribbon animation rework.
 
-## 7f. Open-tab marking + score-based eviction (marking BUILT 2026-08-23; eviction NOT built)
+## 7f. Open-tab marking (built 2026-08-23)
 
-The **marking half is built**. The **eviction half (score-based eviction and
-the grace slot) is design only** — it is Phase 3, gated behind
-`decisions/tabmanager.md`'s standing rule that dry-run-vs-live needs a real
-answer before any `chrome.tabs.remove()` ships, and `WATCHLIST.md`'s
-`eviction-fallback-tedium` blocking condition. Everything below about
-eviction is proposal; everything about marking is current truth.
-
-Resolves the gap left by `OPEN_TAB_MIN_W`'s retirement (§7e), which removed
-the width cue marking a block as open and deliberately left no replacement.
-
-**Correction, same day, from building it:** shape alone was invisible. The
-first cut shipped `border-radius` only and showed nothing in either view,
-because `paint()` inline-writes `borderColor` from `TIER_RIM[band]` on every
-repaint and the LOW/MEDIUM rims sit very close to their own fills — there
-was a correctly-rounded border with nothing visible to round. Open blocks
-therefore also take a high-contrast rim (`rgba(255,255,255,0.85)`,
-`!important` to beat the inline write) with a transparent bottom edge so the
-tab sits on the baseline. Shape still does the identifying; the rim only
-gives the shape an edge to be seen against.
+Eviction (Phase 3) is designed but NOT built, and its design lives only in
+`decisions/tabmanager.md`, "Marking open tabs: shape, not colour; and
+eviction by score". Blocked on `WATCHLIST.md` `eviction-fallback-tedium` and
+the standing dry-run-vs-live rule.
 
 **Open blocks are marked by SHAPE, not colour: rounded top corners, so they
-read as tabs.** The requirement it satisfies is persistence, not transition
-— Scott: "zoom all the way out for seven days and zoom back in again, you
-still have a representation of 'oh yeah, these are the tabs that are
-currently open'." A static mark survives zoom, scroll, and day loading; an
-animation fires once and is gone.
+read as tabs.** The requirement is persistence, not transition — a static
+mark survives zoom, scroll, and day loading; an animation fires once and is
+gone. Shape because the other channels are committed: fill and rim luminance
+carry importance (§6), and a second colour was tried there once and reverted
+(earned-HIGH's gold, 2026-08-08). Shape composes with any fill or rim, so
+open + important + earned-HIGH can all show at once.
 
-Shape is chosen because the ribbon's other channels are already committed:
-fill and rim luminance carry importance (§6), and rim specifically has been
-burned once — earned-HIGH's muted gold (`EARNED_RIM`, 2026-08-08) was
-dropped because "the gold read as an unexplained extra difference rather
-than a helpful one," which is precisely the failure mode a second colour
-here would risk. Shape is unused, instantly legible as "tab," and composes
-with any fill or rim a block already carries, so a block can be important,
-earned-HIGH, and open at once with no channel collision.
+Shape needs an edge to be seen against: open blocks also take a
+high-contrast rim (`rgba(255,255,255,0.85)`, `!important` to beat `paint()`'s
+inline `borderColor` write) with a transparent bottom edge so the tab sits on
+the baseline. Rounded corners alone were invisible. In the strip the bright
+rim means *active* instead, not open (§7i) — the two rules are disjoint by
+`heightMode`.
 
-The same shape applies in both states: strip items look like tabs (which
-they are), and ribbon blocks for currently-open tabs carry it too. That
-shared mark is what ties the two views together.
+The same shape applies in both states: strip items look like tabs, and
+ribbon blocks for currently-open tabs carry it too. That shared mark ties the
+two views together.
 
 **The height animation stays; per-item motion is retired.** Expand/collapse
-still animates vertically — the strip grows into the ribbon ("it's simply a
-matter of height"). What is retired is any attempt to travel a strip tile to
-its corresponding ribbon block: strip order is Chrome's (categorical) and
-ribbon order is time, so tiles and blocks do not correspond positionally,
-and an open tab outside the ribbon's current window has no destination at
-all (§7b intersection-only). **The container animates, the items do not** —
-the height reveal carries the transition, the shape marking carries the
-identification. Not rejected on principle; revisit only if the ordering
-mismatch itself changes.
+animates vertically — the strip grows into the ribbon. No attempt to travel a
+strip tile to its ribbon block: strip order is Chrome's (categorical), ribbon
+order is time, so they do not correspond positionally, and an open tab
+outside the ribbon's window has no destination at all. The container
+animates, the items do not. Revisit only if the ordering mismatch changes.
 
-**Eviction drops the LOWEST-SCORING open tab, not the rightmost.** Strip
-capacity as the policy ("anything that doesn't fit is dropped") was
-considered and rejected: Chrome places newly-opened tabs at the right end,
-so the strip's tail is the *newest* tab, making capacity-eviction close to
-backwards. Score is already computed for band/height, so this adds no new
-machinery — the same signal, used for a decision instead of a rendering.
-Accepted trade, in Scott's words: "it is not from the user's point of view
-visually deterministic... however, if we do our job correctly, it will feel
-like the right one." Pinned tabs stay exempt (§7c).
-
-**The strip keeps showing the last auto-closed tab — one grace slot.** The
-deliberate "right kind of lie": the most recently evicted tab remains listed
-even though it is closed, so the thing the system just took is the thing
-most easily recovered. It self-clears — ignore it and the next eviction
-replaces it — so there is no decay logic, no timer, and no third visual
-state.
-
-**A closed tab is ordinary history, everywhere else.** No "recently closed"
-styling, no resurrection state. It simply stops being open, loses the tab
-shape on the next paint, and is a normal historical block. This is what
-keeps the design from growing a third state: closing is not a transition to
-be represented, it is a return to the default.
-
-**Open question:** whether the grace-slot entry carries the tab shape like
-the rest of the strip. Same-as-others is simplest and consistent with "strip
-items look like tabs"; distinguishing it reintroduces the extra state this
-design is avoiding.
-
-**Strip tiles centre their contents vertically** (2026-08-23). The base
-rules anchor favicon and label at `top: 4px`, correct for a tiered block
-whose height varies, but visibly top-heavy on a fixed 30px `STRIP_TILE_H`
-tile. Strip mode moves both to `top: 7px` — `(30 - 16) / 2`. The label also
-reserves the close box's lane (`right: 22px`) so a long name ellipsises
-rather than running underneath it.
+**A closed tab is ordinary history.** No "recently closed" styling, no
+resurrection state — it loses the tab shape on the next paint and is a normal
+historical block. Closing is not a transition to be represented; it is a
+return to the default.
 
 ## 7g. Ribbon coordinate system + zoom anchoring (built 2026-08-23)
 
@@ -699,6 +507,9 @@ with two step rates were rejected — a zone boundary is a step change in
 speed, felt as a jerk, and the dead-zone edge is the only threshold that
 reads as one (it is felt as motion STARTING). Dead-zone width, exponent and
 max rate are provisional play-test knobs; turn one at a time.
+**`PAN_DEAD_FRAC` widened 0.5 → 0.667 (2026-08-25):** two-thirds dead, a
+1/6 ramp per side — at 0.5 panning fired while the user was still reading.
+Curve and max rate untouched.
 
 **Rate is zoom-invariant:** viewport-widths per second, converted to pixels
 each frame. A px/frame rate would crawl through minutes at 16x and tear
@@ -784,11 +595,20 @@ proximity LOAD arm stays overlay-only. The pump stops when the pointer leaves
 the wrap, and arms only after a real `pointermove` inside it (so an overlay
 opening under a parked cursor does not start travelling on its own).
 
-**Panning suppresses hover UI.** Tooltips, `cardHoverText` and gap plates are
-inspection; panning is navigation, and they are not simultaneous intents.
-Without this, a block hovered in the outer band slides out from under the
-cursor mid-tooltip. Precedent: `.zooming` already suspends transitions for a
-zoom gesture. Watch item: `pan-hover-suppression`.
+**Panning suppresses hover UI — but only once it MOVES** (corrected
+2026-08-25). Tooltips, `cardHoverText` and gap plates are inspection;
+panning is navigation, and they are not simultaneous intents. Without this,
+a block hovered in the outer band slides out from under the cursor
+mid-tooltip. Precedent: `.zooming` already suspends transitions for a zoom
+gesture.
+
+The trigger is MOTION, not cursor position (corrected 2026-08-25): raised
+from the pump's free-motion path only, gated on a frame having moved whole
+pixels — the same evidence bar the wall latch uses. Resting in the ramp
+against a wall no longer suppresses hover. The JS `panning` flag gating
+`maybeLoadOlderDay`'s proximity arm still sets on intent in `startPan()`;
+only the CSS class moved. `decisions/tabmanager.md`, "Hover suppression was
+keyed to cursor POSITION".
 
 ## 7i. Strip visual pass + broadcast narrowing (2026-08-24)
 

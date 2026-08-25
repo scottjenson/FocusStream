@@ -1740,7 +1740,11 @@ import {
       // Stage 1 cards show their own below-card text instead of the
       // floating quick label (which would duplicate it). Open-tab tiles
       // (2026-08-22) never need it either — same reason, inline label.
-      if (el._tipData && el.dataset.runLabeled !== "1" && !isCard && !isOpenTab) {
+      // Retired in the overlay (2026-08-25): redundant with §7b's always-on
+      // .blk-label. Same gate/reason as runTitlesLive below; the standalone
+      // dashboard keeps it (spec §6, 2026-08-08).
+      const quickLabelLive = anchorMode !== "right";
+      if (quickLabelLive && el._tipData && el.dataset.runLabeled !== "1" && !isCard && !isOpenTab) {
         quickLabel.textContent = el._tipData.siteName;
         const left = parseFloat(el.style.left) || 0;
         quickLabel.style.left = left + "px";
@@ -1938,7 +1942,9 @@ import {
     // gesture — the cursor can be still while the view moves, hence the pump.
     //
     // PROVISIONAL knobs, to be play-tested — turn ONE at a time.
-    const PAN_DEAD_FRAC = 0.5; // middle 50% of the viewport: no panning
+    // Middle 66.7%: no panning (0.5 → 0.667, 2026-08-25 — spec §7h,
+    // decisions/tabmanager.md "First turn of the dead-zone knob").
+    const PAN_DEAD_FRAC = 0.667;
     // Curve exponent. 1 = linear; higher keeps the ramp gentle across most of
     // the band and concentrates speed at the very edge. Replaces a three-zone
     // dead/slow/fast design, whose zone boundaries were felt as speed jerks
@@ -1980,6 +1986,17 @@ import {
     // pointer already parked at an edge would start travelling before the user
     // touched anything, reading as the ribbon moving on its own.
     let panArmed = false;
+
+    // Hover suppression is owned by MOTION, not cursor position (spec §7h,
+    // corrected 2026-08-25 — resting in the ramp is not panning). Called
+    // from panTick's first whole-pixel frame; cleared by stopPan.
+    const markPanningMoved = () => {
+      if (ribbonEl.classList.contains("panning")) return;
+      ribbonEl.classList.add("panning");
+      hideTip();
+      hideQuickLabel();
+      hideCardHoverText();
+    };
 
     const stopPan = () => {
       if (panRaf != null) cancelAnimationFrame(panRaf);
@@ -2056,6 +2073,7 @@ import {
         return stopPan();
       }
       panWall = 0; // moved freely — no wall in play
+      if (wholePx !== 0) markPanningMoved(); // real motion only (spec §7h)
       setScrollLeft(wrap, target);
       // Keep the carried instant fresh for the NEXT re-base. This is not read
       // again until geometry actually changes, so it never feeds back into the
@@ -2082,15 +2100,8 @@ import {
       panGeomPad = lastPadPx;
       panGeomPadRight = lastPadRightPx;
       panT = axis ? axis.xToTime(wrap.scrollLeft - lastPadPx) : null;
-      // Panning suppresses hover UI (spec §7h): navigation and inspection are
-      // not simultaneous intents, and without this a block hovered in the
-      // outer band slides out from under the cursor mid-tooltip. Same
-      // precedent as .zooming suspending transitions for a zoom gesture.
-      ribbonEl.classList.add("panning");
+      // .panning is deliberately NOT set here — see markPanningMoved().
       panning = true; // gates maybeLoadOlderDay's proximity arm (spec §7h)
-      hideTip();
-      hideQuickLabel();
-      hideCardHoverText();
       panRaf = requestAnimationFrame(panTick);
     };
 
@@ -2706,7 +2717,9 @@ import {
       // chrome.tabs.create, which would open a duplicate. Same
       // never-calls-chrome.tabs.*-directly-except-switch rule the retired
       // open-tabs-only pipeline followed (spec §7).
-      el.style.pointerEvents = s.collapsed ? "none" : "auto";
+      // Sub-MIN_W blocks are presence indicators, not targets (spec §7e).
+      // Enforced HERE, not by .inert: inline beats the stylesheet rule.
+      el.style.pointerEvents = s.collapsed || s.w < MIN_W ? "none" : "auto";
       el.onclick = s.collapsed
         ? null
         : s.e.isOpenTab
