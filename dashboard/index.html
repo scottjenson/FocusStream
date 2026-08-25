@@ -22,7 +22,13 @@
     <div id="ribbon"></div>
     <div id="ribbon-empty" hidden>No sessions on this day.</div>
   </div>
-  <script src="../shared/transit.js"></script>
+  <!-- type="module" required since 2026-08-21: transit.js gained named
+       exports when background.js became a module worker, and `export` is a
+       syntax error in a classic script — the file failed to parse, so its
+       globalThis.FS_TRANSIT assignment never ran and assembly.js threw at
+       module-eval. Module scripts are deferred, but so are the two below,
+       and they execute in document order, so FS_TRANSIT is still set first. -->
+  <script type="module" src="../shared/transit.js"></script>
   <script type="module" src="timeline.js"></script>
   <script type="module" src="dashboard.js"></script>
 </body>

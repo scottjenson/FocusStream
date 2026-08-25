@@ -402,6 +402,27 @@ terse — write the entry there, then come back and add the one-line pointer.
   every strip when each strip can derive it from its own `selfTabId`. Only
   add/remove and title/favicon broadcast now; a tab switch causes zero
   repaints.
+- **2026-08-24: back-to-back same-host events stay separate** — spec §6
+  (container qualification: gap-audio URL continuity; earned-HIGH atomicity
+  extended to the raw-fragment pass on URL change);
+  `decisions/timeline_design.md` ("Back-to-back same-host events"). Four
+  consecutive Meet calls, three of them fused into one container, split into
+  four. Two mechanisms: gap-audio testifying through `meet.google.com/home`
+  across a room change, and pass-one chaining over a 16-second seam. Verified
+  by replaying the real database (8 days/1888 sessions) through the actual
+  pipeline in Node: +5 blocks, +2 containers, six of eight days identical.
+- **2026-08-24 (bug fix): Score table restored** — `dashboard/index.html`
+  loaded `shared/transit.js` as a CLASSIC script, but that file gained named
+  `export`s on 2026-08-21 when `background.js` became a module worker.
+  `export` is a syntax error in a classic script, so the file never parsed,
+  its `globalThis.FS_TRANSIT` assignment never ran, and `assembly.js` threw
+  at module-eval — cascading through `timeline.js` so its IIFE never reached
+  `window.FS_SCORING`. Silent for three days because the ribbon overlay
+  loads the same module graph via dynamic `import()`, which handles exports
+  correctly; only the dashboard path broke. Fix: `type="module"` on the tag.
+  Unrelated hardening in the same pass: the two bare `localStorage` calls in
+  `timeline.js` now fail soft (access itself throws on blocked-storage
+  origins, and that file is also imported into content-script contexts).
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

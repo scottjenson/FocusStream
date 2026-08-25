@@ -536,8 +536,16 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       // Pass-two only: raw fragments in pass one haven't been
       // individually qualified as containers yet, so hasEarnedHigh isn't
       // the right test there (existing raw-fragment Atomicity covers it).
+      // Extended to pass one on URL change (spec §6, 2026-08-24): the same
+      // "a resolved standalone event is not dissolved into the next thing
+      // on the same host" principle, one layer down. Pass one gets it ONLY
+      // across a same-host URL change — a stable URL across a return (the
+      // ordinary revisit) chains exactly as before, so this is not the
+      // universally-URL-keyed chaining rejected 2026-08-07. Specimen: four
+      // back-to-back Meet calls in ONE reused tab, the 7:32 seam only 16s
+      // wide (far too short for gap-audio) — pass two never saw them.
       const earnedHighAtomic =
-        chainGapMs === CONTAINER_CHAIN_GAP_MS &&
+        (chainGapMs === CONTAINER_CHAIN_GAP_MS || last.url !== e.url) &&
         (hasEarnedHigh(last) || hasEarnedHigh(e));
       // Weak-bridge guard (spec §6, 2026-08-14): a bridge needs real
       // intent on at least ONE side, but ONLY when something else
@@ -579,7 +587,16 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
         (gap < chainGapMs ||
           (gap < AUDIO_BOOKEND_GAP_MS &&
             e.audibleSinceTs != null &&
-            e.audibleSinceTs <= last.endTime));
+            e.audibleSinceTs <= last.endTime &&
+            // URL continuity (spec §6, 2026-08-24): the tab's audio proves
+            // THE TAB never went silent, never that the same ACTIVITY
+            // continued. A same-host page change across the gap (leaving
+            // one video call and joining another via the host's landing
+            // page) breaks testimony — that audio is the host's UI. The
+            // excursion case the rule exists for is untouched: a foreign
+            // host is never a chain member, so the fragments bracketing a
+            // Figma side trip are the same room at the same URL.
+            last.url === e.url));
       if (bridged) {
         frags.push(e);
         continue;

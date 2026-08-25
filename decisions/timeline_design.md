@@ -2191,3 +2191,86 @@ straight off shared module state (`gapKey`) rather than derived from the
 one filtered/authoritative list is a hole waiting to reopen — worth
 auditing every direct read, not just the list's own construction site,
 before calling an exclusion complete.
+
+## Back-to-back same-host events: gap-audio URL continuity + earned-HIGH in pass one (2026-08-24)
+
+**The specimen:** Scott's Aug 24 morning ran four Google Meet calls —
+`cgd-zcds-ywt` (7:00–7:32), `dsf-orsh-uug` (7:32–7:51), `xss-tfoh-pro`
+(8:00–8:32), `uuw-tpsk-fpq` (9:00–9:33). The timeline rendered the first
+three as ONE container spanning 7:00–8:32. Unlike the 2026-08-07 Meet
+specimen (which the pass-two earned-HIGH guard fixed), these were
+back-to-back with no long gap, and all but the first ran in a SINGLE reused
+tab (940837892) — so pass two never saw them.
+
+**Two independent mechanisms, diagnosed by replaying the real database:**
+
+1. *The 7:32 seam — a 16-second gap.* Ordinary raw-fragment chaining
+   (`VISIT_GAP_MS`, 5 min) bridged it. Far too short for gap-audio to be
+   involved. Leaving one call and joining the next took 16 seconds.
+2. *The 8:00 seam — an 8.7-minute gap.* Beyond `VISIT_GAP_MS`, bridged
+   solely by **gap-audio testimony**: the resuming fragment's
+   `audibleSinceTs` predated the previous fragment's end, because Meet
+   holds the tab audible while sitting on `meet.google.com/home` between
+   calls. The audio was Meet's UI, not a meeting.
+
+**The reframe (Scott's):** the audio rule exists so that a long Figma
+excursion *during* a meeting still fuses — you're in the call briefly at
+each end and it holds together. That job only ever needs the tab to return
+to *the same page*. The tab's audio proves *the tab* never went silent; it
+was never evidence that the *same activity* continued. So gap-audio
+testimony gains a URL-continuity requirement. The excursion case is
+structurally untouched: a foreign host is never a chain member, so the
+meeting fragments bracketing an excursion are the same room at the same
+URL and still bridge.
+
+For the short seam, the 2026-08-07 earned-HIGH principle already said the
+right thing — "a resolved, standalone event shouldn't be dissolved" — it
+had simply never been extended below pass two. Extending it to pass one
+gated on URL change keeps it away from the universally-URL-keyed chaining
+rejected 2026-08-07: a stable URL across a return chains exactly as before.
+
+**Why "either side," again:** the seam is asymmetric. The 7:00 call scored
+1880 (earned-HIGH); the 7:32 call arrives as three separate merged visits
+(250/160/660), none earned-HIGH — its best fragment is 610. A "both sides"
+rule would not have fired. Either-side is also what 2026-08-07 concluded,
+for the same reason: absorbing an earned-HIGH event into a *lesser*
+neighbor is the same failure, just asymmetric.
+
+**Replay method (new tooling, scratch-only):** `assembly.js`/`scoring.js`
+are pure ES modules with no DOM dependency, so the real pipeline runs in
+Node over an exported `chrome.storage.local` dump. Rules were applied as
+INPUT transforms exactly equivalent to the proposed guards (strip
+`audibleSinceTs` on URL change; toggle the pass-one guard via a global)
+rather than forking `detectContainers`, so the harness could never drift
+from shipping logic. Baseline vs. variant diffed on container identity.
+
+**Measured blast radius (8 days, 1888 sessions, 389 blocks / 185
+containers baseline):**
+
+| variant | blocks | containers | Δblocks | Δcontainers |
+|---|---|---|---|---|
+| A (gap-audio URL continuity) | 390 | 186 | +1 | +1 |
+| C (earned-HIGH pass one) | 393 | 186 | +4 | +1 |
+| **A+C** | **394** | **187** | **+5** | **+2** |
+
+Six of eight days are byte-identical. Exactly two baseline containers
+changed under A+C:
+- `meet.google.com` 8/24 7:00–8:32 — the fix. Splits into four blocks, one
+  room each.
+- `gemini.google.com` 8/22 10:51–12:17 (4 members) — splits in two. Scott
+  reviewed and accepted: Gemini is used in varied ways and frequently, and
+  breaking it up may well be correct; if a better fusing rule is wanted
+  later it should be argued on its own evidence.
+
+**A rejected candidate:** dropping zero-attention `idle_split` fragments
+(the `meet.google.com/home` stubs that survive `isTransit` only because its
+duration test is `>=` and they land at exactly 10.0s). Measured effect
+across the whole database: **zero**. Not load-bearing; dropped rather than
+turning a second knob (CLAUDE.md, one knob at a time). The `>=` boundary
+itself is left alone — it is not implicated in any observed misjoin.
+
+**Standing caveat:** one specimen day. Rule C is a real widening of a guard
+and the Gemini split shows it reaches beyond Meet; expect more splits as
+back-to-back-meeting days accumulate. Watch whether the URL-change
+condition stays sufficient, or whether pass one eventually wants the same
+"edge fragment" treatment the weak-bridge guard needed (2026-08-14).

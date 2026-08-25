@@ -2185,9 +2185,24 @@ import {
   // own toggle button anyway; reading it here would silently fall back to
   // "cards" every time. window.__fsTimelineMode is read at module-init,
   // same pattern as __fsTimelineRoot/__fsTimelineAnchor above.
+  // localStorage ACCESS itself throws (not just returns null) when the
+  // origin has site data blocked — and this module is also dynamically
+  // imported into content-script contexts on arbitrary host pages
+  // (switcher.js overlay, header above), where that is entirely possible.
+  // An unguarded read here aborted the whole IIFE at module-init, so
+  // every window.* export below it — notably FS_SCORING, the Score
+  // table's only entry point — silently never got assigned while the
+  // ribbon itself still rendered. Fails soft to the "cards" default.
+  const storedMode = (() => {
+    try {
+      return localStorage.getItem("fs_ribbon_mode");
+    } catch {
+      return null;
+    }
+  })();
   let ribbonMode =
     (typeof window !== "undefined" && window.__fsTimelineMode) ||
-    (localStorage.getItem("fs_ribbon_mode") === "blocks" ? "blocks" : "cards");
+    (storedMode === "blocks" ? "blocks" : "cards");
 
   // Collapsed/expanded height mode (Active Tab Manager Phase 2, spec §7b,
   // 2026-08-22 unification): the open-tabs overlay used to be a second,
@@ -2299,7 +2314,14 @@ import {
     for (const el of outgoing.values()) el.remove();
     outgoing.clear();
     ribbonMode = mode;
-    localStorage.setItem("fs_ribbon_mode", mode);
+    // Same guard as the module-init read above: persisting the preference
+    // is best-effort — a blocked-storage origin still gets the toggle for
+    // this session, it just won't be remembered.
+    try {
+      localStorage.setItem("fs_ribbon_mode", mode);
+    } catch {
+      /* preference not persisted — non-fatal */
+    }
     if (lastAssembly) render(lastAssembly.sessions, lastLockIntervals);
   }
 
