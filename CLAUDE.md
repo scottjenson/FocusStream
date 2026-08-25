@@ -33,7 +33,17 @@ with nothing in SPEC.md or decisions/ to point at is incomplete; see the
 checklist at the top of `HISTORY.md` before appending there.
 
 ## Workflow
-- **Spec changes are proposed and approved BEFORE code changes.** Never backfill.
+- **Understand in code, then write it down** (revised 2026-08-25, replacing
+  "spec before code, never backfill"). Most changes here need a coding loop or
+  two before the real rule is even knowable — speccing first meant speccing a
+  guess. Explore and test in code, THEN record what turned out to be true.
+  Still true: don't ship a rule change silently, and don't write the spec from
+  what you intended rather than what you verified. Use `/updatedocs` to close out.
+- **Docs earn their length.** They are ~16:1 reasoning-to-rules and too long to
+  be read, which makes them worse than shorter ones. Record what a future
+  reader needs and can't recover from the code — not how the answer was found.
+  **`/updatedocs`** writes today's entry (adds only, never restructures);
+  **`/docreview`** is the occasional pass that fixes accumulated drift.
 - Never `git commit`/`git push` proactively. If asked to commit directly you can 
   proceed without further confirmation.
 - **Score weights are provisional** (Desktop4-inherited) — keep them named
