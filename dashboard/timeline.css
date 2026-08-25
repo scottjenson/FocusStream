@@ -381,7 +381,7 @@
       text-overflow: ellipsis;
       pointer-events: none;
     }
-    /* Stack-ribbon cards (plans/stack-ribbon.md Stage 1, 2026-08-11):
+    /* Stack-ribbon cards (decisions/card_deck.md Stage 1, 2026-08-11):
        replaces the block ribbon above as the LIVE paint path (timeline.js
        paintCards) — .blk/.plate/.gap/.tick/.hlabel/.rtitle rules above stay
        defined but unused, kept for a possible revert per the plan's
@@ -419,7 +419,7 @@
          tween instead, for the same reason — not by re-arming a CSS
          transition at exit. */
       /* Per-card perspective, fix history (2026-08-11, FOUR rounds — see
-         plans/stack-ribbon.md "Stage 1 build log" for the compact version):
+         decisions/card_deck.md "Stage 1 build log" for the compact version):
          (1) shared perspective on #ribbon put the vanishing point at the
          scrolling DAY's horizontal center, not the viewport — cards raked
          harder toward the ribbon's true center the further left they sat.
@@ -589,7 +589,7 @@
       padding: 0;
     }
     .card-close:hover { background: rgba(0,0,0,0.85); }
-    /* Container child row (Stage 3, plans/stack-ribbon.md, 2026-08-11):
+    /* Container child row (Stage 3, decisions/card_deck.md, 2026-08-11):
        carousel strip below the expanded card — container thumbnail first
        (item 0), then each child, chronological. Clicking any thumbnail
        makes IT the big expanded item; the demoted item (container or
@@ -712,7 +712,7 @@
       padding: 1px 5px;
       margin-left: -5px;
     }
-    /* Card hover text (plans/stack-ribbon.md Stage 1 follow-up, 2026-08-11):
+    /* Card hover text (decisions/card_deck.md Stage 1 follow-up, 2026-08-11):
        replaces both the on-face .card-label and the floating #tip tooltip
        for cards. One shared reused element, repositioned per hover (same
        "snap, don't glide" reasoning as #quicklabel above) below the card

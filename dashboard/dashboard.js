@@ -212,7 +212,7 @@ document.getElementById("clear").addEventListener("click", async () => {
   render();
 });
 
-// Ribbon view toggle (plans/ribbon-toggle.md, 2026-08-12): flips between
+// Ribbon view toggle (decisions/card_deck.md, 2026-08-12): flips between
 // the card deck and the classic block ribbon — a standing preference, not
 // a migration; both stay permanently available. Label always names the
 // mode a click would switch TO, matching the existing button-label

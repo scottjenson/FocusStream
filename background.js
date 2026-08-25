@@ -70,7 +70,7 @@ const lockState = { since: null }; // in-worker only; a mid-lock worker restart 
 // under snap:<sessionId> (never inside SessionBlocks — those are read in
 // full on every render). Finalize deletes the picture of any session the
 // shared transit predicate rejects.
-// 640 -> 1280 (2026-08-11, stack-ribbon Stage 1 — plans/stack-ribbon.md):
+// 640 -> 1280 (2026-08-11, stack-ribbon Stage 1 — decisions/card_deck.md):
 // the old value was tuned for a ~480px-wide tooltip preview, but Stage 1's
 // cards display the snapshot as the ENTIRE card face, up to ~487px CSS-wide
 // at HIGH tier — on a 2x-DPI (Retina/HiDPI) display that's ~970 physical
