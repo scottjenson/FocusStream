@@ -551,3 +551,32 @@ serialize through the queue ahead of finalize. Cost: ~100ms once per
 session against a 10s cadence ("negligible" — Scott). The age trigger
 needs no await: it can't race by construction, since a 10s-old session
 has already out-aged the filter.
+
+## Opportunistic re-capture at the 3rd heartbeat (2026-08-14)
+
+The first capture fires as early as `TRANSIT_MS`, often before a slow-loading
+page has painted real content. Specimen: Google Meet's join/lobby flow —
+pulled live, `activity` showed zero discrete signals and the stored image was
+Meet's bare pre-join chrome.
+
+Delaying the first capture was rejected: it would cost every short/low-intent
+session, which is the majority. Instead the 3rd real heartbeat overwrites
+`snap:<sessionId>` unconditionally. No new flag needed — the heartbeat counter
+is monotonic, so `=== 3` matches at most once. Same `flush-on-hidden`
+exclusion as the first capture.
+
+**Deliberately not hardened.** A nice-to-have, not a second admission rung.
+Sessions dying at heartbeat 1-2 never get a second attempt, which is correct —
+those are exactly the sessions this shouldn't cost. Anything worth a good
+screenshot runs to 4+ heartbeats and gets it in practice.
+
+## Page text rides the snapshot's trigger (2026-08-07)
+
+`pageText` (§3) is extracted at the identical first-qualifying-signal moment
+as the snapshot, and is deleted at finalize for a transit-rejected session the
+same way the picture is: one admission bar, two artifacts. Keeping them on one
+trigger means there is no second capture policy to reason about.
+
+The redundancy this creates is tracked as `WATCHLIST.md` `pagetext-intent-gate`
+— the extraction trigger is a subset of the transit bar, so the finalize
+deletion is currently a backstop rather than load-bearing.

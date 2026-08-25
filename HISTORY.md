@@ -423,6 +423,18 @@ terse — write the entry there, then come back and add the one-line pointer.
   Unrelated hardening in the same pass: the two bare `localStorage` calls in
   `timeline.js` now fail soft (access itself throws on blocked-storage
   origins, and that file is also imported into content-script contexts).
+- **2026-08-25 (bug fix): ribbon hover fires again** — spec §7h/§7e,
+  `WATCHLIST.md` `pan-hover-suppression`; `decisions/tabmanager.md`, "Hover
+  suppression was keyed to cursor POSITION". Also: `.inert` never worked;
+  quick label retired in the overlay.
+- **2026-08-25 (tuning): pan dead zone 0.5 → 0.667** — spec §7h;
+  `decisions/tabmanager.md`, "First turn of the dead-zone knob".
+- **2026-08-25 (docs): drift pass over the spec** — `spec/tabmanager.md`
+  859→647 lines (§7b/§7c/§7f de-layered), `spec/display.md` two fused
+  bullets split and snapshot capture rules moved to `spec/capture.md` where
+  they belong. Five stale facts corrected, two unarchived stories written to
+  `decisions/snapshot_implementation.md`. New `/updatedocs` and `/docreview`
+  skills in `.claude/skills/` hold the guardrails and the audit procedure.
 - **Deferred:** zoom, date-picker day jumping (week strip is the only day picker).
 - **Watch list:** `WATCHLIST.md` (extracted from spec §6 on 2026-08-07) — the
   single home for every "watch with data" item; SPEC.md holds rules only.

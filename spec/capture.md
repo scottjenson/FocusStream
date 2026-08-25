@@ -113,6 +113,52 @@ The Content Script evaluates activity in 10-second windows. Signals come in two 
 
 * **Terminal-keystroke evidence (2026-07-24):** the content script tracks the timestamp of the last counted keydown (relay frames forward theirs; the top frame keeps the max). The `flush-on-hidden` heartbeat carries `lastKeyGapMs` — how long before the hide that keystroke landed — stamped onto the session. Evidence only: no count is mutated; the judgment lives in admission rung 2. (Story: `decisions/capture_design.md`.)
 
+### Snapshot capture (2026-07-16; unified with the transit filter 2026-07-24)
+
+Moved here from §6 on 2026-08-25 — these are capture-side rules; §6 keeps only
+how a snapshot is DISPLAYED. Story: `decisions/snapshot_implementation.md`.
+
+* **One capture per session, at first qualification.** Every session that
+  survives the transit filter gets an attempt. `chrome.tabs.captureVisibleTab()`
+  fires the moment the session first qualifies — one trigger per
+  transit-exemption arm: the first interval heartbeat, the first
+  transit-qualifying signal (keyboard/cut/copy/paste via a content-script cue,
+  downloads background-side), or the session's **10-second birthday on glass**
+  (a one-shot worker timer armed at session start, `TRANSIT_MS`). The duration
+  rung qualifies with zero signals, so hands-off survivors — cross-origin
+  embeds, motionless reads — still photograph.
+* **Whichever wins, exactly one fires,** via an explicit `snapped` flag — never
+  the heartbeat count, since a flush beat consumes slot #1 while being barred
+  from capture.
+* **`flush-on-hidden` beats never capture:** they fire exactly while the *next*
+  tab becomes visible (the wrong-page trap).
+* **Heartbeat- and signal-triggered captures are awaited in the event queue**
+  so finalize can never outrun the store — an unawaited store could land after
+  finalize's deletion and leak a rejected session's picture past the sweep. The
+  age trigger cannot race by construction: a 10s-old session has already
+  out-aged the filter.
+* **Finalize deletes** the `snap:`/`snapErr:` keys of any session the transit
+  predicate rejects — the session stays stored for audit, only the picture
+  goes. The predicate lives in `shared/transit.js` (`FS_TRANSIT`), one source
+  of truth for capture and display.
+* **Capture is best-effort;** all failures soft-fail to a `snapErr:`
+  breadcrumb.
+* **Opportunistic re-capture at the 3rd heartbeat (2026-08-14):** the first
+  capture can fire before a slow-loading page has painted real content (Google
+  Meet's join/lobby flow, observed specimen). A session's 3rd real heartbeat
+  (`current.heartbeats === 3`, same `flush-on-hidden` exclusion) unconditionally
+  overwrites `snap:<sessionId>`. Deliberately not hardened — a nice-to-have,
+  not a second admission rung; sessions dying at heartbeat 1-2 correctly never
+  get a second attempt.
+* **Page text rides the original trigger only (2026-08-07):** `pageText` is
+  extracted at the identical first-qualifying-signal moment, and a
+  transit-rejected session has it deleted at finalize the same way its snapshot
+  is — one admission bar, two artifacts. See `WATCHLIST.md`
+  `pagetext-intent-gate`.
+* **Downscale** in the worker: JPEG capture → `createImageBitmap` →
+  `OffscreenCanvas` → JPEG at 640px width, quality 0.6 (~20-40KB); stored as a
+  `data:` URL under `snap:<sessionId>` (storage/retention: §2).
+
 ## 4. Technical Implementation Details & Edge Cases
 
 ### Edge Case 1: Passive Video Consumption (YouTube, Netflix)
