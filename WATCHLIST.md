@@ -116,13 +116,19 @@ containers" and "Continuation merge + MEDIUM containers".)
   gap-audio shape). Second candidate if same-host cross-tree HIGHs read
   wrong side-by-side: a same-host re-join license. Framing licenses are
   earned per-case with data, never generalized from overlap.
-- **contained-low-width-loss (2026-07-24):** a long LOW graze inside a
-  container collapses to the same 3px stick as a glance (containers have no
-  expand). If a wide graze that mattered goes missing, candidate fix:
-  honest-width stick paint (proportional width, stick fill and stature).
-  Separate escalation if ping-pong containers still read busy: same-host
-  stick aggregation (one stick + "×N" tooltip count) — real machinery,
-  deferred for data.
+- **contained-ping-pong-busyness (2026-07-24; narrowed 2026-08-25, was
+  `contained-low-width-loss`):** the original concern — a long LOW graze
+  inside a container collapsing to the same 3px stick as a glance — died
+  with the 2026-08-07 retirement of contained LOW sticks (`spec/display.md`:
+  contained children now render at proportional width, one uniform height),
+  so the honest-width-stick fix it proposed no longer maps onto anything.
+  **Still open, narrower:** whether a container the user ping-ponged in and
+  out of still reads busy now that its children are proportional blocks
+  rather than 3px slits — proportional width makes each child *larger*, so
+  the busyness this entry originally rode alongside may have gotten worse,
+  not better. Response if it fires: same-host stick aggregation (one child +
+  "×N" tooltip count), still in reserve at `decisions/timeline_design.md`,
+  "Escalation C".
 - **anchor-return-debounce (designed, deferred 2026-07-18):** a ~10s return
   to the container's own host splits a same-host excursion into two children
   (observed: Gemini/Phanpy, two 8px sticks separated by a 0.4px return —
@@ -147,12 +153,6 @@ containers" and "Continuation merge + MEDIUM containers".)
   correctly splits. Watch whether any bridged fence spans something that
   felt like leaving. Histogram + method note:
   `decisions/timeline_design.md`, "Fences bridge breaks, split at departures".
-- **lone-sticks-too-quiet:** singleton LOWs collapse to lone sticks
-  (2026-07-16, resolving the "reads as clutter" watch — it did). New watch:
-  whether lone 3px sticks feel *too* quiet — whether the user misses seeing
-  isolated 30–60s glances at full height — sharpened 2026-07-24 by the
-  global LOW lowering (86 → 40): sticks are now half their former stature
-  everywhere. Revert = `MIN_RUN` back to 2 and/or `TIER_H.low` back up.
 
 ### Layout, labels, visuals
 (gap-loudness and week-strip-legibility were struck 2026-08-09 —
@@ -218,9 +218,10 @@ labels"; the watch no longer describes current behavior.)
   lollipop approach (SPEC.md §6 favicon rule history) is the fallback to
   revisit, not a third alternative.
 - **zoom-tuning (2026-08-08):** `ZOOM_SENSITIVITY` (0.0018),
-  `ZOOM_MIN`/`ZOOM_MAX` (0.5–8×), and `ZOOM_IDLE_MS` (150ms) are
+  `ZOOM_MIN`/`ZOOM_MAX` (0.25–16× since 2026-08-23, widened from 0.5–8× for
+  §7e's cross-day zoom-out), and `ZOOM_IDLE_MS` (150ms) are
   first-guess values, not measured against a real trackpad/mouse-wheel
-  session — watch whether the curve feels too twitchy/sluggish, whether 8×
+  session — watch whether the curve feels too twitchy/sluggish, whether 16×
   is too extreme or not enough to make favicons legible on a dense day, and
   whether 150ms is long enough that the `.blk` transition doesn't visibly
   "pop" back on mid-gesture pauses. The cursor-anchor is
@@ -374,14 +375,17 @@ labels"; the watch no longer describes current behavior.)
   count affordance ("+38 not shown"), or an explicit zoom-to-reveal cue —
   all deliberately unbuilt, since the staged fade (LOW first, MEDIUM well
   after) may already teach the rule well enough on its own.
-- **pan-ramp-tuning (2026-08-24, §7h):** the dead-zone
-  width, curve exponent and max rate are declared provisional play-test
-  knobs with no data behind them. The shape is argued (one threshold, felt
-  as motion starting; everything past it a smooth curve) but the numbers are
-  guesses. Watch for: the dead zone reading as dead space rather than rest,
-  max rate overshooting so the target is repeatedly passed, or the curve
-  feeling like it "catches" partway out. Response: turn one knob at a time
-  (project rule for provisional constants). Do NOT respond by reintroducing
+- **pan-ramp-tuning (2026-08-24, §7h; dead-zone knob turned 2026-08-25):**
+  `PAN_DEAD_FRAC` has since been widened 0.5 → 0.667 on a real play-test
+  (panning fired while still reading), so the dead-zone half of this entry
+  has had its first turn — story: `decisions/tabmanager.md`, "First turn of
+  the dead-zone knob". **Still open:** `PAN_CURVE` (2) and `PAN_MAX_RATE`
+  (1.2) remain first-guess numbers never judged against real use, and the
+  narrower ramp now reaches full speed over a shorter distance, which makes
+  the curve the more likely of the two to want turning. Watch for: max rate
+  overshooting so the target is repeatedly passed, or the ramp feeling too
+  steep now that it is a third of the viewport rather than half. Response:
+  `PAN_CURVE` next, one knob at a time. Do NOT respond by reintroducing
   discrete zones — that trade was made deliberately and the exponent already
   expresses "slow across most of the band, fast at the edge."
 - **pan-load-burst (2026-08-24, §7h):** proximity

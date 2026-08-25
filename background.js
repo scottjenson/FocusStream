@@ -10,7 +10,7 @@ const log = (...args) => console.log("[FS bg]", ...args);
 // shared/transit.js is the single source of truth for the admission
 // predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one heartbeat window"
 // constant reused below instead of a second local copy (rules audit,
-// 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"). background.js is a
+// 2026-08-06 — WATCHLIST.md `threshold-sprawl`). background.js is a
 // module worker ("type": "module", manifest.json, 2026-08-21 — needed to
 // import shared/utility.js for the live tab strip's site-name reuse), so
 // this is a real static import, not importScripts().

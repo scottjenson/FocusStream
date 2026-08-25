@@ -1870,6 +1870,42 @@ tighter than the implied-break fold threshold (60min), an ordinary unlocked
 hover — the two thresholds no longer move together, whereas before the fix
 they were the same number by definition.
 
+## MEDIUM/LOW drop to 75% of HIGH (2026-08-08)
+
+**Why:** the 2026-08-07 second pass had set every tier to one height (144),
+leaving fill/border as the only tier signal. Adjacent events then ran
+together — with no top-edge step anywhere, a HIGH block and the LOW block
+beside it read as one continuous mass, and the "top edge = importance
+contour" property the bottom-flush layout exists for had been flattened out
+of existence.
+
+**Rule:** `TIER_H` = HIGH 144 / MEDIUM 108 / LOW 108 — MEDIUM and LOW drop
+to 75% of the band, HIGH keeps the full 144. This restores a height step for
+HIGH specifically, giving it a second and stronger signal on top of the
+brightness ladder. MEDIUM and LOW deliberately still share one height: the
+three-step brightness ladder (2026-08-08, same day) is what splits those
+two, and reintroducing a third height would have re-implied more importance
+levels than exist — the same vocabulary argument that rejected a
+contained-only notch height on 2026-07-24.
+
+**Not the 2026-07-24 three-height rule returning.** That one was equidistant
+(40 / 92 / 144, 52px steps) and made LOW visually tiny; this is a two-height
+rule where the short tier is 108, still a substantial block. The intent
+differs too: 2026-07-24 was calming a LOW comb, this is rescuing HIGH's
+prominence.
+
+**`STRIP_TIER_H` did not follow.** The week strip stayed all-equal (30/30/30)
+— its bars are 30px tall at most, and a 75% step there is 7px, below the
+threshold where a height difference reads as anything but noise.
+
+**Dormant since Stage 1 (2026-08-11).** The stack-ribbon rewrite
+(`card_deck.md`) replaced width-as-duration with height-as-tier, and the live
+card layout reads `CARD_TIER_H` (260 / 173 / 87) instead. `TIER_H` is kept,
+not deleted, as the fallback block-ribbon layout's sizing — it is read in
+exactly one place, the non-uniform non-contained branch of `paint()`. Any
+spec statement about `TIER_H` describes the fallback ribbon, not what the
+dashboard currently shows (watch `card-view-unspecced`).
+
 ## Weak-bridge guard — container qualification (2026-08-14)
 
 **Why:** a Figma thread rendered as `figma.com 11:31 AM–11:46 AM · 2
