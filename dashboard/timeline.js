@@ -465,6 +465,19 @@ import {
   const TICK_TOP = 16; // band bottom → tick/label lane (expand-bar hit zone fills the gap)
   const TICK_H = 12;
   const AXIS_AREA = 46;
+  // Hover card's parked slot (2026-08-25): clearance between the bottom of
+  // the axis strip and the top of the card, so the card never sits on the
+  // hour ticks/labels. The card left-aligns to its block and drops to this
+  // fixed lane — already where an "expanded" card would go, which is why
+  // locking needs no expand animation.
+  const TIP_PARK_GAP = 12;
+  // Below this width the lock icon is suppressed (2026-08-25): a 22px icon
+  // cannot sit inside a narrower block without overflowing onto neighbors.
+  // Such blocks still hover normally — they just can't be pinned. Held
+  // separately from MIN_W (8, the hoverable floor) because it answers a
+  // different question: MIN_W is "can this be hit at all", this is "can
+  // this hold a control". Deliberately not folded into MIN_W.
+  const LOCK_MIN_BLOCK_W = 28;
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
   // Left-anchored label sizing (spec §6, 2026-08-08 revival): a HIGH run's
   // label starts at its block's left edge and may overflow rightward across
@@ -1236,7 +1249,12 @@ import {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && expandedKey !== null) {
+    if (e.key !== "Escape") return;
+    // Escape releases the lock too (2026-08-25) — the card view already
+    // taught Escape as a dismissal, and a pinned card is the same kind of
+    // "committed-to" state a fence is.
+    unlockTip();
+    if (expandedKey !== null) {
       collapseAllFences();
       render(lastSessions);
     }
@@ -1269,6 +1287,18 @@ import {
   tipText.id = "tip-text";
   tip.appendChild(tipImg);
   tip.appendChild(tipText);
+  // Close (×) for the locked card, hidden while merely hovering — an
+  // unlocked card is pointer-transparent, so a close button on it could
+  // never be clicked anyway.
+  const tipClose = document.createElement("div");
+  tipClose.id = "tip-close";
+  tipClose.textContent = "×";
+  tipClose.hidden = true;
+  tipClose.onclick = (ev) => {
+    ev.stopPropagation();
+    unlockTip();
+  };
+  tip.appendChild(tipClose);
   rootContainer().appendChild(tip);
   let tipTimer = null;
   // Bumped on every hide: async continuations below (storage fetch, image
@@ -1276,11 +1306,70 @@ import {
   // dismissed tooltip or paint into a newer one.
   let tipSeq = 0;
 
-  function hideTip() {
+  // --- Lock (2026-08-25). Clicking a block's lock icon pins the hover card
+  // so it can be interacted with (it is pointer-transparent otherwise).
+  //
+  // Once locked, the card is deliberately INDEPENDENT OF CURSOR POSITION.
+  // Tying its survival to the pointer would defeat the feature: the blocks
+  // that most need locking are the narrow ones, and making the user hold a
+  // few-pixel corridor on the way down to the card is exactly the care the
+  // lock exists to remove. So leaving the block, the card, or the ribbon
+  // does NOT close it.
+  //
+  // What does close it: an explicit dismissal (the icon again, or the
+  // card's ×), or any pan/zoom. Pan/zoom isn't an arbitrary policy — the
+  // card is anchored to a BLOCK's left edge, and those are precisely the
+  // gestures that move blocks, so the anchor stops meaning anything.
+  let lockedKey = null; // blockEls key of the locked block; null = not locked
+  const isLocked = () => lockedKey !== null;
+  // Whichever block's lock icon is currently revealed, so hideTip can put it
+  // away without scanning every block. One at a time by construction — the
+  // icon only ever shows for the block whose card is up.
+  let shownLockBtn = null;
+
+  // Guarded hide: while locked, ordinary hover dismissals (pointerout,
+  // pointerdown, a new pointerover) must not tear the card down. Callers
+  // that genuinely mean "close regardless" use hideTip({force:true}).
+  function hideTip(opts) {
+    if (isLocked() && !(opts && opts.force)) return;
     clearTimeout(tipTimer);
     tipTimer = null;
     tipSeq++;
     tip.hidden = true;
+    tipClose.hidden = true;
+    if (shownLockBtn) {
+      shownLockBtn.hidden = true;
+      shownLockBtn = null;
+    }
+  }
+
+  // Lock icon click. Re-clicking the locked block's own icon releases it;
+  // clicking a different block's icon is not reachable (plain hover is
+  // suppressed while locked, so no other block's icon is ever showing).
+  function toggleLock(key, el) {
+    if (lockedKey === key) {
+      unlockTip();
+      return;
+    }
+    lockedKey = key;
+    el.classList.add("locked");
+    if (el._lockBtn) el._lockBtn.classList.add("on");
+    tip.classList.add("locked");
+    tipClose.hidden = false;
+  }
+
+  // Releases the lock and clears the card. Returns to plain hover: the next
+  // pointerover repaints normally. Safe to call unlocked (no-op).
+  function unlockTip() {
+    if (!isLocked()) return;
+    const el = blockEls.get(lockedKey);
+    if (el) {
+      el.classList.remove("locked");
+      if (el._lockBtn) el._lockBtn.classList.remove("on");
+    }
+    lockedKey = null;
+    tip.classList.remove("locked");
+    hideTip({ force: true });
   }
 
   // Build the tooltip text area. Structured blocks carry _tipData (two
@@ -1477,6 +1566,22 @@ import {
   {
     const ribbonEl = qs("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
+      // While locked, plain hover is suppressed entirely (2026-08-25): two
+      // cards competing for the one parked slot would thrash, and a card
+      // that swapped to whatever block the cursor grazed would not be
+      // locked in any sense the user would recognize. Ordinary hover
+      // resumes the moment the lock clears.
+      if (isLocked()) return;
+      // Twin of the pointerout guard below: re-entering from a child of the
+      // same hover target (the lock icon) is not a new hover, and must not
+      // tear down and re-arm the tip — that re-arm was half the flicker.
+      {
+        const to = ev.target.closest && ev.target.closest("[data-tip]");
+        const from = ev.relatedTarget && ev.relatedTarget.closest
+          ? ev.relatedTarget.closest("[data-tip]")
+          : null;
+        if (to && to === from) return;
+      }
       hideTip();
       hideQuickLabel();
       // Skipped while a gap is active (2026-08-15, label-flicker fix):
@@ -1563,8 +1668,12 @@ import {
       if (isCard || isChildThumb) {
         return; // cards and child thumbnails never fall through to the delayed #tip below
       }
-      const px = ev.clientX;
-      const py = ev.clientY;
+      // Anchored to the BLOCK, not the cursor (2026-08-25): captured here
+      // at hover time, read after the awaits below. Using the element's own
+      // viewport rect sidesteps the scroll-content-vs-viewport conversion
+      // entirely (blocks live in #ribbon-wrap's scrolled space; #tip is
+      // position: fixed) — the same trap cardExpandGeom handles by hand.
+      const anchorEl = el;
       const seq = tipSeq;
       tipTimer = setTimeout(async () => {
         fillTip(el);
@@ -1595,18 +1704,43 @@ import {
         tip.style.left = "0px";
         tip.style.top = "0px";
         tip.hidden = false;
-        // Measure after content is set; clamp to the viewport (flip above
-        // the cursor rather than run off the bottom).
+        // Measure after content is set, then park it (2026-08-25): left edge
+        // flush with the block's, top a fixed lane below the axis strip so it
+        // can never cover the hour ticks/labels. Only the right edge is
+        // clamped — a block near the viewport's right would otherwise push
+        // the card off-screen. No bottom flip: the slot is below everything
+        // already, and flipping it up would land it back on the ribbon.
         const r = tip.getBoundingClientRect();
-        let left = px + 12;
-        let top = py + 12;
+        const wrapRect = qs("ribbon-wrap").getBoundingClientRect();
+        let left = anchorEl.getBoundingClientRect().left;
         if (left + r.width > innerWidth - 4) left = Math.max(4, innerWidth - r.width - 4);
-        if (top + r.height > innerHeight - 4) top = Math.max(4, py - r.height - 12);
         tip.style.left = left + "px";
-        tip.style.top = top + "px";
+        tip.style.top = wrapRect.top + TITLE_AREA + BAND_H + AXIS_AREA + TIP_PARK_GAP + "px";
+        // The lock icon rides the card: it appears with it and goes with
+        // it, so the two read as one affordance rather than as a control
+        // that's always sitting on the block.
+        if (anchorEl._lockBtn) {
+          anchorEl._lockBtn.hidden = false;
+          shownLockBtn = anchorEl._lockBtn;
+        }
       }, TIP_DELAY_MS);
     });
-    ribbonEl.addEventListener("pointerout", () => {
+    ribbonEl.addEventListener("pointerout", (ev) => {
+      // Crossing onto a child of the SAME hover target is not an exit
+      // (2026-08-25). pointerout/pointerover are delegated on #ribbon and
+      // bubble, so moving from a block onto its own lock icon fires a
+      // matched out/over pair even though the cursor never visually left
+      // the block. Unguarded, that tore the card (and the icon with it)
+      // down the instant the cursor reached the icon — making the lock
+      // literally unclickable — and the re-entering pointerover restarted
+      // the tip timer, which together with the icon's own cursor:pointer
+      // read as an arrow/hand flicker. relatedTarget is where the cursor
+      // WENT; if that's still inside the same [data-tip], ignore it.
+      const from = ev.target.closest && ev.target.closest("[data-tip]");
+      const to = ev.relatedTarget && ev.relatedTarget.closest
+        ? ev.relatedTarget.closest("[data-tip]")
+        : null;
+      if (from && from === to) return;
       hideTip();
       hideQuickLabel();
       // Same guard as pointerover above, same reason: pointerout fires
@@ -1655,6 +1789,9 @@ import {
     let idleTimer = null;
     const applyZoom = () => {
       rafId = null;
+      // Zoom invalidates the lock's anchor (2026-08-25): the card is pinned
+      // to a block's left edge, and zooming moves and rescales every block.
+      unlockTip();
       const rect = wrap.getBoundingClientRect();
       // Anchor the pointer's x-FRACTION of the ribbon's total width across
       // the width change, so the timestamp under the cursor stays under it
@@ -1768,6 +1905,7 @@ import {
       pannedMoved = true; // §7h load arm: real motion, not mere cursor entry
       if (ribbonEl.classList.contains("panning")) return;
       ribbonEl.classList.add("panning");
+      unlockTip(); // pan invalidates the anchor (2026-08-25); plain hideTip is a no-op while locked
       hideTip();
       hideQuickLabel();
       hideCardHoverText();
@@ -1915,8 +2053,16 @@ import {
     // capacity arm. The gesture itself still knows nothing about loading —
     // paint() decides, exactly as it does for zoom.
     wrap.addEventListener("scroll", () => {
-      if (anchorMode !== "right") return;
+      // Panning invalidates the lock's anchor (2026-08-25), same reasoning
+      // as the zoom hook. Hooked HERE rather than in the pan pump because
+      // every pan path lands in scrollLeft — edge-pan (panTick), trackpad
+      // deltaX, and keyboard/programmatic alike — so one listener catches
+      // them all with no gaps. Ahead of the anchorMode guard (a lock is
+      // just as invalid when left-anchored) but behind selfScrolling: our
+      // own scroll assignments echoing back are not user navigation.
       if (selfScrolling) return; // our own assignment echoing back
+      unlockTip();
+      if (anchorMode !== "right") return;
       captureFromRight(wrap);
     });
     wrap.addEventListener(
@@ -2347,9 +2493,51 @@ import {
         : s.e.isOpenTab
           ? () => chrome.runtime.sendMessage({ type: "FS_SWITCH_TAB", tabId: s.e.openTabId ?? s.e.tabId })
           : () => chrome.tabs.create({ url: s.e.url });
+
+      // Lock affordance (2026-08-25). Created lazily per block and kept on
+      // the element; shown only while this block's card is up (see the
+      // pointerover/pointerout wiring). Suppressed below LOCK_MIN_BLOCK_W —
+      // the icon would overflow onto neighbors — and on collapsed sticks,
+      // which are inert.
+      const lockable = !s.collapsed && s.w >= LOCK_MIN_BLOCK_W;
+      if (lockable) {
+        if (!el._lockBtn) {
+          const btn = document.createElement("div");
+          btn.className = "blk-lock";
+          btn.textContent = "🔒";
+          btn.hidden = true;
+          // stopPropagation, or this rides the block's own navigate click
+          // and opens the page instead of locking. Same guard the card
+          // view's close button and snapshot already use.
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            toggleLock(s.key, el);
+          };
+          // The block's pointerdown handler hides the tip; without this the
+          // card would be torn down before the lock click ever landed.
+          btn.onpointerdown = (ev) => ev.stopPropagation();
+          el.appendChild(btn);
+          el._lockBtn = btn;
+        }
+        el._lockBtn.classList.toggle("on", lockedKey === s.key);
+      } else if (el._lockBtn) {
+        // Block shrank below the threshold (or collapsed) — drop the icon.
+        // Clear shownLockBtn if it was this one, so hideTip can't later
+        // reach through a detached node. Zoom already unlocks before any
+        // repaint gets here, so this is belt-and-braces rather than a live
+        // path — but a dangling reference would outlive the element.
+        if (shownLockBtn === el._lockBtn) shownLockBtn = null;
+        el._lockBtn.remove();
+        el._lockBtn = null;
+      }
+      el.classList.toggle("locked", lockedKey === s.key);
     }
     for (const [key, el] of blockEls) {
       if (!seen.has(key)) {
+        // A locked block leaving the layout takes its lock with it — the
+        // card is anchored to an element that no longer exists.
+        if (lockedKey === key) unlockTip();
+        if (el._lockBtn && shownLockBtn === el._lockBtn) shownLockBtn = null;
         el.remove();
         blockEls.delete(key);
       }

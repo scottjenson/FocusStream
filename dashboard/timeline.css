@@ -155,6 +155,39 @@
     /* Sub-MIN_W LOW blocks at low zoom (spec §7e): present so nothing ever
        silently vanishes, but too narrow to be a real hover target. */
     .blk.inert { pointer-events: none; }
+    /* Lock affordance (2026-08-25): pins the hover card so it can be
+       interacted with. Lives INSIDE the block, near its bottom edge — the
+       part nearest the parked card, so the reach is short and the cursor
+       never leaves the block on the way (leaving it would fire pointerout
+       and dismiss the very card being reached for). Appears only while the
+       card is up. Suppressed on blocks too narrow to hold it — see
+       LOCK_MIN_BLOCK_W in timeline.js. */
+    .blk-lock {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 3px;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: rgba(20,22,26,0.88);
+      color: #c3c9d2;
+      font-size: 13px;
+      line-height: 22px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+      z-index: 3;
+    }
+    .blk-lock:hover { background: #14161a; color: #fff; }
+    /* Engaged: filled glyph plus a light ground, so the icon itself reports
+       the state at the exact spot the cursor already is. */
+    .blk-lock.on { background: #e8ecf2; color: #14161a; }
+    /* The locked block keeps a persistent rim so the card's owner stays
+       identifiable after the cursor wanders off — the card is cursor-
+       independent once locked, so this pairing is the only thing tying the
+       two together on screen. */
+    #ribbon .blk.locked { box-shadow: 0 0 0 2px #7d8794; }
     /* Currently-open tabs (spec §7f, 2026-08-23): marked by SHAPE — rounded
        top corners, square bottom, so the block reads as a tab. Shape because
        the other channels are taken: fill/rim luminance carry importance (§6),
@@ -621,7 +654,13 @@
     }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it
-       can never steal the hover that opened it. */
+       can never steal the hover that opened it — lifted only in .locked
+       below, which is the whole point of locking.
+
+       Parked position (2026-08-25): no longer follows the cursor. Left-
+       aligned to the hovered block, at a fixed y below the axis strip, so
+       the card is already sitting where a click would "expand" it to — the
+       reason no expand animation is needed at all. */
     #tip {
       position: fixed;
       z-index: 10;
@@ -638,6 +677,36 @@
       pointer-events: none;
       box-shadow: 0 4px 16px rgba(0,0,0,0.5);
     }
+    /* Locked (2026-08-25): the card is pinned and becomes INTERACTIVE —
+       pointer-events flipping to auto is the functional half of the lock,
+       and the brighter rim/shadow is the visual half announcing it. Both
+       land in the same instant deliberately, so the appearance change and
+       the behavior change are one event to the user. No transition: the
+       card doesn't move when it locks, and motion with no travel reads as
+       a flicker rather than as feedback. */
+    #tip.locked {
+      pointer-events: auto;
+      border-color: #7d8794;
+      box-shadow: 0 6px 22px rgba(0,0,0,0.6);
+    }
+    /* Close (×) for the locked card — one of two hand-dismissals (the
+       other is re-clicking the block's own lock icon, which the cursor may
+       be nowhere near once it's down in the card). */
+    #tip-close {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      width: 18px;
+      height: 18px;
+      line-height: 17px;
+      text-align: center;
+      border-radius: 3px;
+      color: #9aa1ab;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+    #tip-close:hover { background: #2b3038; color: #fff; }
     /* Snapshot preview (spec §6): revealed only after decode, so the tooltip
        is measured at its final size. max-width bounds the 640px capture to
        the tooltip's own cap. max-height + object-fit crop the rare portrait
