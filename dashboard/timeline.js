@@ -3006,6 +3006,103 @@ import {
       if (el._labelEl.textContent !== text) el._labelEl.textContent = text;
     }
 
+    // On-block snapshots (2026-08-25). Previously the snapshot lived ONLY in
+    // the hover tooltip; this puts it on the block face itself, so the page
+    // is identifiable without hovering. Deliberately NOT the card deck's
+    // treatment, and the differences are the whole design:
+    //
+    // - MEDIUM/HIGH only. LOW is the disposable band (BAND_FLOOR_STEPS
+    //   shrinks it to nothing first), and by definition the wider bands have
+    //   room for a picture. Reuses the existing importance hierarchy rather
+    //   than inventing a second width threshold. Sticks/collapsed stay bare,
+    //   matching the favicon and label rules above.
+    // - Scaled by HEIGHT ONLY, clipped on the right (see .blk-img). A block's
+    //   height is its tier and constant within a band; its width is duration.
+    //   So the picture is sized off the height and allowed to overflow right,
+    //   where .blk's overflow:hidden clips it — a longer session shows more
+    //   of the page, at the same scale, which is the deck's `cover` and its
+    //   fixed aspect turned inside out for a variable-width view.
+    // - LAZY, viewport-culled. The deck fetches eagerly because every card
+    //   needs its image; here 87% of blocks sit on the MIN_W floor (see
+    //   MIN_W's measurement note), so eager would pull hundreds of 20-40KB
+    //   data URLs to paint images a few px wide — most of which the band
+    //   gate then declines to draw at all.
+    // Cull window in CONTENT coordinates (seg.x/.w are content-space; the
+    // ribbon is offset by lastPadPx inside the scroller). One margin-widened
+    // viewport either side, so a pan reveals blocks whose picture is already
+    // in flight rather than starting the fetch at the moment they appear.
+    const snapWrap = qs("ribbon-wrap");
+    const snapViewW = snapWrap ? snapWrap.clientWidth : 0;
+    const snapViewL = (snapWrap ? snapWrap.scrollLeft : 0) - lastPadPx - snapViewW;
+    const snapViewR = snapViewL + snapViewW * 3;
+    const snapWanted = [];
+    for (const s of segs) {
+      const el = blockEls.get(s.key);
+      if (!el) continue;
+      const wants =
+        !s.collapsed && !s.stick && (s.e.band === "high" || s.e.band === "medium");
+      if (!wants) {
+        if (el._snapEl) {
+          el._snapEl.remove();
+          el._snapEl = null;
+        }
+        delete el.dataset.snapKey;
+        continue;
+      }
+      const ids = (s.e.snapIds || [s.e.id]).filter(Boolean);
+      if (!ids.length) continue;
+      const snapKey = ids.join(",");
+      // Already showing this exact set: leave the decoded <img> alone. Without
+      // this, every pan/zoom repaint would re-fetch and re-decode every
+      // visible block's picture.
+      if (el.dataset.snapKey === snapKey) continue;
+      // Cull: only blocks in (or just outside) the viewport. Skipped entirely
+      // when the scroller isn't measurable yet (clientWidth 0 pre-layout), so
+      // a first paint fetches rather than silently drawing nothing.
+      if (snapViewW && (s.x + s.w < snapViewL || s.x > snapViewR)) {
+        // Drop the decoded image too, not just the key: an offscreen ribbon
+        // otherwise holds every 640px bitmap it has ever scrolled past.
+        // Elements are keyed by seg key and never reused across events, so
+        // this is purely a memory concern, not a wrong-picture one.
+        if (el._snapEl) {
+          el._snapEl.remove();
+          el._snapEl = null;
+        }
+        delete el.dataset.snapKey; // re-fetch when it pans back in
+        continue;
+      }
+      el.dataset.snapKey = snapKey;
+      snapWanted.push({ el, ids, snapKey });
+    }
+    if (snapWanted.length) {
+      const allKeys = [...new Set(snapWanted.flatMap((f) => f.ids.map((id) => "snap:" + id)))];
+      chrome.storage.local
+        .get(allKeys)
+        .then((r) => {
+          for (const { el, ids, snapKey } of snapWanted) {
+            // Stale by the time this resolved (repaint re-targeted the block,
+            // or the band gate dropped it) — same guard the deck's eager
+            // fetch uses.
+            if (el.dataset.snapKey !== snapKey) continue;
+            // Best-scoring member that HAS a picture wins; top members can be
+            // unphotographed pre-navigation stubs (same rule as the tooltip).
+            const stored = ids.map((id) => r["snap:" + id]).find(Boolean);
+            if (!stored) continue;
+            if (!el._snapEl) {
+              const img = document.createElement("img");
+              img.className = "blk-img";
+              img.alt = "";
+              // Behind the favicon/label scrim, which is appended after it in
+              // DOM order and so paints on top.
+              el.insertBefore(img, el.firstChild);
+              el._snapEl = img;
+            }
+            el._snapEl.src = stored;
+          }
+        })
+        .catch(() => {}); // storage read failed: blocks just stay flat fill
+    }
+
     // Close box (restored 2026-08-23, spec §7c): a hover-revealed × per strip
     // tile, matching Chrome's own. Existed as .fs-close on the pre-
     // unification .fs-tab tiles and was lost as collateral when Phase 2
