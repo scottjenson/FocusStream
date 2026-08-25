@@ -562,9 +562,11 @@ carry, since panning only exists in the overflow regime. The real argument is
 a UX correction: the 7-day window is an efficiency trick and should be
 invisible; with infinite memory all seven days would simply be loaded.
 
-The proximity arm is gated on a pan being IN PROGRESS: `scrollLeft` is 0 at
-rest on every render, so ungated it reads as "near the left end" before the
-user has touched anything and pulls all seven days at startup.
+The proximity arm is gated on a pan having MOVED whole pixels (revised
+2026-08-25 — was "in progress", which `startPan` set on mere cursor entry, so
+entering the ribbon loaded a day and re-solved the default zoom): `scrollLeft`
+is 0 at rest on every render, so ungated it reads as "near the left end"
+before the user has touched anything and pulls all seven days at startup.
 `LOAD_MARGIN_PX` is generous (order of one viewport) so the day lands before
 the pan reaches the edge.
 

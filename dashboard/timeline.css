@@ -338,55 +338,25 @@
        lesser ones — the gold accent border color (EARNED_RIM) is set
        directly in JS; the .earned-high class is kept as a hook for the
        hover/hit-testing code even though no rule targets it here. */
-    /* On-block snapshot (2026-08-25): the page picture on the block face,
-       not only in the hover tooltip. MEDIUM/HIGH only (gated in paint()).
-
-       SCALE BY HEIGHT ONLY, CLIP THE RIGHT. The height is the block's tier
-       (TIER_H 144/108) and is the same for every block in a band; the width
-       is duration and varies wildly. So the image is sized off the height
-       alone — `height: 100%` with `width: auto` — and whatever doesn't fit
-       runs off the right edge, where .blk's own overflow:hidden clips it.
-       A long session shows more of the page than a short one, and zooming
-       reveals more width without ever changing the scale.
-
-       Neither object-fit value can express this, which is what the first
-       attempt got wrong (2026-08-25, reverted same day):
-       - `cover` fills both axes by magnifying until only the page's top-left
-         corner shows: Scott's "reading through a drinking straw".
-         (This IS right for the card deck, whose cards have a fixed aspect.)
-       - `contain` fits BOTH dimensions, so on a narrow block the width
-         becomes the binding constraint and the image shrinks VERTICALLY too,
-         leaving dead tier-fill below it and a page that gets smaller as you
-         zoom out. Screenshot confirmed; that is the bug this replaced.
-       Sizing by height with an unconstrained width sidesteps object-fit
-       entirely — the <img> is simply laid out at its natural aspect and
-       allowed to overflow.
-
-       left/top anchoring: the image's left edge shares the block's left
-       edge, which IS the session's start time on the timeline. Anchoring
-       anywhere else would drift the picture off the moment it represents. */
+    /* On-block snapshot (2026-08-25): fits the block's WIDTH, min-width
+       flooring the scale so a narrow block clips rather than smearing; cover
+       (not fill) so a constrained image crops instead of distorting; left/top
+       so the image's left edge is the session's start. The two rejected
+       sizing models: decisions/snapshot_implementation.md. */
     .blk-img {
       position: absolute;
       top: 0;
       left: 0;
+      width: 100%;
+      min-width: 90px; /* provisional scale floor — eyeball against real data */
       height: 100%;
-      width: auto;
-      /* No max-width: overflowing the block on the right is the POINT — the
-         parent's overflow:hidden is what does the clipping. */
-      max-width: none;
+      object-fit: cover;
+      object-position: left top;
       pointer-events: none;
     }
-    /* Scrim behind the favicon/label row ONLY (2026-08-25) — explicitly not a
-       wash over the whole face, which would pay the snapshot's entire
-       legibility cost to protect a 16px strip and stop the image reading as
-       an image. .blk-label leans on text-shadow alone, which is enough over
-       flat tier fill and not enough over a photograph.
-
-       SOLID, not a gradient: the card work already learned this (see
-       .card-info) — a fixed-stop gradient goes transparent before the text
-       it is protecting ends. Height matches the 16px icon + its 4px inset,
-       top and bottom. Only drawn on blocks that actually got a picture, so a
-       plain tier-fill block is untouched. */
+    /* Scrim behind the favicon/label row ONLY — a full-face wash would spend
+       the picture to protect a 16px strip. Flat, not a gradient (.card-info
+       learned that one). Pairs with .blk-label's own text-shadow. */
     .blk:has(> .blk-img)::before {
       content: "";
       position: absolute;
@@ -394,8 +364,11 @@
       left: 0;
       right: 0;
       height: 24px;
-      background: rgba(10, 11, 13, 0.8);
+      background: rgba(10, 11, 13, 0.5);
       pointer-events: none;
+      /* ::before is the FIRST child and would paint under .blk-img: image (0),
+         scrim (1), favicon + label (2). */
+      z-index: 1;
     }
     /* Favicon (spec §6, 2026-08-07; always-color/always-attempt experiment
        same day): drawn on every real block, always full color — grayscale
@@ -405,6 +378,7 @@
        partial icon beats none. Experimental: may look bad on very thin
        blocks. */
     .blk .fav {
+      z-index: 2; /* above the .blk-img snapshot and its scrim */
       position: absolute;
       top: 4px;
       left: 4px;
@@ -427,6 +401,7 @@
        height-only toggle over one shared element set (spec §7b), not a
        label-repositioning event. One position, both states. */
     .blk-label {
+      z-index: 2; /* above the .blk-img snapshot and its scrim */
       position: absolute;
       top: 4px;
       left: 24px; /* favicon's 16px width + 4px left inset + 4px gap */

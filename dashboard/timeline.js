@@ -655,6 +655,9 @@ import {
   // "near the left end" before the user touched anything and pull all seven
   // days at startup. Proximity is a claim about a gesture, not a position.
   let panning = false;
+  // Real motion, not mere cursor entry — `panning` alone is set by startPan
+  // before anything moves (spec §7h; decisions/tabmanager.md 2026-08-25).
+  let pannedMoved = false;
   let loadingDay = false;
   function maybeLoadOlderDay(totalPx) {
     if (loadingDay) return;
@@ -665,7 +668,7 @@ import {
     // be useful", asked two ways. lastPadPx is the left pad: content starts
     // there, so that is the real distance to the oldest loaded pixel.
     const underflows = totalPx < wrap.clientWidth;
-    const nearLeftEnd = panning && wrap.scrollLeft - lastPadPx <= LOAD_MARGIN_PX;
+    const nearLeftEnd = pannedMoved && wrap.scrollLeft - lastPadPx <= LOAD_MARGIN_PX;
     if (!underflows && !nearLeftEnd) return; // plenty of loaded history ahead
     if (Math.round((viewDayStart - windowStart) / 864e5) + 1 >= MAX_WINDOW_DAYS) return;
     const older = prevDayStart(windowStart);
@@ -1991,6 +1994,7 @@ import {
     // corrected 2026-08-25 — resting in the ramp is not panning). Called
     // from panTick's first whole-pixel frame; cleared by stopPan.
     const markPanningMoved = () => {
+      pannedMoved = true; // §7h load arm: real motion, not mere cursor entry
       if (ribbonEl.classList.contains("panning")) return;
       ribbonEl.classList.add("panning");
       hideTip();
@@ -2005,6 +2009,7 @@ import {
       panLastTs = 0;
       panFrac = 0;
       panning = false;
+      pannedMoved = false;
       if (ribbonEl.classList.contains("panning")) {
         ribbonEl.classList.remove("panning");
       }
@@ -3006,27 +3011,10 @@ import {
       if (el._labelEl.textContent !== text) el._labelEl.textContent = text;
     }
 
-    // On-block snapshots (2026-08-25). Previously the snapshot lived ONLY in
-    // the hover tooltip; this puts it on the block face itself, so the page
-    // is identifiable without hovering. Deliberately NOT the card deck's
-    // treatment, and the differences are the whole design:
-    //
-    // - MEDIUM/HIGH only. LOW is the disposable band (BAND_FLOOR_STEPS
-    //   shrinks it to nothing first), and by definition the wider bands have
-    //   room for a picture. Reuses the existing importance hierarchy rather
-    //   than inventing a second width threshold. Sticks/collapsed stay bare,
-    //   matching the favicon and label rules above.
-    // - Scaled by HEIGHT ONLY, clipped on the right (see .blk-img). A block's
-    //   height is its tier and constant within a band; its width is duration.
-    //   So the picture is sized off the height and allowed to overflow right,
-    //   where .blk's overflow:hidden clips it — a longer session shows more
-    //   of the page, at the same scale, which is the deck's `cover` and its
-    //   fixed aspect turned inside out for a variable-width view.
-    // - LAZY, viewport-culled. The deck fetches eagerly because every card
-    //   needs its image; here 87% of blocks sit on the MIN_W floor (see
-    //   MIN_W's measurement note), so eager would pull hundreds of 20-40KB
-    //   data URLs to paint images a few px wide — most of which the band
-    //   gate then declines to draw at all.
+    // On-block snapshots (2026-08-25): MEDIUM/HIGH only, width-fitted, lazy
+    // and viewport-culled where the card deck is eager. Why each differs from
+    // the deck: spec/display.md "On-block snapshots",
+    // decisions/snapshot_implementation.md.
     // Cull window in CONTENT coordinates (seg.x/.w are content-space; the
     // ribbon is offset by lastPadPx inside the scroller). One margin-widened
     // viewport either side, so a pan reveals blocks whose picture is already

@@ -2264,7 +2264,8 @@ worst at the right-wall rest position where the pump clamps without
 travelling. Reported as "hover sometimes fires": no per-block pattern
 because the state was never about blocks. Now gated on a frame moving whole
 pixels, the same evidence bar the wall latch uses. The JS `panning` flag
-(loading's proximity arm) still sets on intent — only the CSS class moved.
+(loading's proximity arm) was left on intent — see the entry below, which
+finished the job.
 
 Resolves `pan-hover-suppression`'s core complaint, but not via its proposed
 rate floor: the bug was that NOT panning counted as panning. Rate floor
@@ -2284,3 +2285,21 @@ so its width had never been judged. Curve and max rate untouched —
 `panRateFor` renormalizes the band, so a narrower ramp reaches the same top
 speed over a shorter distance. If it now feels too steep, `PAN_CURVE` is the
 next knob.
+
+## The same correction, one flag late: proximity loading (2026-08-25)
+
+Entering the ribbon from the open button snapped the view to a much wider
+zoom. `startPan` sets `panning` the instant the cursor lands outside the dead
+zone, before any motion; the proximity arm read that, loaded a day, re-armed
+`defaultZoomApplied`, and re-solved the default 12-block window against the
+larger set.
+
+The entry above moved hover suppression to motion-ownership the same day but
+left this flag on cursor position, so §7h's stated contract — "proximity is a
+claim about a gesture, not a position" — was still false for the arm it was
+written about. Now a separate `pannedMoved`, set in `markPanningMoved` (the
+existing first-whole-pixel hook), cleared in `stopPan`.
+
+`panning` survives for its other reader, the render-time pin skip, which
+genuinely wants "pump running", not "pump moved". The capacity arm is
+untouched: underflow still loads with no gesture at all.

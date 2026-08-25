@@ -580,3 +580,21 @@ trigger means there is no second capture policy to reason about.
 The redundancy this creates is tracked as `WATCHLIST.md` `pagetext-intent-gate`
 — the extraction trigger is a subset of the transit bar, so the finalize
 deletion is currently a backstop rather than load-bearing.
+
+## Onto the block face, and three sizing models to get there (2026-08-25)
+
+Snapshots moved from the tooltip onto MEDIUM/HIGH block faces. Sizing took
+three tries, because block geometry (width = duration, height = tier) fails
+the deck's answer at both ends: `cover` magnifies a page into its top-left
+corner ("reading through a drinking straw" — still right for the deck's
+fixed-aspect cards); `contain` fits BOTH axes, so a narrow block binds on
+width and shrinks the image VERTICALLY, pages getting smaller as you zoom out.
+Adopted: fit the WIDTH, `min-width` flooring the scale so a narrow block clips
+instead of smearing. 90px is a guess — the knob to turn.
+
+Fetch is lazy and viewport-culled where the deck is eager: 87% of blocks sit
+on the `MIN_W` floor, so eager would pull hundreds of 20-40KB data URLs for
+images the band gate then declines to draw. Scrim is 24px, flat, 0.5 (from
+0.8), behind the favicon/label row only — a full-face wash would spend the
+picture to protect a 16px strip. It needs explicit `z-index`: `::before` is
+the first child and paints UNDER an absolutely-positioned `.blk-img`.
