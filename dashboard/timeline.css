@@ -131,17 +131,17 @@
       overflow: hidden;
       transition: left 0.3s, width 0.3s, top 0.3s, height 0.3s;
     }
-    /* Zoom (spec §6, 2026-08-08): the day-paging/fence-expand transition
+    /* Zoom (spec §6, 2026-08-08): the day-paging transition
        above is wrong for a continuous 60fps zoom gesture (blocks would
        perpetually chase a moving target through a 300ms ease, reading as
        laggy smear instead of a crisp real-time zoom) — #ribbon.zooming
        (toggled in JS for the gesture's duration) suspends it. */
-    #ribbon.zooming .blk, #ribbon.zooming .rtitle { transition: none; }
+    #ribbon.zooming .blk { transition: none; }
     /* Panning (spec §7h, 2026-08-24): same reasoning as .zooming above, and
        panning additionally suppresses hover UI — navigation and inspection
        are not simultaneous intents. The JS handler returns early while
        .panning; this only stops the CSS :hover treatments. */
-    #ribbon.panning .blk, #ribbon.panning .rtitle { transition: none; }
+    #ribbon.panning .blk { transition: none; }
     /* Lit up, not recolored: a strong brightness filter made dark palette
        entries impersonate their light neighbors (identity is sacred). */
     #ribbon .blk:hover { filter: brightness(1.15); box-shadow: 0 0 8px 2px rgba(255,255,255,0.35); }
@@ -330,52 +330,6 @@
       color: rgba(255,255,255,0.55);
       font-size: 12px;
       font-variant-numeric: tabular-nums;
-    }
-    /* Shared label look (position/font/glide) for both the persistent
-       HIGH-run title and the ephemeral quick label. No clipping here —
-       clipping is a HIGH-run-title-only concern (see .rtitle-clip) because
-       only that title has neighbors it can collide with. */
-    .rtitle {
-      position: absolute;
-      font-size: 14px;
-      line-height: 16px;
-      /* Glide with the blocks (same 0.3s as .blk); opacity handles the
-         fade-in of fence-member titles and the fade-out of departed ones. */
-      transition: left 0.3s, opacity 0.3s;
-    }
-    /* HIGH-run label (spec §6, 2026-08-08 revival): horizontal, left-
-       anchored at the run's own block, clipped by JS-computed maxWidth
-       (timeline.js: available space before the next HIGH run's anchor or
-       the ribbon edge) rather than the block's own width — it may overflow
-       across unlabeled LOW/MEDIUM neighbors. Ellipsis, never wrap. The quick
-       label (timeline.js quick-label hover) has no siblings to collide with
-       and deliberately omits this modifier — it is allowed to overflow the
-       ribbon/viewport edge rather than truncate. */
-    .rtitle-clip {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    /* Quick label (spec §6, 2026-08-08): the single reused hover element is
-       repositioned on every pointerover, never persists across a render —
-       it must snap, not glide, or a fast sweep across blocks reads as
-       lagging behind the cursor. Same override pattern as
-       #ribbon.zooming .rtitle below (a named case, not a separate class).
-       Solid chip background (page tone, not the lighter #tip chip — a
-       lighter box read as visually off sitting directly on the page
-       background) plus a z-index above .rtitle-clip: the label can land
-       beside/over a HIGH block's own persistent title (edge case,
-       2026-08-09) and must draw cleanly over it rather than collide —
-       simpler than teaching the label sibling-collision logic for a hover
-       state this brief. Negative margin offsets the padding so the text
-       still starts flush at the hovered block's left edge. */
-    #quicklabel {
-      transition: none;
-      z-index: 5;
-      background: #14161a;
-      border-radius: 3px;
-      padding: 1px 5px;
-      margin-left: -5px;
     }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it
