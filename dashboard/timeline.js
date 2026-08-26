@@ -9,12 +9,6 @@
 //
 // Wrapped in an IIFE so nothing leaks into dashboard.js's global scope;
 // dashboard.js hands us the session list via window.renderTimeline().
-// Also dynamically imported by switcher.js's overlay (Active Tab
-// Manager Phase 2, spec §7b) — same render pipeline, different DOM root
-// (window.__fsTimelineRoot, read at module-init, see the qs()/rootContainer
-// comment below). Each import() gets its own fresh module instance/closure
-// (dynamic import isn't cached across distinct content-script/page realms),
-// so the overlay and a standalone dashboard tab never share state.
 //
 // Scoring (session -> score/band) and assembly (sessions -> parsed/merged/
 // containerized threads) split out to scoring.js/assembly.js (2026-08-15,
@@ -37,7 +31,6 @@ import {
 import {
   parseSessions,
   assembleThreads,
-  threadsByDay,
   labelKeyOf,
   computeHostNames,
   tipDataOf,
@@ -48,36 +41,7 @@ import {
 (() => {
   const log = (...args) => console.log("[FS timeline]", ...args);
 
-  // DOM-root indirection (Active Tab Manager Phase 2, spec §7b, 2026-08-21):
-  // every DOM lookup in this file goes through qs()/rootContainer() instead
-  // of calling document.getElementById/document.body directly, so the exact
-  // same render() pipeline can paint into either the
-  // standalone dashboard page (root = document, the default — nothing about
-  // the historical view changes) or the tab-strip's overlay (root
-  // = that overlay's shadow root). Read from window.__fsTimelineRoot at
-  // MODULE-INIT time, not via a post-load setter call: several elements
-  // below (tip) are created and
-  // appended to their root at top-level IIFE execution, before render() is
-  // ever called — a setter invoked after import() resolves would be too
-  // late for those. switcher.js sets window.__fsTimelineRoot synchronously,
-  // immediately before calling import() on this module, so it's already in
-  // place the instant this line runs.
-  let root = (typeof window !== "undefined" && window.__fsTimelineRoot) || document;
-  function qs(id) {
-    return root.getElementById(id);
-  }
-  // document.body has no shadow-root equivalent — callers that used to
-  // append to document.body now append to root itself (the shadow root's
-  // top-level append target) when root isn't `document`.
-  function rootContainer() {
-    // Mirrors document.body: the overlay's shadow root carries a real
-    // <body>-tagged element as its one child (switcher.js) specifically so
-    // timeline.css's `body { ... }` base rule (font-family, background,
-    // color, color-scheme) applies inside the shadow tree exactly as it
-    // does on the real dashboard page — appending straight to the shadow
-    // root itself would put the tooltip outside that inheritance chain.
-    return root === document ? document.body : root.querySelector("body");
-  }
+  const qs = (id) => document.getElementById(id);
   const HOUR = 3600 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
@@ -148,11 +112,6 @@ import {
     ],
   };
   const bandFloorFor = (e) => {
-    // Open tabs never descend and are never dropped (the layout() filter
-    // exempts them too): a tab the user can switch to right now stays visible
-    // whatever it scored. They hold MIN_W, not a larger floor — see the
-    // OPEN_TAB_MIN_W retirement note above.
-    if (e.isOpenTab) return MIN_W;
     const steps = BAND_FLOOR_STEPS[e.band];
     if (!steps) return MIN_W; // high (and anything unbanded) never descends
     for (const s of steps) if (zoom <= s.zoom) return s.w;
@@ -168,10 +127,7 @@ import {
   // band goes entirely rather than proportionally. This is a real filter,
   // not a rendering tweak: at full zoom-out the view answers "when did
   // things that mattered happen," and LOW/MEDIUM are not answers to it.
-  const bandDroppedAt = (e) => {
-    const floor = bandFloorFor(e);
-    return floor === 0;
-  };
+  // The drop IS the zero rung — see layout()'s filter, its only reader.
   const GAP = 2;
   const BAND_H = 144;
   // Bottom-flush; top edge = importance contour. MEDIUM/LOW dropped to 75%
@@ -310,8 +266,8 @@ import {
   // anchor's target is not clamped away. See paint()'s padRightPx.
   let lastPadRightPx = 0;
   // The current layout's time<->x mapping (see axisOf). Replaced on every
-  // tiered paint; null before the first one and in strip mode, where the axis
-  // is categorical (Chrome tab order) and time has no meaning.
+  // paint; null only before the first one — a wheel/pointermove can arrive
+  // before any render, so the gesture handlers still guard on it.
   let axis = null;
   // Zoom anchor request, set by applyZoom for the duration of one relayout:
   // {t, viewportX} = "keep instant t at this many px from the viewport's left
@@ -417,7 +373,7 @@ import {
     if (!userAdjusted) defaultZoomApplied = false;
     loadingDay = true;
     try {
-      render(lastSessions, lastLockIntervals);
+      render(lastSessions);
     } finally {
       loadingDay = false;
     }
@@ -510,9 +466,8 @@ import {
     // Band drop (spec §7e, 2026-08-23): filter BEFORE any geometry so a
     // dropped block consumes no width and its neighbours' gaps close over it
     // — the point is to reclaim the space, not to hide a block that still
-    // occupies it. Open tabs are never dropped (they are reachable right now,
-    // whatever they scored).
-    events = events.filter((e) => e.isOpenTab || !bandDroppedAt(e));
+    // occupies it. A zero floor IS the drop (see BAND_FLOOR_STEPS).
+    events = events.filter((e) => bandFloorFor(e) !== 0);
     // Leading pad from the floor hour at GAP scale — absence is absence,
     // including the absence before the first block (spec §6: hour labels
     // stay clean whole hours; the pad does the honesty).
@@ -556,58 +511,54 @@ import {
     };
     const widthOf = (e) => Math.max(bandFloorFor(e), (e.durMs / 1000) * PX_PER_SEC);
     for (const e of events) {
-      {
-        {
-          allocGap(e.startTime);
-          let w = widthOf(e);
-          // Contained children sit at their time-proportional offsets
-          // inside the span-scaled container, pushed right — and the
-          // container stretched — when min-width floors would collide
-          // (spec §6 containers, rule 6).
-          const kids = [];
-          if (e.children) {
-            const span = e.endTime - e.startTime;
-            let prevRight = -Infinity;
-            for (const k of e.children) {
-              // Contained LOW sticks are retired (spec §6, 2026-08-07 second
-              // pass): every child — LOW included — gets proportional
-              // block width now, no stick floor.
-              const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
-              let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
-              if (kx < prevRight + GAP) kx = prevRight + GAP;
-              prevRight = kx + kw;
-              kids.push({ k, kx, kw });
-            }
-            w = Math.max(w, prevRight + GAP);
-          }
-          segs.push({
-            e,
-            key: e.id,
-            band: e.band,
-            w,
-            x: cursor,
-          });
-          for (const kid of kids) {
-            segs.push({
-              e: kid.k,
-              key: kid.k.id,
-              contained: true,
-              // The container event, so the tooltip can narrate the framing
-              // ("interruption inside Phanpy · visit 2 of 2").
-              parent: e,
-              // Capped at MEDIUM: containment frames — never confers,
-              // never destroys. Structurally unreachable since the
-              // tree-blind covered-HIGH guard (2026-07-24) — kept as a
-              // defensive invariant.
-              band: kid.k.band === "high" ? "medium" : kid.k.band,
-              w: kid.kw,
-              x: cursor + kid.kx,
-            });
-          }
-          cursor += w + GAP;
-          prevEnd = e.endTime;
+      allocGap(e.startTime);
+      let w = widthOf(e);
+      // Contained children sit at their time-proportional offsets
+      // inside the span-scaled container, pushed right — and the
+      // container stretched — when min-width floors would collide
+      // (spec §6 containers, rule 6).
+      const kids = [];
+      if (e.children) {
+        const span = e.endTime - e.startTime;
+        let prevRight = -Infinity;
+        for (const k of e.children) {
+          // Contained LOW sticks are retired (spec §6, 2026-08-07 second
+          // pass): every child — LOW included — gets proportional
+          // block width now, no stick floor.
+          const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
+          let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
+          if (kx < prevRight + GAP) kx = prevRight + GAP;
+          prevRight = kx + kw;
+          kids.push({ k, kx, kw });
         }
+        w = Math.max(w, prevRight + GAP);
       }
+      segs.push({
+        e,
+        key: e.id,
+        band: e.band,
+        w,
+        x: cursor,
+      });
+      for (const kid of kids) {
+        segs.push({
+          e: kid.k,
+          key: kid.k.id,
+          contained: true,
+          // The container event, so the tooltip can narrate the framing
+          // ("interruption inside Phanpy · visit 2 of 2").
+          parent: e,
+          // Capped at MEDIUM: containment frames — never confers,
+          // never destroys. Structurally unreachable since the
+          // tree-blind covered-HIGH guard (2026-07-24) — kept as a
+          // defensive invariant.
+          band: kid.k.band === "high" ? "medium" : kid.k.band,
+          w: kid.kw,
+          x: cursor + kid.kx,
+        });
+      }
+      cursor += w + GAP;
+      prevEnd = e.endTime;
     }
     const total = Math.max(cursor - GAP, 0);
     return { segs, gaps, dividers, total, ...axisOf(segs, gaps, dividers, total) };
@@ -652,12 +603,6 @@ import {
   // everything else (gaps, dividers, ticks) is rebuilt.
   const blockEls = new Map();
   let lastSessions = [];
-  // Lock intervals (spec §3, 2026-08-08): fetched once by dashboard.js
-  // alongside sessions and handed to render() as a second argument; cached
-  // here the same way lastSessions is so the internal re-render call sites
-  // (expand/collapse, Escape) don't need to re-fetch or
-  // re-thread it.
-  let lastLockIntervals = [];
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -705,7 +650,7 @@ import {
     unlockTip();
   };
   tip.appendChild(tipClose);
-  rootContainer().appendChild(tip);
+  document.body.appendChild(tip);
   let tipTimer = null;
   // Bumped on every hide: async continuations below (storage fetch, image
   // decode) compare against it, so a stale hover can never resurrect a
@@ -846,14 +791,6 @@ import {
       if (ribbonEl.classList.contains("panning")) return;
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
-      const isOpenTab = el.classList.contains("open-tab");
-      // No separate "collapsed tiles get no hover chrome" check needed
-      // here (Active Tab Manager Phase 2, 2026-08-22 unification): paint()
-      // already deletes dataset.tip on every block while heightMode is
-      // "uniform" (Scott's call — flat click-to-switch symbols, no hover
-      // at all) — those elements simply don't match this handler's own
-      // `[data-tip]` selector above, so they never reach this line at all
-      // while collapsed. Expanded (tiered) tiles fall through normally
       // Anchored to the BLOCK, not the cursor (2026-08-25): captured here
       // at hover time, read after the awaits below. Using the element's own
       // viewport rect sidesteps the scroll-content-vs-viewport conversion
@@ -1257,7 +1194,7 @@ import {
   // work (merge/container/atomicity passes), not just geometry — so the
   // last assembly is cached here, invalidated whenever render() runs for
   // an actual reason (new data, day paging).
-  let lastAssembly = null; // { sessions, dayThreads, hostNames, events }
+  let lastAssembly = null; // { hostNames, events }
 
   // Ribbon default resting window (spec §7c, 2026-08-22; corrected same
   // day — the first cut computed zoom from a pure TIME-span estimate,
@@ -1295,40 +1232,28 @@ import {
   // Sets zoom (once per page lifetime) so DEFAULT_WINDOW_BLOCKS fill the
   // viewport. Since 2026-08-23 (spec §7d) render() right-pins unconditionally,
   // so this no longer needs a scrollLeft of its own — the pin at this zoom IS
-  // the default window. Return value is now advisory; no caller reads it.
+  // the default window.
   function applyDefaultZoomWindow(events, wrap) {
-    if (defaultZoomApplied || !events.length || !wrap) return false;
+    if (defaultZoomApplied || !events.length || !wrap) return;
     defaultZoomApplied = true;
-    if (events.length <= DEFAULT_WINDOW_BLOCKS) return false; // everything already fits at zoom=1
+    if (events.length <= DEFAULT_WINDOW_BLOCKS) return; // everything already fits at zoom=1
     // Probe pass at the current (usually zoom=1) scale to find the
     // window's real pixel width, then solve for the zoom that makes that
     // width exactly fill the viewport.
     const probeLeft = windowScrollLeft(events);
-    if (probeLeft == null) return false;
-    const probeTotal = layout(events).total;
-    const naturalPx = probeTotal - probeLeft;
-    if (naturalPx <= 0) return false;
+    if (probeLeft == null) return;
+    const naturalPx = layout(events).total - probeLeft;
+    if (naturalPx <= 0) return;
     const viewportPx = Math.max(wrap.clientWidth, 1);
+    // A ZOOM_MIN/MAX clamp here just means more or fewer than 12 blocks at
+    // rest; under the right-pin that degrades on its own (spec §7d).
     zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, viewportPx / naturalPx));
     PX_PER_SEC = BASE_PX_PER_SEC * zoom;
     GAP_HOUR_PX = BASE_GAP_HOUR_PX * zoom;
-    // A ZOOM_MIN/MAX clamp here just means more or fewer than 12 blocks at
-    // rest; under the right-pin that degrades on its own (spec §7d).
-    return true;
   }
 
-  function render(sessions, lockIntervals) {
+  function render(sessions) {
     lastSessions = sessions;
-    // lockIntervals is optional per call (internal re-renders omit it and
-    // rely on the cache); only overwrite the cache when the caller actually
-    // passed something, so day-paging and Escape don't need to know about
-    // it at all.
-    if (lockIntervals !== undefined) lastLockIntervals = lockIntervals;
-    // One quiet assembly of every stored day feeds the strip; the viewed
-    // day re-assembles loud below (identical functions, identical inputs —
-    // kept separate so the worker-console transit/container logs stay tied
-    // to the day on screen).
-    const dayThreads = threadsByDay(sessions);
     // On-block labels are retired in favor of favicons (spec §6,
     // 2026-08-07) — computeHostNames now serves the tooltip's site name
     // only; the label-rendering pass itself is gone.
@@ -1336,7 +1261,7 @@ import {
     // windowStart spans multiple days in the overlay (spec §7e); it equals
     // viewDayStart everywhere else, so this is the historical single-day call.
     const events = assembleThreads(parseSessions(sessions, viewDayStart, windowStart));
-    lastAssembly = { sessions, dayThreads, hostNames, events };
+    lastAssembly = { hostNames, events };
     const wrap = qs("ribbon-wrap");
     // Ribbon default window (spec §7c): a one-shot, applied BEFORE paint()
     // so the very first paint already reflects it rather than being
@@ -1373,16 +1298,12 @@ import {
   // already-assembled event list — no thread/container/label work. Shared
   // by render() (fresh assembly) and relayout() (zoom, same assembly).
   function paint(events, hostNames) {
-    let segs, gaps, dividers, total;
-    {
-      const laid = layout(events);
-      ({ segs, gaps, dividers, total } = laid);
-      // Publish this layout's coordinate system for callers outside layout()
-      // (applyZoom's time anchor, windowScrollLeft). Always the CURRENT one:
-      // it is replaced on every paint, so a stale axis can't outlive the
-      // geometry it describes — the same discipline as lastTotalPx.
-      axis = laid;
-    }
+    // Publish this layout's coordinate system for callers outside layout()
+    // (applyZoom's time anchor, windowScrollLeft). Always the CURRENT one:
+    // it is replaced on every paint, so a stale axis can't outlive the
+    // geometry it describes — the same discipline as lastTotalPx.
+    axis = layout(events);
+    const { segs, gaps, dividers, total } = axis;
 
     const ribbon = qs("ribbon");
     const bandBottom = TITLE_AREA + BAND_H;
@@ -1468,9 +1389,6 @@ import {
       // page-background seam (.cut CSS carries the width) and inset off the
       // container's top/bottom edges (spec §6, 2026-08-02).
       el.classList.toggle("cut", !!s.contained);
-      // .open-tab: always false since §8 Phase 1 removed open-tab tagging;
-      // kept for the parking lot to feed (spec/ribbon.md §7c-ribbon).
-      el.classList.toggle("open-tab", !!s.e.isOpenTab);
       el.style.background = fill;
       // Earned-HIGH border (spec §6, 2026-08-07): the container/block
       // itself, never its contained children — this marks how the THREAD
@@ -1480,43 +1398,34 @@ import {
       const earned = s.band === "high" && !s.contained && hasEarnedHigh(s.e);
       el.classList.toggle("earned-high", earned);
       el.style.borderColor = s.contained ? PAGE_BG : earned ? EARNED_RIM : TIER_RIM[s.band];
-      {
-        // Blocks get the structured two-section tooltip as a JS property;
-        // data-tip stays (empty) as the hover marker. Gaps keep
-        // plain data-tip strings — fillTip falls back for those.
-        el.dataset.tip = "";
-        // Contained children narrate their framing: whose session they
-        // interrupted, and — when the same site interrupted more than once —
-        // which round trip this one was (the ribbon can't show a sub-pixel
-        // anchor-return between floored children; the hover explains it).
-        let ctx = null;
-        if (s.contained && s.parent) {
-          const sibs = s.parent.children.filter((c) => c.host === s.e.host);
-          const pname = hostNames.get(labelKeyOf(s.parent.host, s.parent.url)) || s.parent.host;
-          ctx =
-            `↩ interruption inside ${pname}` +
-            (sibs.length > 1 ? ` · visit ${sibs.indexOf(s.e) + 1} of ${sibs.length}` : "");
-        }
-        el._tipData = tipDataOf(s.e, hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host, ctx);
-        // Snapshot candidates, best first: merges/containers carry snapIds
-        // (members in score order); raw blocks and contained children are
-        // their own only candidate. Ids are UUIDs — comma-join is
-        // unambiguous.
-        el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
+      // Blocks get the structured two-section tooltip as a JS property;
+      // data-tip stays (empty) as the hover marker. Gaps keep
+      // plain data-tip strings — fillTip falls back for those.
+      el.dataset.tip = "";
+      // Contained children narrate their framing: whose session they
+      // interrupted, and — when the same site interrupted more than once —
+      // which round trip this one was (the ribbon can't show a sub-pixel
+      // anchor-return between floored children; the hover explains it).
+      let ctx = null;
+      if (s.contained && s.parent) {
+        const sibs = s.parent.children.filter((c) => c.host === s.e.host);
+        const pname = hostNames.get(labelKeyOf(s.parent.host, s.parent.url)) || s.parent.host;
+        ctx =
+          `↩ interruption inside ${pname}` +
+          (sibs.length > 1 ? ` · visit ${sibs.indexOf(s.e) + 1} of ${sibs.length}` : "");
       }
+      el._tipData = tipDataOf(s.e, hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host, ctx);
+      // Snapshot candidates, best first: merges/containers carry snapIds
+      // (members in score order); raw blocks and contained children are
+      // their own only candidate. Ids are UUIDs — comma-join is
+      // unambiguous.
+      el.dataset.snapIds = (s.e.snapIds || [s.e.id]).join(",");
       // Every visible block navigates (spec §6: click means "open this
-      // page" everywhere). A block tagged isOpenTab (2026-08-22
-      // unification; tagging corrected same day — see markOpenTabs)
-      // represents a tab the user ALREADY HAS open: switching to it, never
-      // chrome.tabs.create, which would open a duplicate. Same
-      // never-calls-chrome.tabs.*-directly-except-switch rule the retired
-      // open-tabs-only pipeline followed (spec §7).
+      // page" everywhere).
       // Sub-MIN_W blocks are presence indicators, not targets (spec §7e).
       // Enforced HERE, not by .inert: inline beats the stylesheet rule.
       el.style.pointerEvents = s.w < MIN_W ? "none" : "auto";
-      el.onclick = s.e.isOpenTab
-        ? () => chrome.runtime.sendMessage({ type: "FS_SWITCH_TAB", tabId: s.e.openTabId ?? s.e.tabId })
-        : () => chrome.tabs.create({ url: s.e.url });
+      el.onclick = () => chrome.tabs.create({ url: s.e.url });
 
       // Lock affordance (2026-08-25). Created lazily per block and kept on
       // the element; shown only while this block's card is up (see the
@@ -1607,9 +1516,7 @@ import {
       ribbon.appendChild(el);
     }
 
-    // axis is null in strip mode (categorical, no time axis) — no hour ticks
-    // there, which is already the case: uniform mode reserves no axis area.
-    const marks = axis ? hourMarks(segs, gaps, axis) : [];
+    const marks = hourMarks(segs, gaps, axis);
     let lastLabelRight = -Infinity;
     for (let i = 0; i < marks.length; i++) {
       const m = marks[i];
@@ -1681,22 +1588,14 @@ import {
       if (el._favEl.src !== src) el._favEl.src = src;
     }
 
-    // Block label (Active Tab Manager Phase 2, spec §7b, 2026-08-21):
-    // always-on, clipped domain/site-name label on every real block — the
-    // same short name the strip/tooltip already show (hostNames +
-    // labelKeyOf, computeHostNames' established idiom throughout this
-    // file), not the raw host. Pinned tabs in the strip are label-free
-    // (spec §7c, 2026-08-22: "you just simply drop the label" — matches
-    // real Chrome's own icon-only pinned-tab treatment); irrelevant in
-    // tiered mode, where s.e.pinned is never set on a real historical
-    // event.
+    // Block label (spec §7b, 2026-08-21): always-on, clipped domain/site-name
+    // label on every real block — the same short name the tooltip already
+    // shows (hostNames + labelKeyOf, computeHostNames' established idiom
+    // throughout this file), not the raw host.
     for (const s of segs) {
       const el = blockEls.get(s.key);
       if (!el) continue;
-      const text =
-        !s.e.pinned
-          ? hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host
-          : null;
+      const text = hostNames.get(labelKeyOf(s.e.host, s.e.url)) || s.e.host;
       if (!text) {
         if (el._labelEl) {
           el._labelEl.remove();

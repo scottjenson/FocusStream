@@ -317,35 +317,6 @@ export function mergeVisits(events) {
         // OR of members: the merged score must keep the scroll premium a
         // member earned (the gate would otherwise silently drop it).
         scrollable: run.some((m) => m.scrollable),
-        // isOpenTab (Active Tab Manager Phase 2, 2026-08-22 unification):
-        // OR of members, same convention as scrollable above — if ANY
-        // member is a live open-tab record (timeline.js
-        // syntheticSessionsForOpenTabs), the merged visit as a whole
-        // represents a tab the user currently has open, so paint()'s
-        // click handler should switch to it rather than open a duplicate.
-        // Not spread from run[0]/top — this object is built field-by-field
-        // on purpose, so a flag this consequential needs its own explicit
-        // line rather than relying on which member happened to be picked.
-        isOpenTab: run.some((m) => m.isOpenTab),
-        openTabId: (run.find((m) => m.isOpenTab) || {}).tabId,
-        // tabIndex (strip-ordering rework, spec §7c): same "first open-tab
-        // member wins" convention as openTabId above — detectContainers'
-        // final sort always reorders by startTime, so the strip's
-        // Chrome-order layout (stripLayout(), timeline.js) needs this
-        // preserved through merging or it silently falls back to time
-        // order (the actual bug this field fixes). Only meaningful when
-        // isOpenTab is true; undefined otherwise, same as openTabId.
-        tabIndex: (run.find((m) => m.isOpenTab) || {}).tabIndex,
-        // pinned (strip-ordering rework, spec §7c, bug fix): same
-        // first-open-tab-member convention as openTabId/tabIndex above —
-        // a merged/chained open tab (e.g. a pinned Gmail tab with real
-        // prior history that chains with another visit) was silently
-        // losing this field the same way tabIndex originally did, since
-        // it was never added here when isOpenTab/openTabId first were.
-        // Caught via a real screenshot: four genuinely Chrome-pinned tabs
-        // still showed full labels because their merged/chained composite
-        // objects had pinned === undefined.
-        pinned: (run.find((m) => m.isOpenTab) || {}).pinned,
         // The FIRST member is the one that resumed after any preceding
         // gap — its gap-audio testimony is the visit's (spec §6).
         ...(run[0].audibleSinceTs != null ? { audibleSinceTs: run[0].audibleSinceTs } : {}),
@@ -753,30 +724,6 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       audibleMs,
       activity,
       scrollable: c.frags.some((f) => f.scrollable),
-      // isOpenTab (Active Tab Manager Phase 2, 2026-08-22 unification):
-      // same OR-of-members convention as mergeVisits' merged object above
-      // — a container containing a currently-open tab (directly or via an
-      // already-merged fragment) should switch to it on click, not open a
-      // duplicate. children (contained excursions) checked too: an
-      // excursion INTO a currently-open tab is a real, if narrower, case.
-      isOpenTab: c.frags.some((f) => f.isOpenTab) || children.some((ch) => ch.isOpenTab),
-      openTabId: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
-        .tabId,
-      // tabIndex (strip-ordering rework, spec §7c): same convention as
-      // openTabId directly above — see mergeVisits' own tabIndex comment
-      // for why this field exists at all (detectContainers' final sort
-      // always reorders by startTime, silently losing Chrome's real tab
-      // order otherwise).
-      tabIndex: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
-        .tabIndex,
-      // pinned (strip-ordering rework, spec §7c, bug fix): same convention
-      // as tabIndex directly above — see mergeVisits' own pinned comment
-      // for why this was missing (added alongside isOpenTab/openTabId
-      // originally, but pinned itself was overlooked until a real
-      // specimen — four genuinely pinned tabs still showing full labels
-      // — surfaced it).
-      pinned: (c.frags.find((f) => f.isOpenTab) || children.find((ch) => ch.isOpenTab) || {})
-        .pinned,
       score: c.score, // summed fragment scores + returns traversal term: add up, then judge
       band: bandFor(c.score),
       // The LAST fragment's exit is the container's exit (2026-08-02,
@@ -816,37 +763,6 @@ export function assembleThreads(events, quiet) {
   // than a raw fragment, so it earns a longer bridge. Idempotent when
   // nothing chains (detectContainers returns its input unchanged).
   return detectContainers(detectContainers(mergeVisits(events), quiet), quiet, CONTAINER_CHAIN_GAP_MS);
-}
-
-// Threads for every stored day (admission-filtered, scored, assembled;
-// quiet — the viewed day's loud assembly happens in render). Feeds the
-// week strip and color anchoring so both judge the same objects the
-// ribbon draws.
-export function threadsByDay(sessions) {
-  const rootOf = treeRootsOf(sessions);
-  const byDay = new Map();
-  for (const s of sessions) {
-    if (!s.url || isTransit(s)) continue;
-    const score = scoreSession(s);
-    const e = {
-      ...s,
-      host: hostOf(s),
-      score,
-      band: bandFor(score),
-      durMs: s.endTime - s.startTime,
-      treeId: s.tabId != null ? rootOf(s.tabId) : undefined,
-    };
-    const day = dayStartOf(e.endTime);
-    let arr = byDay.get(day);
-    if (!arr) byDay.set(day, (arr = []));
-    arr.push(e);
-  }
-  const out = new Map();
-  for (const day of [...byDay.keys()].sort((a, b) => a - b)) {
-    const events = byDay.get(day).sort((a, b) => a.startTime - b.startTime);
-    out.set(day, assembleThreads(events, true));
-  }
-  return out;
 }
 
 // siteNameOf/computeHostNames/labelKeyOf moved to shared/utility.js

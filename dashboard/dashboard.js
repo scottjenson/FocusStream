@@ -14,13 +14,10 @@ async function renderCount() {
     `${sessions.length} sessions` + (currentSession ? " + 1 live" : "");
 }
 
-// Full repaint: the ribbon pipeline (with the week strip) plus the count.
+// Full repaint: the ribbon pipeline plus the count.
 async function render() {
-  const { sessions = [], lockIntervals = [] } = await chrome.storage.local.get([
-    "sessions",
-    "lockIntervals",
-  ]);
-  window.renderTimeline?.(sessions, lockIntervals);
+  const { sessions = [] } = await chrome.storage.local.get("sessions");
+  window.renderTimeline?.(sessions);
   await renderCount();
 }
 
