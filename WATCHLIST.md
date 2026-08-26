@@ -136,7 +136,7 @@ containers" and "Continuation merge + MEDIUM containers".)
   over- or under-bridges as specimens accumulate. Evidence and the chosen
   trade: `decisions/timeline_design.md`, "Adjacent-container chaining".
 - **away-plate-threshold (2026-07-28; renamed and narrowed 2026-08-25, was
-  `fence-bridge-threshold`):** `FENCE_BRIDGE_GAP_MS` = 30 min is provisional
+  `fence-bridge-threshold`):** `AWAY_PLATE_GAP_MS` = 30 min is provisional
   — chosen mid-dead-zone of one cleanly bimodal morning (grazing gaps < 8
   min, step-aways at 19–21 min, nothing between), so any value ~22–40 min was
   equivalent on that day. The constant is live and does
@@ -146,7 +146,8 @@ containers" and "Continuation merge + MEDIUM containers".)
   that was just a pause. Histogram + method note:
   `decisions/timeline_design.md`, "Fences bridge breaks, split at
   departures"; the one-job reassignment is in the same file. (Fencing itself
-  was deleted 2026-08-25; a rename to `AWAY_PLATE_GAP_MS` is pending.)
+  was deleted 2026-08-25, and the constant renamed from
+  `FENCE_BRIDGE_GAP_MS` to match its one surviving job.)
 
 ### Layout, labels, visuals
 (gap-loudness and week-strip-legibility were struck 2026-08-09 —
@@ -201,16 +202,13 @@ no specimen.)
   soft-failed, even when a sibling member has a picture. Accepted gap;
   candidate fix (fall back to the best-scoring member that HAS a picture)
   not yet built. (Story: `decisions/snapshot_implementation.md`.)
-(horizontal-inblock-labels was struck 2026-08-09 — horizontal HIGH-run
-labels shipped, per commit bcb461e "Timeline: revive horizontal HIGH-run
-labels"; the watch no longer describes current behavior.)
 - **favicon-clip-experiment (2026-08-07):** every real block draws its 16px
   favicon top-left-anchored and lets the block's own edge clip it when too
   narrow/short to fit — chosen over the "lollipop" pin specifically to try
   more-often-visible identity over a geometrically cleaner but rarer
   signal. Untested at scale: a block narrower than ~6-8px may show an
-  unrecognizable sliver, and dense fenced-adjacent runs of thin blocks
-  could read as visual noise rather than identity. If it reads badly, the
+  unrecognizable sliver, and dense runs of thin blocks could read as visual
+  noise rather than identity. If it reads badly, the
   lollipop approach (SPEC.md §6 favicon rule history) is the fallback to
   revisit, not a third alternative.
 - **zoom-tuning (2026-08-08):** `ZOOM_SENSITIVITY` (0.0018),
@@ -369,7 +367,7 @@ they fold into §6 later.
   eight independently-named gap/duration constants (`TRANSIT_MS` 10s,
   `TERMINAL_KEY_MS` 500ms, `SPA_DEBOUNCE_MS` 15s, the 30s
   machinery/succession sanity bound, `IDLE_SPLIT_MS` 5min, `VISIT_GAP_MS`
-  5min, `CONTAINER_CHAIN_GAP_MS` 10min, `FENCE_BRIDGE_GAP_MS` 30min)
+  5min, `CONTAINER_CHAIN_GAP_MS` 10min, `AWAY_PLATE_GAP_MS` 30min)
   govern capture and five different display joins, spanning three orders of
   magnitude, with no stated relationship to each other even where a reader
   would expect one. Two specific gaps: `VISIT_GAP_MS` does three unrelated
@@ -379,7 +377,7 @@ they fold into §6 later.
   argument, and would mislead if ever tuned independently; and
   `CONTAINER_CHAIN_GAP_MS` (10min) > `VISIT_GAP_MS` (5min) is justified
   locally ("coarser claims earn longer bridges") but that principle isn't
-  checked against `FENCE_BRIDGE_GAP_MS` (30min, the longest bridge gating
+  checked against `AWAY_PLATE_GAP_MS` (30min, the longest bridge gating
   the *least* assembled objects — a seeming counterexample). Not urgent, no
   specimen forcing it — a candidate cleanup pass is grouping the eight by
   evidence-kind (noise-tolerance vs. intent-credit vs. capture-mechanics

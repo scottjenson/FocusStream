@@ -2497,6 +2497,65 @@ no longer an open question of principle.
 
 ---
 
+## Horizontal zoom: how it was built (2026-08-08)
+
+Recorded 2026-08-25 during a `/docaudit` pass — the rules had been carried in
+one 2,000-character `spec/display.md` bullet since the day it shipped, and the
+reasoning behind them had never been archived anywhere. This is that
+reasoning, recovered from the code and the rule text; the later *anchoring*
+change is a separate story ("Zoom anchors right, not left", 2026-08-23).
+
+**One factor, not two scales.** `PX_PER_SEC` and `GAP_HOUR_PX` are each
+`BASE_* x zoom`. Scaling both by the same number is the whole design: the
+presence:absence ratio — the two-scale axis that makes a light day read light
+— is the thing being preserved, so it must survive zoom, and a single shared
+factor preserves it by construction rather than by tuning.
+
+**Real relayout, not a CSS transform.** The cheap implementation is
+`transform: scale()` on the ribbon. It was rejected because three separate
+things depend on true pixel geometry: borders/text/favicons stay crisp only
+if drawn at final size; `MIN_W`'s floor is a pixel judgment, so a transform
+would scale the floored slivers along with everything else and destroy the
+"only slivers stretch the day" property; and hour-label thinning measures
+label half-widths against on-screen distances, which a transform silently
+desyncs. `layout()` therefore re-runs from scratch on the live scaled values.
+
+**Paying for that.** A from-scratch relayout per wheel tick is only
+affordable because it skips the expensive half. Thread/container assembly is
+NOT redone — a cached last assembly is repainted (`relayout()`), never
+rebuilt (`render()`) — and the repaints coalesce to one per animation frame
+via `requestAnimationFrame`. Assembly is zoom-invariant by definition (it is
+a claim about time, not pixels), so caching it is free correctness, not a
+shortcut.
+
+**Suspending the transition was a bug fix, not a polish.** `.blk` carries a
+CSS transition for day paging, where blocks jump discretely and should glide.
+Under a continuous 60fps zoom the same transition reads as smeared lag —
+every frame animating toward a position already superseded. `#ribbon.zooming`
+switches it off for the gesture, lifting `ZOOM_IDLE_MS` (150ms) after the
+last tick. The two motions want opposite treatment from the same property,
+which is why a class and not a constant.
+
+**Claiming all wheel input.** The handler `preventDefault`s unconditionally
+rather than letting vertical scroll fall through to the page. Defensible only
+because the dashboard is a single-view page with nothing below the ribbon to
+scroll to — a real page-scroll context would make this hostile. Worth
+re-examining if anything is ever added under the ribbon.
+
+**The anchor is proportional, and that is an approximation.** The pointer's
+x-fraction of total ribbon width is captured before relayout and restored
+after via `scrollLeft`, so the timestamp under the cursor stays under it.
+This is proportional-position anchoring, not a true timestamp inversion — the
+two coincide here precisely because both time scales move by the same factor
+(above). Whether it reads as drifting on a very uneven day is
+`zoom-tuning`'s open half.
+
+**Zoom is a viewing preference, not data.** Nothing resets `zoom` — it
+persists across day paging, refresh, and live updates. Falls out of treating
+it as a property of the viewer rather than of the day being viewed.
+
+---
+
 # Ribbon navigation (moved from `decisions/tabmanager.md`, 2026-08-25)
 
 The entries below were written during the Active Tab Manager era but are

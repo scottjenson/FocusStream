@@ -37,7 +37,7 @@ export const VISIT_GAP_MS = 5 * 60 * 1000;
 // audibleSinceTs must predate the gap — the tab's own audio testifies
 // the context never ended while the user was off on a whiteboard
 // (spec §6 containers).
-// Currently equals FENCE_BRIDGE_GAP_MS (timeline.js) by coincidence, not by
+// Currently equals AWAY_PLATE_GAP_MS (timeline.js) by coincidence, not by
 // reference (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"):
 // this is a fact about the TAB (its audio never stopped); the away-plate
 // constant is a fact about the USER (how long a break reads as leaving

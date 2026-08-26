@@ -198,24 +198,19 @@ import {
   // ticks just interpolate through gaps like they do through blocks.
   const BASE_GAP_HOUR_PX = 22;
   let GAP_HOUR_PX = BASE_GAP_HOUR_PX; // live (zoomed) value — see PX_PER_SEC above
-  // The break/departure line (spec §6, 2026-07-28): only gaps over it get
-  // an away hover plate. Wall-clock on purpose: this
+  // The break/departure line (spec §6, 2026-07-28): a gap at or above this
+  // earns an "away 12:04 – 1:38" hover plate. Wall-clock on purpose — it
   // encodes "how long before a break is a walk away from the machine", a
-  // fact about the user, so it must NOT be derived from GAP_HOUR_PX the way
+  // fact about the USER, so it must NOT be derived from GAP_HOUR_PX the way
   // the old ~16min FENCE_SPLIT_GAP_MS (and the retired GAP_PLATE_MIN_PX
   // hover threshold) were — retuning the absence scale must not silently
-  // redefine "away". Provisional: 30 min sits mid-dead-zone on the 07-28
-  // histogram (grazing < 8min, step-aways 19–21min, nothing between) —
-  // watch list.
-  // Currently equals AUDIO_BOOKEND_GAP_MS above by coincidence, not by
-  // reference (rules audit, 2026-08-06) — see that constant's comment.
-  // Away plate (spec §6): the sole surviving job of this constant since
-  // 2026-08-08 — a gap at or above it earns an "away 12:04 – 1:38" hover
-  // plate. Named for the fence bridging it used to gate; fencing was
-  // removed 2026-08-25 and this threshold outlived it. Consider renaming
-  // it AWAY_PLATE_GAP_MS in a separate pass. Tuning: WATCHLIST.md
-  // away-plate-threshold.
-  const FENCE_BRIDGE_GAP_MS = 30 * 60 * 1000;
+  // redefine "away". For the same reason it is not shared with
+  // AUDIO_BOOKEND_GAP_MS above, which is a fact about the TAB and only
+  // equals this by coincidence (rules audit, 2026-08-06) — keep them
+  // independently tunable. Provisional: 30 min sits mid-dead-zone on the
+  // 07-28 histogram (grazing < 8min, step-aways 19–21min, nothing between)
+  // — WATCHLIST.md away-plate-threshold.
+  const AWAY_PLATE_GAP_MS = 30 * 60 * 1000;
   // Space above the band (was HIGH-run label space until 2026-08-25, when
   // on-face run titles were removed). Retained as band geometry: block
   // tops, the axis strip and the parked tip all measure from it.
@@ -1574,15 +1569,14 @@ import {
     // Invisible hover plate over each gap region: the exact away-span, same
     // tooltip-as-ground-truth convention as blocks. Not clickable.
     //
-    // ONLY departures get a plate (spec §6, 2026-07-28): FENCE_BRIDGE_GAP_MS
+    // ONLY departures get a plate (spec §6, 2026-07-28): AWAY_PLATE_GAP_MS
     // gates the tooltip — under it a break the timeline doesn't annotate,
     // over it a departure that earns "away 12:04 – 1:38". Sub-threshold gaps
     // were tedious hover targets whose duration the width already implies.
-    // This loop is the constant's only remaining reader (fencing removed
-    // 2026-08-25); the threshold is a claim about the user, not about
-    // layout — see its declaration.
+    // This loop is the constant's only reader; the threshold is a claim
+    // about the user, not about layout — see its declaration.
     for (const g of gaps) {
-      if (g.to - g.from < FENCE_BRIDGE_GAP_MS) continue;
+      if (g.to - g.from < AWAY_PLATE_GAP_MS) continue;
       const el = document.createElement("div");
       el.className = "gap transient";
       el.style.left = g.x + "px";
