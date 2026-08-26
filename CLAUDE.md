@@ -66,7 +66,8 @@ lines duplicating it; see `decisions/timeline_design.md`).
   `decisions/<feature>.md` (origin + phase roadmap). **Write the spec stub
   even when the idea might be reverted** — that is exactly when it matters.
   The card deck skipped it as appropriate humility, and its rules ended up
-  with nowhere to live but a plan doc (`decisions/card_deck.md`).
+  with nowhere to live but a plan doc — which meant that when the deck was
+  deleted (2026-08-25) they went with it, never having been spec'd at all.
 - Never `git commit`/`git push` proactively. If asked to commit directly you can 
   proceed without further confirmation.
 - **Score weights are provisional** (Desktop4-inherited) — keep them named

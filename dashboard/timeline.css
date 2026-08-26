@@ -1,7 +1,7 @@
 /* FocusStream dashboard/ribbon styling — extracted from index.html's inline
    <style> (Active Tab Manager Phase 2, spec §7b, 2026-08-21) so it has one
    source of truth reachable from two places: the standalone dashboard page
-   (index.html links this file normally) and switcher.js's card-view
+   (index.html links this file normally) and switcher.js's overlay
    overlay (fetches this file's text and injects it into its shadow root's
    own <style> — shadow DOM doesn't inherit light-DOM stylesheets). Declared
    in manifest.json's web_accessible_resources for the second path. Ongoing
@@ -85,16 +85,12 @@
     #ribbon-wrap {
       background: #14161a;
       overflow-x: auto;
-      /* Explicit overflow-y: hidden (2026-08-11 cardHoverText follow-up) —
-         without it, the CSS overflow spec forces overflow-y to compute as
-         `auto` too (setting one axis to non-visible forces the other off
-         `visible`), which both clipped cardHoverText below #ribbon's old
-         height AND, once #ribbon's height grew to include room for it,
-         could pop a spurious vertical scrollbar. #ribbon's height
-         (paintCards, timeline.js) is sized to exactly contain the deck +
-         reserved hover-text band, so vertical content never actually
-         overflows this box — `hidden` here is a belt-and-suspenders
-         guarantee against a stray scrollbar, not a real clip. */
+      /* Explicit overflow-y: hidden — without it, the CSS overflow spec
+         forces overflow-y to compute as `auto` too (setting one axis to
+         non-visible forces the other off `visible`), which can pop a
+         spurious vertical scrollbar. #ribbon's height is sized to contain
+         its content, so vertical content never actually overflows this box
+         — `hidden` is a belt-and-suspenders guarantee, not a real clip. */
       overflow-y: hidden;
       padding: 8px 16px;
       /* Scrollbar hidden (2026-08-11): panning is drag/wheel-driven, not
@@ -245,8 +241,8 @@
       pointer-events: none;
     }
     /* Scrim behind the favicon/label row ONLY — a full-face wash would spend
-       the picture to protect a 16px strip. Flat, not a gradient (.card-info
-       learned that one). Pairs with .blk-label's own text-shadow. */
+       the picture to protect a 16px strip. Flat, not a gradient. Pairs with
+       .blk-label's own text-shadow. */
     .blk:has(> .blk-img)::before {
       content: "";
       position: absolute;
@@ -299,250 +295,6 @@
       text-overflow: ellipsis;
       pointer-events: none;
     }
-    /* Stack-ribbon cards (decisions/card_deck.md Stage 1, 2026-08-11):
-       replaces the block ribbon above as the LIVE paint path (timeline.js
-       paintCards) — .blk/.plate/.gap/.tick/.hlabel/.rtitle rules above stay
-       defined but unused, kept for a possible revert per the plan's
-       explicit "keep the code, don't delete it" direction.
-       .card is the layout box (left/top/width/height, no visual paint of
-       its own); .card-face is what actually swivels and draws — splitting
-       them keeps the perspective transform from fighting the positioning
-       math (a transformed element's own left/top would be measured
-       post-transform, which is not what cardLayout computes). */
-    .card {
-      position: absolute;
-      cursor: pointer;
-      /* Riffle-on-hover (2026-08-12): a small lift as the mouse scans across
-         cards, purely transform-based so it can't touch left/top/width —
-         those drive cardLayout's spacing and every neighbor's overlap/hover
-         math, and transform doesn't participate in layout at all. Lives
-         here on .card (not .card-face) specifically because .card-face's
-         own transform is set INLINE by timeline.js for the rotateY swivel
-         (CARD_SWIVEL_DEG) — a second transform in CSS on that same element
-         would be entirely overwritten by the inline one, not composed with
-         it. .card carries no inline transform from JS today, so a plain
-         CSS :hover rule is free here with no risk of collision.
-         Left off .card:hover directly (below), not a JS pointerover
-         listener — the delegated pointerover handler on #ribbon exists for
-         cardHoverText/tooltip positioning, not general hover styling; this
-         doesn't need to hook into that at all.
-         transition: transform RETIRED here (Stage 5, 2026-08-15): once
-         timeline.js writes this same transform inline every pointermove
-         for the hover-gap effect, a CSS transition on it would race every
-         one of those writes — each new inline value restarts a 0.15s ease
-         from wherever the last one landed, adding lag between the cursor
-         and the card that the whole point of the pure-cursor-X model was
-         to avoid (see decisions/timeline_design.md). The exit relax-to-
-         rest (the one place easing is still wanted) is done as a JS rAF
-         tween instead, for the same reason — not by re-arming a CSS
-         transition at exit. */
-      /* Per-card perspective, fix history (2026-08-11, FOUR rounds — see
-         decisions/card_deck.md "Stage 1 build log" for the compact version):
-         (1) shared perspective on #ribbon put the vanishing point at the
-         scrolling DAY's horizontal center, not the viewport — cards raked
-         harder toward the ribbon's true center the further left they sat.
-         (2) per-card perspective, origin pinned "left center" instead of
-         the 50%/50% default — correct, but a follow-up pass misdiagnosed
-         its OWN correct output: saw HIGH cards apparently raking harder
-         than LOW/MEDIUM and "fixed" it by pushing perspective to 8000px.
-         (3) that "fix" was itself wrong — 8000px reads as a horizontally
-         SQUASHED rectangle (Scott's "don't look like rotated cards" catch);
-         an isolated test showed the ORIGINAL 900px already gave identical
-         PROJECTED WIDTH across tiers — but width was the wrong invariant to
-         check. (4) real bug, found by hand-deriving the actual CSS
-         perspective-projection formula rather than measuring in the
-         browser again: a card's far (right) corners sit at a Z distance
-         proportional to the card's OWN SIZE at a given rotation angle, and
-         foreshortening depends on Z ÷ perspective — so one FIXED
-         perspective value (900px) inevitably gives a bigger card MORE
-         vertical convergence than a smaller one, even though both rotate
-         by the identical angle and even project the identical WIDTH. This
-         is what Scott's screenshot caught (HIGH converging hard, LOW
-         reading almost flat). Fix: perspective must scale WITH each card's
-         own height (CARD_PERSPECTIVE_RATIO, timeline.js — perspective_px =
-         height × ratio, computed per card in paintCards) so the Z÷
-         perspective RATIO, not either value alone, stays constant across
-         tiers. Still real rotateY()+perspective (not a skew/scaleX fake),
-         since Stage 2/3 is expected to animate cards toward/away from flat
-         and through Z on hover, and only true transform primitives compose
-         with that cleanly. Later (rightward/later-in-time) cards are LATER
-         DOM siblings, so they paint on top of the rotated-back right edge
-         of their predecessor by default stacking order — that's what
-         produces the physical "stack of cards" overlap read, no z-index
-         needed as long as paintCards keeps appending in chronological
-         order (it does). perspective/perspective-origin are set inline by
-         timeline.js alongside the rotation — see CARD_PERSPECTIVE_RATIO
-         there. */
-    }
-    /* Riffle lift retired outright (Stage 5, 2026-08-15 build, then fully
-       dropped rather than folded in — 2026-08-15 follow-up): the old CSS
-       `.card:not(.expanded):hover { transform: translateY(-6px) }` rule is
-       gone, and the hover-gap effect (timeline.js, CARD_GAP_* / #ribbon
-       pointermove) does NOT reintroduce it — the traveling card's X shift
-       alone is judged to carry the "focus" read now, the extra Y lift is
-       redundant on top of it. .card's inline transform still carries only
-       the gap-offset translateX, written every frame the gap is live. See
-       applyCardTransform. */
-    .card-face {
-      position: relative;
-      box-sizing: border-box;
-      width: 100%;
-      height: 100%;
-      border: 1px solid;
-      border-radius: 4px;
-      overflow: hidden;
-      /* rotateY angle + transform-origin are set inline by timeline.js
-         (CARD_SWIVEL_DEG/swivelPivotPx), not fixed here — the rotation
-         pivot is one shared absolute height across all tiers, which CSS's
-         `%` can't express (it's relative to the element's own box).
-         perspective-origin (on .card, the parent) is set at the same call
-         site and must match this same pivot. */
-      transition: left 0.3s, top 0.3s, width 0.3s, height 0.3s;
-      box-shadow: 2px 4px 14px rgba(0,0,0,0.45);
-    }
-    .card.earned-high .card-face { border-width: 2px; }
-    /* Gap-card highlight (2026-08-15, handoff-disambiguation): the card
-       currently in the gap (key === gapKey, see applyCardTransform) is the
-       one a click acts on, but at rest it looked identical to piled cards —
-       only its X position differed. Two-part treatment because page
-       content (screenshots) can be near-white or near-black: a dark navy
-       border (GAP_ACTIVE_BORDER, timeline.js) reads against light pages,
-       a bright blue glow carries it against dark ones — either alone can
-       vanish depending on the page.
-       border-WIDTH + box-shadow are safe as a plain CSS class rule (never
-       JS-inline-written). border-COLOR is NOT set here — face.style.
-       borderColor IS inline-written every repaint (TIER_RIM/EARNED_RIM)
-       and every per-frame gap update, and an inline style always beats a
-       class selector regardless of specificity, so a CSS color rule here
-       would silently never win (this is why the first cut, plain red,
-       never showed up) — applyCardTransform sets GAP_ACTIVE_BORDER inline
-       instead. No transition on either: must read correctly even
-       mid-riffle, when gapKey can step every ~10px of cursor travel —
-       instant swap, no ease. */
-    .card.gap-active .card-face {
-      border-width: 2px;
-      /* Blur radius added to the inner layer (was 0 0 0 3px, a hard-edged
-         ring with no feather) so the glow reads as diffuse light around the
-         card rather than a second stacked border line. */
-      box-shadow: 0 0 10px 2px rgba(64, 145, 255, 0.85), 0 4px 26px 4px rgba(64, 145, 255, 0.5);
-    }
-    /* .tier-low is still toggled in paintCards but unstyled — the
-       demotion scrim it used to drive was removed 2026-08-15. */
-    .card-img {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: top;
-    }
-    /* Card face is image-only now (domain label dropped 2026-08-11
-       follow-up — see #card-hover-text below, which replaced both the
-       on-face .card-label and the floating #tip tooltip for cards). */
-    /* Expanded-card info overlay (Stage 2 follow-up, 2026-08-11): restores
-       the metadata the pre-experiment #tip tooltip carried — site name,
-       time · duration, and the deduped page list (capped at TIP_TITLES_MAX
-       + "N more", same as #tip used — an uncapped first pass overflowed a
-       real 14-page session well past the panel's legible area) — scoped to
-       ONLY the currently-expanded card (plain deck hover keeps the trimmed
-       #card-hover-text single-line summary; this is deliberately the fuller
-       version, shown once a card is committed-to via click). Sits as a
-       bottom-anchored panel over the flattened screenshot rather than a
-       separate floating box — Scott's call over a below-image block, so it
-       reads as part of the card, not a second popover. SOLID background,
-       not a gradient scrim (2026-08-11 follow-up: a fixed 3-stop gradient
-       painted once at the panel's full height went low-opacity/transparent
-       well before a real page list's text reached that far down, reading
-       as illegible white-on-photo — Scott's catch, screenshot attached).
-       Debug lines (container/merge counts, activity breakdown, raw URL)
-       are deliberately left out — this is the same trim #card-hover-text
-       already applies, just less of one. Replaces the old plain corner
-       .card-badge child-count number, dropped per Scott's "remove the
-       counter... we need something a bit stronger" — Stage 3 designs its
-       replacement. */
-    .card-info {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      max-height: 60%;
-      overflow-y: auto;
-      padding: 10px 12px;
-      background: rgba(10,11,13,0.92);
-      font-size: 12px;
-      line-height: 16px;
-      pointer-events: none;
-    }
-    .card-info .ci-title { font-weight: 600; color: #fff; font-size: 13px; }
-    .card-info .ci-meta { color: #c7cbd1; margin-bottom: 4px; }
-    .card-info .ci-page { color: #c7cbd1; }
-    .card-info .ci-page.dim { color: #8b9099; }
-    /* Expanded-card close button (Stage 2, 2026-08-11): a card's own deck
-       slot is mostly covered by overlapping neighbors (CARD_STEP << card
-       width, by design — see CARD_STEP's own comment), so it's not a
-       reliable click target to collapse an expanded card once it's open.
-       This is one of three ways to close (Scott: "many ways... whichever
-       one they find should work") alongside click-outside and Escape —
-       see closeExpandedCard in timeline.js. pointer-events left enabled
-       (unlike .card-badge) since this one IS interactive; hidden except on
-       the currently-expanded card. */
-    .card-close {
-      position: absolute;
-      /* Top-LEFT (2026-08-11, moved off top-right to clear the old
-         .card-badge corner entirely rather than share it — badge itself
-         later removed, see .card-info comment) — also sized up 50% (22px
-         -> 33px, Scott's ask) for an easier click target. */
-      top: 4px;
-      left: 4px;
-      width: 33px;
-      height: 33px;
-      border-radius: 50%;
-      background: rgba(0,0,0,0.6);
-      color: #fff;
-      border: none;
-      font-size: 21px;
-      line-height: 33px;
-      text-align: center;
-      cursor: pointer;
-      padding: 0;
-    }
-    .card-close:hover { background: rgba(0,0,0,0.85); }
-    /* Container child row (Stage 3, decisions/card_deck.md, 2026-08-11):
-       carousel strip below the expanded card — container thumbnail first
-       (item 0), then each child, chronological. Clicking any thumbnail
-       makes IT the big expanded item; the demoted item (container or
-       whichever child was active) just becomes a plain thumbnail in this
-       same row — no separate "back" button, per Scott's carousel-with-a-
-       sibling-placeholder idea. Own absolutely-positioned strip, NOT nested
-       in .card-face (Scott: "below the whole expanded card, own strip") —
-       positioned by JS (cardExpandGeom's height budget reserves the room),
-       same one-shared-element-per-card pattern as .card-info. */
-    .card-child-row {
-      position: absolute;
-      display: flex;
-      gap: 6px;
-    }
-    .card-child-thumb {
-      position: relative;
-      box-sizing: border-box;
-      border: 1px solid #3a4048;
-      border-radius: 3px;
-      overflow: hidden;
-      cursor: pointer;
-      background: #1e2126;
-      flex-shrink: 0;
-    }
-    .card-child-thumb img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: top;
-      display: block;
-    }
-    /* Active = currently occupying the big expanded slot — bright rim so
-       "which one am I looking at" is never ambiguous in the row. */
-    .card-child-thumb.active { border-color: #fff; border-width: 2px; }
-    .card-child-thumb:hover { filter: brightness(1.15); }
     /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
        expands, so this is purely a mouseenter target now — no click, no
        :active state to imply. */
@@ -629,28 +381,6 @@
       border-radius: 3px;
       padding: 1px 5px;
       margin-left: -5px;
-    }
-    /* Card hover text (decisions/card_deck.md Stage 1 follow-up, 2026-08-11):
-       replaces both the on-face .card-label and the floating #tip tooltip
-       for cards. One shared reused element, repositioned per hover (same
-       "snap, don't glide" reasoning as #quicklabel above) below the card
-       deck's bottom edge. Three lines, no chip/background — reads as plain
-       page text sitting under the strip rather than a floating popover. */
-    #card-hover-text {
-      position: absolute;
-      z-index: 5;
-      max-width: 320px;
-      font-size: 12px;
-      line-height: 16px;
-      pointer-events: none;
-    }
-    #card-hover-text .cht-title { font-weight: 600; color: #fff; }
-    #card-hover-text .cht-meta { color: #9aa1ab; }
-    #card-hover-text .cht-page {
-      color: #c7cbd1;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     /* Custom tooltip (spec §6): uniform delay, ribbon aesthetic, and the
        future mount point for snapshot previews. pointer-events: none so it

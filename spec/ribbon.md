@@ -69,7 +69,8 @@ normally so a manual zoom is never fought.
 
 **Fences are retired entirely in this view** (`clusterEvents`, gated on
 `anchorMode !== "right"`) — for real closed history as well as open tabs,
-matching the card view's own fence retirement (`decisions/card_deck.md`).
+matching the card view's own fence retirement (that view was deleted
+2026-08-25; see `decisions/timeline_design.md`).
 Since 2026-08-25 the dashboard IS this view, so §6's fencing is dormant
 everywhere; the code path remains.
 

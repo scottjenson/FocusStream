@@ -69,18 +69,18 @@ const lockState = { since: null }; // in-worker only; a mid-lock worker restart 
 // under snap:<sessionId> (never inside SessionBlocks — those are read in
 // full on every render). Finalize deletes the picture of any session the
 // shared transit predicate rejects.
-// 640 -> 1280 (2026-08-11, stack-ribbon Stage 1 — decisions/card_deck.md):
-// the old value was tuned for a ~480px-wide tooltip preview, but Stage 1's
-// cards display the snapshot as the ENTIRE card face, up to ~487px CSS-wide
-// at HIGH tier — on a 2x-DPI (Retina/HiDPI) display that's ~970 physical
-// px, so a 640px source was being visibly upscaled/blurred (confirmed:
-// layout-box-physical-px vs. naturalWidth measurement, not a CSS/rendering
-// bug — Scott's catch). 1280 covers the common 2x case; a 3x display (e.g.
-// this 4K/300ppi one) still slightly upscales the HIGH tier, accepted as a
-// middle ground against the ~4x disk-cost increase. Existing already-
-// stored snapshots are NOT retroactively affected — only captures from now
-// on use the new width.
-const SNAP_WIDTH = 1280; // fixed target width: was 640 (~20-40KB); now ~80-160KB, sized for 2x-DPI HIGH-tier cards
+// 640 -> 1280 (2026-08-11): the original value was tuned for a ~480px-wide
+// tooltip preview, and a source that small was visibly upscaled/blurred
+// wherever a snapshot is painted larger than that — confirmed by measuring
+// layout-box physical px against naturalWidth, not a CSS/rendering bug
+// (Scott's catch). 1280 covers the common 2x-DPI case; a 3x display (e.g.
+// this 4K/300ppi one) still slightly upscales, accepted as a middle ground
+// against the ~4x disk-cost increase. The card deck that originally forced
+// this (full-card-face display) was deleted 2026-08-25, but the width
+// stays: on-block snapshots and the parked #tip card are both still shown
+// well above 640 physical px. Existing already-stored snapshots are NOT
+// retroactively affected — only captures from now on use the new width.
+const SNAP_WIDTH = 1280; // fixed target width: was 640 (~20-40KB); now ~80-160KB, sized for 2x-DPI display
 const SNAP_QUALITY = 0.6; // JPEG quality; tune by eye against disk cost
 
 log("service worker starting up");

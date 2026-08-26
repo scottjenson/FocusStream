@@ -383,6 +383,28 @@ watch-list was consolidated in spec §6 ("Watch list") from 2026-07-15 until
   HIGH excursions get lost (brightness-follows-true-band, height cap
   stays) is watch-listed along with palette compression at 50%.
 
+### Tightening the cut: seam 2px → 1px, plus two insets (2026-08-02)
+
+One pass, three numbers, all serving the same complaint: the cut-out
+treatment was reading as heavier than the thing it was cutting into.
+
+* **Seam 2px → 1px** for a lighter cut. The width lives in CSS
+  (`.blk.cut { border-width }`), not in JS — worth knowing, because a
+  `CUT_SEAM` constant also exists in `timeline.js` and does NOT drive it.
+* **`CONTAIN_INSET` (6px)** shaves the child's TOP edge so a same-tier
+  child still shows a strip of its container above it. Without it a
+  MEDIUM-in-MEDIUM child is flush with its parent's top edge and the
+  containment reads as a single block, losing the frame entirely — the
+  one case where equal tiers made the mechanism invisible.
+* **`CONTAIN_BOTTOM_INSET` (1px)** lifts the child off the container
+  floor by exactly `.blk`'s own border width, so the container's bottom
+  border shows through underneath rather than being overpainted.
+
+The two insets are deliberately asymmetric (6 vs 1): the top one is doing
+visual work — proving there is a container — while the bottom one is only
+preventing a border from being swallowed. They are not a padding pair and
+should not be tuned toward each other.
+
 ## Resumed-read containers — PROPOSED 2026-07-16, CLOSED 2026-07-18 (subsumed)
 - (2026-07-18) Closed during the rules restructure: the general container
   path now fires at sum ≥ MEDIUM with anchor dominance, covering the
@@ -3139,5 +3161,49 @@ existing first-whole-pixel hook), cleared in `stopPan`.
 `panning` survives for its other reader, the render-time pin skip, which
 genuinely wants "pump running", not "pump moved". The capacity arm is
 untouched: underflow still loads with no gesture at all.
+
+## Deleting the card view: rejected, not harvested (2026-08-25)
+
+The stack-ribbon card deck (`paintCards()` and its runtime) is gone, along
+with the view toggle, `#card-hover-text`, and the ~28 `CARD_*` constants.
+The block ribbon is now the only display path. ~1,780 lines out of
+`timeline.js`, ~290 out of `timeline.css`.
+
+**Why now.** The card path had survived §8 Phase 1 for one stated reason,
+carried as `card-view-unspecced` in `WATCHLIST.md`: its layout ideas —
+specifically uniform width per tier, the "sliver fix" — were to be harvested
+into `layout()` before the path was retired.
+
+**Scott settled it: the harvest will not happen.** Width in `layout()` is
+duration-based and stays that way. That is the ribbon's core claim, and
+uniform-width-per-tier directly contradicts it — a tier-wide card says the
+same thing about ten seconds and ten minutes. So the sliver problem, which is
+real, has to be solved some other way (`MIN_W` floors it today); borrowing the
+card deck's answer would cost the axis its meaning. **Rejected, not pending**
+— the watch item's condition was therefore satisfied vacuously, and deleting
+banked nothing and discarded nothing.
+
+**Why it was a clean deletion rather than an untangle.** The card runtime
+was one contiguous region and `paint()` touched none of it: no `gapKey`, no
+`updateCardGap`, no `cardHoverText`. Only three live callers reached in from
+outside, all inside mode-switch plumbing that was itself being deleted. The
+one genuinely shared-looking piece was `cardHoverText`, which has calls in
+the *shared* pointerover/pointerout handlers — but its two show calls were
+gated on `isCard`/`isChildThumb` (permanently false once cards are gone) and
+the rest were defensive hides, so the family went too rather than surviving
+as no-op nubs. Blocks use the parked `#tip` card instead (the lock work,
+same day).
+
+**Verification.** `assembly.js` was untouched, so `replay-rules.mjs` had to
+report *identical* counts, not merely close — 394 blocks / 187 containers
+over 8 days, unchanged. Any movement there would have meant something shared
+was cut.
+
+**Consequence for the spec.** `TIER_H` inverts back: dormant since
+2026-08-11 while the deck sized from `CARD_TIER_H`, it is now the live and
+only tier-height source (`spec/display.md`). `CARD_ASPECT` had no surviving
+consumer — the on-block snapshot path fits width and does not need the
+native ratio as a constant — so it was deleted rather than renamed to
+`SNAP_ASPECT`.
 
 ---

@@ -62,16 +62,6 @@ grouping, evidence trimmed to pointers).
 bsky-scroll-premium, and w-nav-single-day were struck 2026-08-09 —
 settled-by-silence/superseded, no specimen in weeks of real use.)
 
-### Display surfaces
-- **card-view-unspecced (2026-08-25; narrowed same day):** the card view's
-  display rules are in no spec file — `spec/display.md` §6 describes the
-  block ribbon. **Narrowed by §8 Phase 1:** the dashboard now DEFAULTS to
-  blocks, so §6 finally describes what opens; the card path survives only as
-  a toggle, kept as a live A/B while its layout ideas (uniform width per
-  tier — the sliver fix) are harvested into `layout()`. Still unspecced, so
-  the gap persists for anyone who toggles. Resolve by deleting the card path
-  once the harvest is done. Reasoning: `decisions/card_deck.md`.
-
 ### Assembly (merging, containers, fences)
 - **earned-high-pass-one-reach (2026-08-24):** extending earned-HIGH
   atomicity to the raw-fragment pass (gated on URL change) is a real
@@ -145,24 +135,34 @@ containers" and "Continuation merge + MEDIUM containers".)
   cutoff, unlike the fence-bridge histogram's clean cliff. Watch whether it
   over- or under-bridges as specimens accumulate. Evidence and the chosen
   trade: `decisions/timeline_design.md`, "Adjacent-container chaining".
-- **fence-bridge-threshold (2026-07-28):** `FENCE_BRIDGE_GAP_MS` = 30 min is
-  provisional — chosen mid-dead-zone of one cleanly bimodal morning (grazing
-  gaps < 8 min, step-aways at 19–21 min, nothing between), so any value
-  ~22–40 min was equivalent on that day. Untested against a real lunch
-  walk-away: a habitual 25-min absence would wrongly bridge, a 35-min one
-  correctly splits. Watch whether any bridged fence spans something that
-  felt like leaving. Histogram + method note:
-  `decisions/timeline_design.md`, "Fences bridge breaks, split at departures".
+- **away-plate-threshold (2026-07-28; renamed and narrowed 2026-08-25, was
+  `fence-bridge-threshold`):** `FENCE_BRIDGE_GAP_MS` = 30 min is provisional
+  — chosen mid-dead-zone of one cleanly bimodal morning (grazing gaps < 8
+  min, step-aways at 19–21 min, nothing between), so any value ~22–40 min was
+  equivalent on that day. **The fence half of this entry is dead:** the
+  constant stopped gating fence bridging on 2026-08-08 (that is
+  `FENCE_IMPLIED_BREAK_MS` now), and fencing itself no longer renders at all
+  — `clusterEvents`' run-building sits behind `anchorMode !== "right"`, which
+  is permanently false since the overlay was deleted, so no stick or plate is
+  ever painted. **Still open, narrower:** the constant is live and does
+  exactly one job — deciding which gaps earn an "away 12:04 – 1:38" plate —
+  and that threshold has never been judged against a real walk-away. Watch
+  for: a gap that felt like leaving getting no plate, or a plate on a gap
+  that was just a pause. Histogram + method note:
+  `decisions/timeline_design.md`, "Fences bridge breaks, split at
+  departures"; the one-job reassignment is in the same file.
 
 ### Layout, labels, visuals
 (gap-loudness and week-strip-legibility were struck 2026-08-09 —
 settled-by-silence through the monochrome redesign and weeks of real use,
 no specimen.)
-- **fixed-overhead-dilation (2026-07-17):** `MIN_W`/`STICK_W`/`GAP` don't
-  scale with `PX_PER_SEC`, so floored blocks (anything under ~3m33s) and
-  fence sticks claim a larger share of the ribbon — busy sections shrink
-  sublinearly. If dense stretches still read too wide, tune the overhead
-  constants, not the scale.
+- **fixed-overhead-dilation (2026-07-17; fence half struck 2026-08-25):**
+  `MIN_W` and `GAP` don't scale with `PX_PER_SEC`, so floored blocks
+  (anything under ~3m33s) claim a larger share of the ribbon — busy sections
+  shrink sublinearly. Live and load-bearing: 87% of blocks sit on the `MIN_W`
+  floor. (`STICK_W` was named here too, but fence sticks no longer render —
+  see `away-plate-threshold`.) If dense stretches still read too wide, tune
+  the overhead constants, not the scale.
 - **container-interior-dilation:** a container renders its SPAN at presence
   scale, so interior time covered by neither fragments nor children is
   dilated ~6× vs gap scale. Negligible on the one real specimen (182s
@@ -425,4 +425,4 @@ they fold into §6 later.
   search as a second channel) — not retuning the score, which is not the
   thing that failed. Directly at odds with §7e's band-drop ladder, which
   currently removes LOW entirely at zoom-out; see `band-drop-absence` and
-  `decisions/parkinglot.md`, "The history view's mandate got clearer".
+  `decisions/timeline_design.md`, "The history view's mandate got clearer".

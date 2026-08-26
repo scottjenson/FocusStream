@@ -77,16 +77,16 @@ ribbon content was split out to `spec/ribbon.md` (§7c-ribbon–§7h) on
 rules fold into §6 later, as a follow-on to §8 Phase 1 rather than part of it.
 
 **§8 Phase 1 shipped 2026-08-25; Phases 2-4 are unstarted** — the parking
-lot itself does not exist. Two display paths remain, down from three:
+lot itself does not exist. One display path remains, down from three:
 | path | status |
 |---|---|
-| block ribbon (`paint()`, §6 + §7c–§7h) | **the primary path** — right-anchored, cross-day, the dashboard's default |
-| card deck (`paintCards()`) | retiring — kept only as a live A/B while its layout ideas are harvested into `layout()` |
+| block ribbon (`paint()`, §6 + §7c–§7h) | **the only path** — right-anchored, cross-day, the dashboard's default |
 
-The §7 strip (`switcher.js`) was deleted in Phase 1. Card-view reasoning and
-stage outcomes: `decisions/card_deck.md`; its display rules are still NOT in
-§6 (`card-view-unspecced`), a gap that closes when the view is deleted rather
-than by speccing it.
+The §7 strip (`switcher.js`) was deleted in Phase 1; the card deck
+(`paintCards()`) was deleted 2026-08-25, along with its view toggle. Its
+layout ideas were NOT harvested: uniform-width-per-tier contradicts the
+ribbon's core claim that width is duration. Reasoning:
+`decisions/timeline_design.md`.
 
 ## 7. Active Tab Manager — CLOSED
 The injected tab strip — **`spec/tabmanager.md`**, historical. Terms:

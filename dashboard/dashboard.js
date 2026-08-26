@@ -212,23 +212,6 @@ document.getElementById("clear").addEventListener("click", async () => {
   render();
 });
 
-// Ribbon view toggle (decisions/card_deck.md, 2026-08-12): flips between
-// the card deck and the classic block ribbon — a standing preference, not
-// a migration; both stay permanently available. Label always names the
-// mode a click would switch TO, matching the existing button-label
-// convention (e.g. Score table's "Copied!"/"See console" transients).
-{
-  const toggleBtn = document.getElementById("ribbon-mode-toggle");
-  const labelFor = (mode) => (mode === "cards" ? "Classic view" : "Card view");
-  toggleBtn.textContent = labelFor(window.FS_getRibbonMode?.() ?? "cards");
-  toggleBtn.addEventListener("click", () => {
-    const current = window.FS_getRibbonMode?.() ?? "cards";
-    const next = current === "cards" ? "blocks" : "cards";
-    window.setRibbonMode?.(next);
-    toggleBtn.textContent = labelFor(next);
-  });
-}
-
 // Re-render on storage writes — but session-area changes (the live session's
 // 10s heartbeat updates) refresh only the header count: they can't change any
 // finalized block, and running the whole ribbon pipeline every 10 seconds

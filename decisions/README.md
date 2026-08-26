@@ -18,7 +18,6 @@ recorded in the relevant log itself, and `git log` is the change history.
 | `tabmanager.md` | **CLOSED 2026-08-25.** The injected tab strip (§7, §7b, §7c-strip, §7f, §7i): origin, the phased build, and the closing entry recording what the exploration returned. Its ribbon-side entries moved to `timeline_design.md`; its successor is `parkinglot.md`. |
 | `snapshot_implementation.md` | Tooltips + snapshots: original reasoning and knobs, the review fixes (flush-on-hidden trap, `getKeys()`, decode-then-position), the 3rd-heartbeat re-capture. |
 | `parkinglot.md` | The Parking Lot (§8): why the §7 tab/ribbon merge returned a negative result, the three tab populations, closure-not-attention as the discriminator, displacement over classification, and the four-phase roadmap. **Supersedes `tabmanager.md` as the live-surface direction.** |
-| `card_deck.md` | The stack-ribbon card deck: why it was attempted, what each stage delivered, and its migration status. Merged from the dissolved `plans/` directory 2026-08-25. |
 
 ## Retired logs (text recoverable from git history)
 
@@ -33,3 +32,10 @@ recorded in the relevant log itself, and `git log` is the change history.
   monochrome/favicon rules).
 - **2026-08-25:** `plans/stack-ribbon.md` → merged into `card_deck.md`;
   `plans/ribbon-toggle.md` → deleted (unapproved proposal, superseded by §7).
+- **2026-08-25:** `card_deck.md` (with the `plans/stack-ribbon.md` text it
+  had absorbed) — the card view was deleted from the code, leaving the block
+  ribbon as the one display path. Its layout ideas were NOT harvested:
+  uniform-width-per-tier contradicts the ribbon's claim that width is
+  duration, so it is rejected, not pending. The deletion's own reasoning is
+  in `timeline_design.md`; earlier entries there still cite `card_deck.md`
+  for build-facing stage detail, recoverable from git.
