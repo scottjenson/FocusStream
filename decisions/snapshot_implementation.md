@@ -39,10 +39,14 @@ cold ~1s. Positioned near the cursor, clamped to the viewport.
   and that is exactly the only tab that ever accrues attention. The existing
   `<all_urls>` host permission covers it; Chrome's ~2 captures/sec rate limit
   is far above our use.
-- **Fixed target width (~640px), not screen-relative** — proportional sizing
-  would make a 4K user pay 4× the disk of a laptop user for the same tooltip.
-  Fixed width ≈ the intended 1/16 area on a typical screen, but predictable:
-  ~20–40KB per snapshot at JPEG ~0.6.
+- **Fixed target width, not screen-relative** — proportional sizing would
+  make a 4K user pay 4× the disk of a laptop user for the same tooltip.
+  Originally ~640px (~20–40KB at JPEG ~0.6), **raised to 1280px 2026-08-11**
+  (~80–160KB): 640 was tuned for a ~480px-wide tooltip preview and visibly
+  upscaled wherever a snapshot paints larger, confirmed by measuring the
+  layout box's physical px against `naturalWidth`. 1280 covers the common
+  2x-DPI case; a 3x display still upscales slightly — accepted against the
+  ~4x disk cost. Existing snapshots are not retroactively re-captured.
 - The quota math that forced `unlimitedStorage`: ~100 attended sessions/day ×
   30KB ≈ 3MB/day against the 10MB `storage.local` cap — full in ~3 days
   without the permission plus a retention policy.

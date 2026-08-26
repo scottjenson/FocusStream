@@ -156,8 +156,10 @@ how a snapshot is DISPLAYED. Story: `decisions/snapshot_implementation.md`.
   is — one admission bar, two artifacts. See `WATCHLIST.md`
   `pagetext-intent-gate`.
 * **Downscale** in the worker: JPEG capture → `createImageBitmap` →
-  `OffscreenCanvas` → JPEG at 640px width, quality 0.6 (~20-40KB); stored as a
-  `data:` URL under `snap:<sessionId>` (storage/retention: §2).
+  `OffscreenCanvas` → JPEG at 1280px width, quality 0.6 (~80-160KB; revised
+  2026-08-11 from 640px, which visibly upscaled wherever a snapshot paints
+  larger than a tooltip); stored as a `data:` URL under `snap:<sessionId>`
+  (storage/retention: §2). Already-stored snapshots are not re-captured.
 
 ## 4. Technical Implementation Details & Edge Cases
 
