@@ -78,18 +78,6 @@ import {
     // root itself would put the tooltip outside that inheritance chain.
     return root === document ? document.body : root.querySelector("body");
   }
-  // Zoom anchor edge (Active Tab Manager Phase 2, spec §7b): the standalone
-  // dashboard always left-anchors (unchanged historical behavior — the
-  // day's first event flush against the viewport's left edge). The
-  // open-tabs overlay right-anchors instead, pinned to "now" — zooming out
-  // reveals earlier time leftward. Same __fsTimelineRoot-style module-init
-  // read; switcher.js sets window.__fsTimelineAnchor = "right" before
-  // import()-ing this module for the overlay.
-  // Defaults to "right" since §8 Phase 1 (2026-08-25) — this flag also gates
-  // §7e cross-day loading. Rules: spec/display.md §6, spec/ribbon.md §7e.
-  const anchorMode =
-    (typeof window !== "undefined" && window.__fsTimelineAnchor) || "right";
-
   const HOUR = 3600 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
@@ -159,10 +147,7 @@ import {
       { zoom: 0.42, w: 5 },
     ],
   };
-  // Overlay only: the standalone dashboard shows one day and never reaches
-  // the zoom levels these ladders live at, so its geometry is untouched.
   const bandFloorFor = (e) => {
-    if (anchorMode !== "right") return MIN_W;
     // Open tabs never descend and are never dropped (the layout() filter
     // exempts them too): a tab the user can switch to right now stays visible
     // whatever it scored. They hold MIN_W, not a larger floor — see the
@@ -417,7 +402,6 @@ import {
   let loadingDay = false;
   function maybeLoadOlderDay(totalPx) {
     if (loadingDay) return;
-    if (anchorMode !== "right") return;
     const wrap = qs("ribbon-wrap");
     if (!wrap) return;
     // Capacity (§7e) OR proximity (§7h) — "is there room for more history to
@@ -1217,11 +1201,6 @@ import {
     wrap.addEventListener("pointermove", (ev) => {
       lastPointerX = ev.clientX;
       panArmed = true;
-      // Tiered only — the collapsed strip's axis is categorical (Chrome tab
-      // order, §7c), so time-based panning is meaningless there. Deliberately
-      // NOT gated on anchorMode: the standalone dashboard gets panning too,
-      // and the math holds there because both pads stay 0 outside the overlay
-      // (spec §7h). Only the proximity LOAD arm is overlay-only.
 
       const rate = panRateFor(ev.clientX - wrap.getBoundingClientRect().left, wrap.clientWidth);
       if (rate === 0) {
@@ -1252,12 +1231,10 @@ import {
       // as the zoom hook. Hooked HERE rather than in the pan pump because
       // every pan path lands in scrollLeft — edge-pan (panTick), trackpad
       // deltaX, and keyboard/programmatic alike — so one listener catches
-      // them all with no gaps. Ahead of the anchorMode guard (a lock is
-      // just as invalid when left-anchored) but behind selfScrolling: our
-      // own scroll assignments echoing back are not user navigation.
+      // them all with no gaps. Behind selfScrolling: our own scroll
+      // assignments echoing back are not user navigation.
       if (selfScrolling) return; // our own assignment echoing back
       unlockTip();
-      if (anchorMode !== "right") return;
       captureFromRight(wrap);
     });
     wrap.addEventListener(
@@ -1366,43 +1343,24 @@ import {
     const events = assembleThreads(parseSessions(sessions, viewDayStart, windowStart));
     lastAssembly = { sessions, dayThreads, hostNames, events };
     const wrap = qs("ribbon-wrap");
-    // Ribbon default window (spec §7c; bug fix 2026-08-22, SAME root cause
-    // as the earlier "22 blocks not 12" bug — a one-shot gate consumed too
-    // early): only meaningful for the overlay (anchorMode "right") AND
-    // only once the ribbon is actually what's showing (heightMode ===
-    // "tiered") — the overlay's FIRST-EVER render() call happens at page
-    // MOUNT, while still collapsed (switcher.js calls paintRibbon()
-    // immediately, heightMode starts "uniform"). Without this gate,
-    // defaultZoomApplied's one-shot fired then — against whatever
-    // sessions/viewport happened to exist at mount — and was permanently
-    // spent by the time the user actually expanded, so the real first
-    // expand got NO default-window treatment at all (real specimen: 26+
-    // blocks shown on expand). Applied BEFORE paint() so the very first
-    // TIERED paint (the real first expand) already reflects it, not a
-    // post-paint correction.
-    if (anchorMode === "right") applyDefaultZoomWindow(events, wrap);
+    // Ribbon default window (spec §7c): a one-shot, applied BEFORE paint()
+    // so the very first paint already reflects it rather than being
+    // corrected afterwards. It was historically gated (on the overlay flag,
+    // and on the strip being expanded) because the overlay's first render()
+    // fired at page mount and spent the one-shot against whatever data
+    // happened to exist then — a real specimen showed 26+ blocks instead of
+    // 12. Both surfaces are gone; the dashboard's first render is the real
+    // one, so the gate is unnecessary.
+    applyDefaultZoomWindow(events, wrap);
     paint(events, hostNames);
-    // A real render (new data, day paging — never a zoom
-    // relayout, which calls paint() directly) always resets to the resting
-    // edge (spec §6, 2026-08-08; anchorMode split spec §7b, 2026-08-21):
-    // left-justified for the standalone dashboard (the day's first event
-    // flush against the viewport's left edge, regardless of wherever
-    // zoom/pan left the scroll position on the previous day — visual
-    // stability across day paging, not a preserved viewport); the overlay
+    // A real render (new data, day paging — never a zoom relayout, which
+    // calls paint() directly) always resets to the resting edge: the ribbon
     // RIGHT-pins to "now" (spec §7d, 2026-08-23) on every render, first
     // included — applyDefaultZoomWindow sets the zoom, the pin shows it, so
     // it no longer needs a scrollLeft of its own. Zoom LEVEL is never reset
-    // here, so re-renders don't fight a manual zoom.
-    //
-    // Uniform mode is ALWAYS left-justified (scrollLeft: 0) — bug fix,
-    // spec §7c, 2026-08-22 (real specimen: all 4 pinned tabs + the first
-    // regular tab were invisible, scrolled off past the left edge). The
-    // previous version right-justified uniform mode too (reasoning at the
-    // time: "Chrome-order rightmost slot is always correct") — wrong: a
-    // real Chrome tab bar never hides its FIRST (pinned) tabs by default,
-    // it rests showing them from the left. Right-justifying a Chrome-
-    // order strip was importing the RIBBON's own "show 'now'" logic into
-    // an axis (categorical tab order) where "now" has no meaning at all.
+    // here, so re-renders don't fight a manual zoom. Right-pinning became
+    // unconditional 2026-08-25 when anchorMode was removed; the
+    // left-justified arm served the deleted standalone/overlay split.
     if (wrap) {
       // Skipped while a zoom gesture owns positioning (pendingAnchor set): a
       // day loaded mid-zoom would otherwise be positioned here by fromRight
@@ -1412,9 +1370,7 @@ import {
       // `panning` extends the same rule to the pan pump (spec §7h): the pump's
       // next frame re-bases off its carried instant, so positioning here by
       // fromRight would only be undone.
-      if (anchorMode === "right") {
-        if (!pendingAnchor && !panning) applyFromRight(wrap);
-      } else wrap.scrollLeft = 0;
+      if (!pendingAnchor && !panning) applyFromRight(wrap);
     }
   }
 
@@ -1443,25 +1399,23 @@ import {
     const padWrap = qs("ribbon-wrap");
     let padPx = 0;
     let padRightPx = 0;
-    if (anchorMode === "right") {
-      const vw = padWrap ? padWrap.clientWidth : 0;
-      const slack = Math.max(0, vw - total);
-      if (pendingAnchor && axis) {
-        // During a zoom gesture the anchor outranks the right pin (spec §7g).
-        // Two pads, because scrollLeft alone cannot express the anchor at
-        // either extreme: the LEFT pad shifts content right when there is
-        // nothing to scroll; the TRAILING pad extends the scroll range so the
-        // platform's own clamp to scrollWidth-clientWidth stops silently
-        // re-pinning the right edge as zoom-out shrinks that range.
-        const anchorX = axis.timeToX(pendingAnchor.t);
-        padPx = Math.max(0, pendingAnchor.viewportX - anchorX);
-        const wantScroll = Math.max(0, anchorX + padPx - pendingAnchor.viewportX);
-        padRightPx = Math.max(0, wantScroll + vw - (total + padPx));
-      } else {
-        // At REST the pad reverts to flush-right: the pin is deferred, not
-        // abandoned. Nothing eases back on its own after a gesture.
-        padPx = slack;
-      }
+    const vw = padWrap ? padWrap.clientWidth : 0;
+    const slack = Math.max(0, vw - total);
+    if (pendingAnchor && axis) {
+      // During a zoom gesture the anchor outranks the right pin (spec §7g).
+      // Two pads, because scrollLeft alone cannot express the anchor at
+      // either extreme: the LEFT pad shifts content right when there is
+      // nothing to scroll; the TRAILING pad extends the scroll range so the
+      // platform's own clamp to scrollWidth-clientWidth stops silently
+      // re-pinning the right edge as zoom-out shrinks that range.
+      const anchorX = axis.timeToX(pendingAnchor.t);
+      padPx = Math.max(0, pendingAnchor.viewportX - anchorX);
+      const wantScroll = Math.max(0, anchorX + padPx - pendingAnchor.viewportX);
+      padRightPx = Math.max(0, wantScroll + vw - (total + padPx));
+    } else {
+      // At REST the pad reverts to flush-right: the pin is deferred, not
+      // abandoned. Nothing eases back on its own after a gesture.
+      padPx = slack;
     }
     ribbon.style.marginLeft = padPx + "px";
     ribbon.style.marginRight = padRightPx + "px";

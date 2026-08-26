@@ -13,7 +13,10 @@ overlay and flipped the dashboard's defaults to `blocks` + `right`, so every
 rule below reading "overlay only" / "the standalone dashboard is unchanged"
 now describes the dashboard itself. Only the collapsed-strip carve-outs are
 dead. Left as written rather than rewritten in place — that pass belongs with
-the drain into §6.
+the drain into §6. **The `anchorMode` flag that enforced the split was
+deleted later the same day**, so these are no longer *gated* behaviours that
+happen to be on — they are unconditional ribbon behaviour, with no left-
+anchored arm left to return to.
 
 **The §7x numbering is deliberately unchanged.** ~85 code comments in
 `dashboard/timeline.js` and 11 `WATCHLIST.md` entries cite `§7d`/`§7e`/`§7h`
@@ -78,10 +81,10 @@ fence entry records what it was.
 
 **The expanded ribbon rests right-pinned: "now" sits at the viewport's
 right edge and history runs back to the left.** Zooming in expands
-leftward; zooming out contracts back toward the right edge. This replaces
-the historical left-justified rest position (spec §6) for the overlay only
-— the standalone dashboard is unchanged, and so is the collapsed strip
-(see below). Motivation: `now` is the only landmark that stays meaningful
+leftward; zooming out contracts back toward the right edge. This replaced
+the historical left-justified rest position (spec §6); since 2026-08-25 it
+is the only rest position — the left-justified arm was deleted with
+`anchorMode`. Motivation: `now` is the only landmark that stays meaningful
 once the ribbon can reach past the current day, where there is no natural
 left edge to anchor to.
 
@@ -390,11 +393,9 @@ so ordinary data ticks still never re-solve.
 `MAX_WINDOW_DAYS` (7) or the genuine end of recorded data — the edge of
 history, not the edge of a cache.
 
-**Gating.** Tiered only, same early-return as the wheel handler: the
-collapsed strip's axis is categorical (Chrome tab order, §7c). Deliberately
-NOT gated on `anchorMode` — the standalone dashboard gets panning too, and
-the math holds there because both pads stay 0 outside the overlay. Only the
-proximity LOAD arm stays overlay-only. The pump stops when the pointer leaves
+**Gating.** None as of 2026-08-25: panning and the proximity LOAD arm are
+both unconditional now that `anchorMode` is gone (the LOAD arm was the last
+thing it gated). The pump stops when the pointer leaves
 the wrap, and arms only after a real `pointermove` inside it (so an overlay
 opening under a parked cursor does not start travelling on its own).
 

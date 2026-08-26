@@ -3265,4 +3265,68 @@ function), so a scripted sweep for every removed identifier outside
 comments backed it up; it caught two live `clusterEvents(...)` call sites in
 the zoom-window probe path that the syntax check had passed.
 
+## Collapsing anchorMode, and the two features it was hiding (2026-08-25)
+
+`anchorMode` is gone; right-anchoring is unconditional. The flag was
+introduced (§7b, 2026-08-21) so one module could serve two surfaces — the
+standalone dashboard left-anchored, the injected overlay right-anchored to
+"now", with `switcher.js` setting `window.__fsTimelineAnchor` before
+importing. §8 Phase 1 deleted `switcher.js`, nothing set the flag any more,
+and its declaration already defaulted to `"right"`. So the dashboard had
+been right-anchored since then and this removed an unreachable half rather
+than changing behaviour.
+
+Mechanically small — 12 sites, half of them comments, no threading through
+the paint path the way fences had. Two edges made it worth care:
+
+**Branches pointed both ways.** Three sites tested `!== "right"` (dead arm:
+delete the guard, keep the body); three tested `=== "right"` (live arm:
+unwrap, delete the else). Reading one backwards inverts behaviour and
+`node --check` cannot catch it.
+
+**One `else` looked like a left-anchor arm and was not.** Inside the
+padding block, the `if (anchorMode === "right")` wrapper contained its own
+nested `if (pendingAnchor && axis) … else`, and that inner else is the "at
+rest, revert to flush-right" arm of the zoom anchor. Deleting it along with
+the outer wrapper would have stopped the ribbon pinning right at rest — the
+exact behaviour the change claims to preserve. Only the outer wrapper came
+out. `captureFromRight`/`applyFromRight` likewise survive untouched: they
+sound like the flag but are the right-pin mechanics themselves.
+
+### The two features the flag was hiding
+
+This is the part that was not mechanical, and it was decided explicitly
+rather than by letting the code fall away.
+
+The **floating quick label** (instant site name on LOW/MEDIUM hover) and
+the **`.rtitle` run titles** (persistent on-face labels over HIGH runs,
+plus `titleRuns`/`groupRuns`, ~84 lines) had `anchorMode !== "right"` as
+their *only* gate. Neither had rendered since §8 Phase 1. Neither was in
+`spec/display.md` at all — they existed only in code comments, which
+claimed "the standalone dashboard keeps it", false once the dashboard
+became the right-anchored surface.
+
+**Both removed, not restored** (Scott's call, asked explicitly). The
+reasoning: they were retired in the overlay as redundant with the always-on
+`.blk-label`, and that argument never depended on which surface was
+showing — it applies to the dashboard today. Restoring would have been a
+real visible change needing its own look; deleting silently would have been
+the failure mode. Done as its own commit ahead of the flag collapse so the
+visible deletion stays bisectable.
+
+`runLabeledKeys`/`dataset.runLabeled` existed solely to stop the quick
+label duplicating a run title, so the coupling died with both halves.
+`TITLE_MIN_W`, `LABEL_GAP` and the `VISIT_GAP_MS` import were orphaned.
+`TITLE_AREA` stayed — still load-bearing for band geometry and tip parking.
+Their rules are now written down in `spec/display.md` for the first time,
+as a REMOVED entry: the card deck's lesson was that unspecced rules vanish
+with the code, and these came within one commit of doing the same.
+
+**Verification limits worth remembering.** `replay-rules.mjs` reports
+394/187 no matter what happens here — `anchorMode` is display-side and
+`assembly.js` never reads it. Identical counts were necessary but proved
+almost nothing; the real check was loading the extension. `__fsTimelineRoot`
+and the shadow-root mounting path are the sibling dead path to this one,
+same deleted overlay, different flag — deliberately left alone.
+
 ---
