@@ -1,21 +1,16 @@
-// FocusStream horizontal timeline (spec §6 Phase 3b).
+// FocusStream horizontal timeline (spec §6).
 //
-// Vanilla-DOM port of the Desktop4 TimelineView pipeline:
-//   score → tier (three bottom-flush heights) → cursor layout
-//   → interpolated hour marks → favicon identity.
-// Width is time (floored at MIN_W); height is salience; luminance is
-// importance (spec §6, 2026-08-07 monochrome pass — hue identity retired,
-// favicons carry identity instead) — score never changes width.
+// The pipeline: score → tier (three bottom-flush heights) → cursor layout
+// → interpolated hour marks → favicon identity. Width is time (floored at
+// MIN_W); height is salience; luminance is importance — score never changes
+// width. Identity is carried by favicons, not hue.
 //
 // Wrapped in an IIFE so nothing leaks into dashboard.js's global scope;
 // dashboard.js hands us the session list via window.renderTimeline().
 //
-// Scoring (session -> score/band) and assembly (sessions -> parsed/merged/
-// containerized threads) split out to scoring.js/assembly.js (2026-08-15,
-// file-size pass, 2026-08-15) — this file keeps layout, paint, and
-// interaction (zoom/pan, hover-card lock), which stayed together
-// because that state is genuinely one coupled subsystem, not artificially
-// glued.
+// Scoring lives in scoring.js, assembly in assembly.js. This file keeps
+// layout, paint, and interaction (zoom/pan, hover-card lock) TOGETHER —
+// that state is one coupled subsystem, so do not split it on file size.
 
 import {
   hasEarnedHigh,
@@ -45,11 +40,11 @@ import {
   const HOUR = 3600 * 1000;
 
   // --- Layout (px). The timeline is the PRIMARY view (spec §6) — sized
-  // for a NORMAL day (spec §6, halved again 2026-07-17 on real data):
-  // 1 hour ≈ 135px, so a full day reads as a one-glance overview and a
+  // for a NORMAL day (spec §6): 1 hour ≈ 135px, so a full day reads as a
+  // one-glance overview and a
   // light day reads light instead of inflating its small events.
   const BASE_PX_PER_SEC = 0.0375;
-  // Horizontal zoom (spec §6, 2026-08-08): a scroll/trackpad gesture over
+  // Horizontal zoom (spec §6): a scroll/trackpad gesture over
   // the ribbon scales BOTH time scales together by one factor, preserving
   // the presence:absence ratio at every zoom level — real relayout, not a
   // CSS transform, so text/borders/favicons stay crisp and MIN_W/hour-label
@@ -57,46 +52,34 @@ import {
   // the LIVE (zoomed) values every layout call reads; setZoom() recomputes
   // them before a relayout.
   let zoom = 1;
-  // 0.5 -> 0.25, 2026-08-23, provisional (spec §7e): at 0.5 the ribbon could
-  // only reach about one day back, so cross-day stopped at yesterday.
+  // Provisional (spec §7e): sets how far back the ribbon can reach — a
+  // higher floor stops cross-day navigation at yesterday.
   const ZOOM_MIN = 0.25;
-  const ZOOM_MAX = 16; // 8 -> 16, 2026-08-23, provisional (spec §7d)
+  const ZOOM_MAX = 16; // provisional (spec §7d)
   let PX_PER_SEC = BASE_PX_PER_SEC;
   const MIN_W = 8; // floor: smallest visible/hoverable block
-  // OPEN_TAB_MIN_W (96px) RETIRED 2026-08-23 — see spec §7e. Open tabs used
-  // to claim a 96px floor so a freshly-opened tab (durMs near 0) had room for
-  // favicon+label. It made every open tab identical width regardless of real
-  // duration, and at multi-day zoom-out those few blocks claimed hundreds of
-  // px exactly where width was scarcest — fighting the band ladders that had
-  // just been added to reclaim it. Open tabs now use the ordinary MIN_W floor
-  // and show honest duration like everything else. "This tab is open" is a
-  // VISUAL job, not a geometric one: the .open-tab class (set in paint) is
-  // the hook for that treatment.
-  // LOW-block shrink ladder (spec §7e, 2026-08-23). At low zoom nearly every
-  // block sits ON the MIN_W floor (measured: 87% of 217 blocks across 3 days,
-  // 87% of total ribbon width), so zoom-out stops shrinking the ribbon and
-  // reach stalls at ~3 days — MIN_W, not ZOOM_MIN, is the real wall. Only LOW
-  // blocks descend this ladder: MEDIUM/HIGH keep MIN_W, so zooming out
-  // progressively SHARPENS the importance hierarchy instead of flattening it
-  // into uniform slivers. Fences were measured as the alternative here and
-  // rejected (they need consecutive runs; the real runs average 2.2) — see
-  // decisions/tabmanager.md. The 4px/2px rungs are transition frames, not
-  // useful states: they exist so the shrink reads as a shrink rather than a
-  // pop. The ladder ENDS AT ZERO: at full zoom-out only HIGH survives, which
-  // is what a multi-day view should answer ("when did things that mattered
-  // happen"), not a compromise to reach 7 days.
+  // Open tabs use the ordinary MIN_W floor and show honest duration like
+  // everything else. "This tab is open" is a VISUAL job, not a geometric
+  // one — the .open-tab class (set in paint) is the hook for it. Do not
+  // give open tabs a wider floor: it makes every one identical width
+  // regardless of duration and eats the width the band ladders reclaim.
+  // Band shrink ladders (spec §7e). At low zoom nearly every block sits ON
+  // the MIN_W floor, so MIN_W — not ZOOM_MIN — is what caps how far the
+  // ribbon can reach. Only LOW and MEDIUM descend these ladders; HIGH never
+  // does, so zooming out progressively SHARPENS the importance hierarchy
+  // instead of flattening everything into uniform slivers.
   //
-  // LOW and MEDIUM use the SAME 8-5-3-0 shape, OFFSET in zoom so LOW is fully
-  // gone before MEDIUM starts thinning. The staging is what makes vanishing
-  // legible rather than alarming: the user watches LOW fade out first and
-  // learns the rule, so MEDIUM following later reads as "I'm zoomed out past
-  // the small stuff," not "my data is missing." Two bands vanishing at the
-  // same threshold would read as a cliff. HIGH never descends.
+  // LOW and MEDIUM share the SAME 8-5-3-0 shape, OFFSET in zoom so LOW is
+  // fully gone before MEDIUM starts thinning. The offset is load-bearing,
+  // not cosmetic: the user watches LOW vanish first and learns the rule, so
+  // MEDIUM following later reads as "zoomed out past the small stuff"
+  // rather than missing data. Two bands vanishing at one threshold reads as
+  // a cliff. The 4px/2px rungs are transition frames, not useful states —
+  // they make the shrink read as a shrink rather than a pop.
   //
-  // Measured basis (3 days, zoom 0.25, 1721px viewport): after LOW's first
-  // ladder shipped, MEDIUM was the LARGEST consumer at 722px from just 69
-  // blocks, 60 of them pinned at the 8px floor — more width than 129 LOW
-  // blocks took (606px). Holding MEDIUM flat was the remaining cap on reach.
+  // The ladder ENDS AT ZERO: at full zoom-out only HIGH survives, which is
+  // the question a multi-day view answers. Measurements + the rejected
+  // fence alternative: decisions/timeline_design.md.
   const BAND_FLOOR_STEPS = {
     // Most-zoomed-out FIRST: the first threshold at or below the current zoom
     // wins, so the ladder descends as zoom shrinks.
@@ -117,72 +100,61 @@ import {
     for (const s of steps) if (zoom <= s.zoom) return s.w;
     return MIN_W;
   };
-  // The final rung DROPS the band outright, duration and all (spec §7e,
-  // 2026-08-23). A floor of 0 alone was not enough: widthOf takes
-  // max(floor, realWidth), so once the floor reached 0 every block simply
-  // rendered at its honest duration width and the ladder stopped doing
-  // anything (measured: lowAtFloor 0 of 131 — not one LOW block was still
-  // resting on the floor). Duration is a signal but a weak one down here
-  // (Scott: "a longer low is an odd thing"), so past the zero threshold the
-  // band goes entirely rather than proportionally. This is a real filter,
-  // not a rendering tweak: at full zoom-out the view answers "when did
-  // things that mattered happen," and LOW/MEDIUM are not answers to it.
-  // The drop IS the zero rung — see layout()'s filter, its only reader.
+  // The final rung DROPS the band outright, duration and all (spec §7e).
+  // A floor of 0 is NOT sufficient on its own: widthOf takes
+  // max(floor, realWidth), so a zero floor just renders every block at its
+  // honest duration width and the ladder stops doing anything. Past the
+  // zero threshold the band goes entirely rather than proportionally —
+  // a real filter, not a rendering tweak. The drop IS the zero rung; see
+  // layout()'s filter, its only reader.
   const GAP = 2;
   const BAND_H = 144;
-  // Bottom-flush; top edge = importance contour. MEDIUM/LOW dropped to 75%
-  // of HIGH's height (2026-08-08) — the uniform-height pass (2026-08-07
-  // second pass) made adjacent events run together with only fill/border to
-  // separate them; a height step gives HIGH a second, stronger signal.
-  // MEDIUM and LOW still share one height (fill/border is what splits them).
-  // The one live tier-height source since the card deck was deleted
-  // (2026-08-25) — layout() sizes every block from it.
+  // Bottom-flush; top edge = importance contour. MEDIUM/LOW sit at 75% of
+  // HIGH's height — with uniform heights, adjacent events run together with
+  // only fill/border to separate them, so the height step gives HIGH a
+  // second, stronger signal. MEDIUM and LOW share one height (fill/border
+  // is what splits them). The one live tier-height source; layout() sizes
+  // every block from it.
   const TIER_H = { high: 144, medium: 108, low: 108 };
 
   // Contained children render at one uniform height regardless of band
-  // (spec §6, 2026-08-07) — containment frames, never confers stature. Set
-  // independently of TIER_H (50% of the full band, 2026-08-07 second pass)
-  // now that TIER_H no longer has a natural "short" tier to borrow from.
+  // (spec §6) — containment frames, never confers stature. Set
+  // independently of TIER_H (50% of the full band), which no longer has a
+  // natural "short" tier to borrow from.
   const CONTAIN_CHILD_H = BAND_H / 2;
   const CUT_SEAM = 1; // .blk.cut border-width (index.html): the page-background seam around contained children
   const CONTAIN_INSET = 6; // px shaved off a contained child's top edge, so a same-tier child (e.g. MEDIUM-in-MEDIUM) still shows a strip of the container above it
   const CONTAIN_BOTTOM_INSET = 1; // px the child sits above the container floor, matching .blk's own border-width so the container's bottom border shows through
-  // Two time scales (spec §6): presence renders at PX_PER_SEC; absence
-  // renders at GAP_HOUR_PX per absent hour (~1/6 speed — halved together
-  // with PX_PER_SEC 2026-07-17 to preserve the ratio; watch gap loudness).
-  // Proportional everywhere — hour boundaries have no effect on width;
-  // ticks just interpolate through gaps like they do through blocks.
+  // Two time scales (spec §6): presence renders at PX_PER_SEC; absence at
+  // GAP_HOUR_PX per absent hour (~1/6 speed). The RATIO is what matters —
+  // change one and change the other, or gap loudness shifts. Proportional
+  // everywhere: hour boundaries have no effect on width; ticks interpolate
+  // through gaps exactly as they do through blocks.
   const BASE_GAP_HOUR_PX = 22;
   let GAP_HOUR_PX = BASE_GAP_HOUR_PX; // live (zoomed) value — see PX_PER_SEC above
-  // The break/departure line (spec §6, 2026-07-28): a gap at or above this
-  // earns an "away 12:04 – 1:38" hover plate. Wall-clock on purpose — it
-  // encodes "how long before a break is a walk away from the machine", a
-  // fact about the USER, so it must NOT be derived from GAP_HOUR_PX the way
-  // the old ~16min FENCE_SPLIT_GAP_MS (and the retired GAP_PLATE_MIN_PX
-  // hover threshold) were — retuning the absence scale must not silently
-  // redefine "away". For the same reason it is not shared with
-  // AUDIO_BOOKEND_GAP_MS above, which is a fact about the TAB and only
-  // equals this by coincidence (rules audit, 2026-08-06) — keep them
-  // independently tunable. Provisional: 30 min sits mid-dead-zone on the
-  // 07-28 histogram (grazing < 8min, step-aways 19–21min, nothing between)
-  // — WATCHLIST.md away-plate-threshold.
+  // The break/departure line (spec §6): a gap at or above this earns an
+  // "away 12:04 – 1:38" hover plate. Wall-clock ON PURPOSE — it encodes how
+  // long a break must be to read as walking away from the machine, a fact
+  // about the USER. Do NOT derive it from GAP_HOUR_PX: retuning the absence
+  // scale must never silently redefine "away". Same reason it is not shared
+  // with AUDIO_BOOKEND_GAP_MS, a fact about the TAB that equals this only
+  // by coincidence. Provisional — WATCHLIST.md away-plate-threshold.
   const AWAY_PLATE_GAP_MS = 30 * 60 * 1000;
-  // Space above the band (was HIGH-run label space until 2026-08-25, when
-  // on-face run titles were removed). Retained as band geometry: block
-  // tops, the axis strip and the parked tip all measure from it.
+  // Space above the band. Band geometry, not label space: block tops, the
+  // axis strip and the parked tip all measure from it.
   const TITLE_AREA = 24;
   // Axis strip below the band, in two lanes so nothing overlaps (spec §6):
   // the band, then a clear gap, then ticks + labels.
   const TICK_TOP = 16; // band bottom → tick/label lane (expand-bar hit zone fills the gap)
   const TICK_H = 12;
   const AXIS_AREA = 46;
-  // Hover card's parked slot (2026-08-25): clearance between the bottom of
+  // Hover card's parked slot: clearance between the bottom of
   // the axis strip and the top of the card, so the card never sits on the
   // hour ticks/labels. The card left-aligns to its block and drops to this
   // fixed lane — already where an "expanded" card would go, which is why
   // locking needs no expand animation.
   const TIP_PARK_GAP = 12;
-  // Below this width the lock icon is suppressed (2026-08-25): a 22px icon
+  // Below this width the lock icon is suppressed: a 22px icon
   // cannot sit inside a narrower block without overflowing onto neighbors.
   // Such blocks still hover normally — they just can't be pinned. Held
   // separately from MIN_W (8, the hoverable floor) because it answers a
@@ -190,13 +162,13 @@ import {
   // this hold a control". Deliberately not folded into MIN_W.
   const LOCK_MIN_BLOCK_W = 28;
   const LABEL_CLEARANCE = 6; // min px between hour labels; colliders drop, never nudge (spec §6)
-  // Monochrome & favicons (spec §6, 2026-08-07): identity and importance
+  // Monochrome & favicons (spec §6): identity and importance
   // are fully decoupled. Importance is luminance + height; identity is the
   // favicon. Hue identity (Kelly palette, hostColorOrder registry/
   // tombstones, hue-derived rims) is retired — favicons can't clash with a
   // per-host color that no longer exists.
   const PAGE_BG = "#14161a"; // ribbon ground; also the cut-out seam color
-  // Fill/rim ladder (spec §6, 2026-08-08): MEDIUM shares HIGH's fill
+  // Fill/rim ladder (spec §6): MEDIUM shares HIGH's fill
   // on purpose — fill reads as background-vs-foreground (LOW recedes,
   // MEDIUM/HIGH advance), while MEDIUM keeps its own rim and TIER_H
   // (108 vs HIGH's 144) to disambiguate from HIGH. Distinct from the
@@ -211,22 +183,21 @@ import {
   const EARNED_RIM = HIGH_RIM; // was muted gold "#D4AF37" — kept as a named
   // constant in case earned-HIGH gets its own accent again, but matched to
   // HIGH_RIM for now: the gold read as an unexplained extra difference
-  // rather than a helpful one (2026-08-08).
+  // rather than a helpful one.
   const TIER_FILL = { low: LOW_FILL, medium: MEDIUM_FILL, high: HIGH_FILL };
   const TIER_RIM = { low: LOW_RIM, medium: MEDIUM_RIM, high: HIGH_RIM };
-  // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
-  // same day): drawn in-block on every real block, always full color,
-  // clipped by the block's own edge when too narrow/short to fit — sizing
-  // lives in CSS (.blk .fav) since JS no longer gates on it.
+  // Favicons (spec §6): drawn in-block on every real block, always full
+  // color, clipped by the block's own edge when too narrow/short to fit —
+  // sizing lives in CSS (.blk .fav); JS does not gate on it.
 
-  // Two-section tooltip display (spec §6, 2026-07-18): tipDataOf
+  // Two-section tooltip display (spec §6): tipDataOf
   // (assembly.js) builds the data; TIP_DEBUG/TIP_TITLES_MAX here are
   // purely display concerns (whether/how much of it fillTip shows).
   const TIP_DEBUG = true; // demo period: scores + signals visible; flip off for normal use
   const TIP_TITLES_MAX = 8;
 
   // Admission filter, display rung (spec §3). The predicate and its knobs
-  // moved to shared/transit.js (2026-07-24): the service worker applies the
+  // moved to shared/transit.js: the service worker applies the
   // SAME rule at finalize to delete snapshots of rejected sessions, so the
   // two sides can never drift.
   const { isTransit } = FS_TRANSIT;
@@ -235,7 +206,7 @@ import {
   // day picker (spec/display.md §6); windowStart alone walks backward.
   const viewDayStart = dayStartOf(Date.now());
 
-  // Cross-day window (spec §7e, 2026-08-23), overlay only. windowStart is the
+  // Cross-day window (spec §7e), overlay only. windowStart is the
   // oldest day loaded; it walks backward one day at a time as the user zooms
   // out, capped at MAX_WINDOW_DAYS. Equal to viewDayStart = today-only, the
   // historical behavior and what the standalone dashboard always keeps.
@@ -248,7 +219,7 @@ import {
   const DAY_DIVIDER_W = 34;
   const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  // Scroll anchor as distance from the RIGHT edge (spec §7e, 2026-08-23).
+  // Scroll anchor as distance from the RIGHT edge (spec §7e).
   // scrollLeft is measured from the document's LEFT edge, so prepending a day
   // invalidates it by exactly the width inserted (the classic prepend jump);
   // every pixel right of an insertion keeps its distance from the right edge,
@@ -271,12 +242,12 @@ import {
   let axis = null;
   // Zoom anchor request, set by applyZoom for the duration of one relayout:
   // {t, viewportX} = "keep instant t at this many px from the viewport's left
-  // edge". paint() consults it when sizing the underflow pad, so the anchor
-  // works in BOTH regimes (2026-08-23). Scroll position alone cannot hold an
-  // anchor when content is narrower than the viewport — there is nothing to
-  // scroll — so the pad becomes the actuator there, exactly as it is already
-  // the actuator for holding the right edge. Null outside a zoom gesture,
-  // where the pad reverts to its plain flush-right behaviour.
+  // edge". paint() consults it when sizing the underflow pad so the anchor
+  // works in BOTH regimes: scroll position alone cannot hold an anchor when
+  // content is narrower than the viewport — there is nothing to scroll — so
+  // the pad is the actuator there, as it already is for holding the right
+  // edge. Null outside a zoom gesture, where the pad reverts to plain
+  // flush-right behaviour.
   let pendingAnchor = null;
   const scrollableWidth = () => lastTotalPx + lastPadPx + lastPadRightPx;
   const maxScrollOf = (wrap) => Math.max(0, scrollableWidth() - wrap.clientWidth);
@@ -299,39 +270,27 @@ import {
     setScrollLeft(wrap, Math.max(0, maxScrollOf(wrap) - fromRight));
   };
 
-  // Demand-driven day loading (spec §7e, 2026-08-23, trigger corrected same
-  // day). The signal is CAPACITY, not scroll position: if the loaded range no
-  // longer fills the viewport, there is room for more history, so load a day.
+  // Demand-driven day loading (spec §7e/§7h). Two arms, neither of which
+  // any gesture handler knows about — zoom changes capacity, pan changes
+  // proximity, and paint() alone decides:
+  //   - CAPACITY: `total < viewportWidth`. If the loaded range no longer
+  //     fills the viewport there is room for more history. This is the same
+  //     condition as §7d's underflow pad — "the pad is non-zero" and "there
+  //     is room for more history" are one fact.
+  //   - PROXIMITY: panning near the left edge, which only ever exists in
+  //     the overflow regime.
   //
-  // The first cut triggered on `scrollLeft <= 200px` — an infinite-scroll
-  // pattern, which measures PANNING toward the end of loaded content. But the
-  // user reaches history by ZOOMING, and zoom doesn't move the scroll position
-  // at all; it changes how much fits. Worse, zooming out lands in exactly the
-  // regime where the signal is undefined: content narrower than the viewport
-  // means no scrolling is possible and scrollLeft is pinned at 0 forever, so
-  // the trigger could never fire again (real specimen: 621px of content in a
-  // 1470px viewport, stuck at "yesterday" no matter how far the user zoomed).
+  // Do NOT re-express the capacity arm as a scrollLeft threshold. The user
+  // reaches history by ZOOMING, which does not move scroll position at all,
+  // and zooming out lands in the one regime where scrollLeft is undefined:
+  // content narrower than the viewport cannot scroll, so scrollLeft pins at
+  // 0 and the trigger can never fire again.
   //
-  // `total < viewportWidth` is well-defined in both regimes and never mentions
-  // scroll. Note it is the same condition as §7d's underflow pad — "the pad is
-  // non-zero" and "there is room for more history" are one fact, which is a
-  // good sign this is the model rather than another special case.
-  //
-  // ONE day per relayout, deliberately not a loop (Scott: "a type of calming
-  // action... spread the load out across multiple scrolls so that we don't
-  // have this weird edge case of having to load three days at once"). Zoom
-  // ticks are frequent, so the window catches up over a gesture rather than
-  // in one jump — and it removes the loop, its termination argument, and the
-  // multi-day content jump in a single frame. Consequence, accepted: on a
-  // sparse day the ribbon RESTS underfilled (today only) until the user zooms;
-  // underfill is a normal resting state here, not a transient.
-  //
-  // PROXIMITY arm added 2026-08-24 (spec §7h): panning reaches history too,
-  // deliberately reversing the rejection recorded above — the 7-day window is
-  // an efficiency trick and should be invisible, and the old objection (the
-  // signal is undefined on underflow) does not apply to panning, which only
-  // exists in the overflow regime. Neither gesture knows about loading:
-  // zoom changes capacity, pan changes proximity, paint() decides.
+  // ONE day per relayout, deliberately NOT a loop. Zoom ticks are frequent,
+  // so the window catches up over a gesture instead of jumping several days
+  // in one frame — and there is no loop to terminate. Accepted consequence:
+  // on a sparse day the ribbon RESTS underfilled until the user zooms.
+  // Underfill is a normal resting state here, not a transient.
   //
   // Generous margin (order of one viewport) so the day lands BEFORE the pan
   // reaches the edge. If panning stalls at the left before MAX_WINDOW_DAYS,
@@ -348,7 +307,7 @@ import {
   // days at startup. Proximity is a claim about a gesture, not a position.
   let panning = false;
   // Real motion, not mere cursor entry — `panning` alone is set by startPan
-  // before anything moves (spec §7h; decisions/tabmanager.md 2026-08-25).
+  // before anything moves (spec §7h).
   let pannedMoved = false;
   let loadingDay = false;
   function maybeLoadOlderDay(totalPx) {
@@ -385,7 +344,7 @@ import {
     return d.getMinutes() * 60000 + d.getSeconds() * 1000 + d.getMilliseconds();
   }
 
-  // The ribbon's coordinate system (spec §7g, 2026-08-23). Ribbon X is NOT
+  // The ribbon's coordinate system (spec §7g). Ribbon X is NOT
   // linear in time — widths are floored, gaps run on their own scale, day
   // dividers compress a whole night, and §7e drops whole bands — so time<->x
   // can only be answered by walking what layout() actually produced. Returns
@@ -463,7 +422,7 @@ import {
   }
 
   function layout(events) {
-    // Band drop (spec §7e, 2026-08-23): filter BEFORE any geometry so a
+    // Band drop (spec §7e): filter BEFORE any geometry so a
     // dropped block consumes no width and its neighbours' gaps close over it
     // — the point is to reclaim the space, not to hide a block that still
     // occupies it. A zero floor IS the drop (see BAND_FLOOR_STEPS).
@@ -483,7 +442,7 @@ import {
     // boundary special case; a 30s tab-hop allocates a fraction of a px.
     const allocGap = (nextStart) => {
       if (prevEnd === null) return;
-      // Day boundary (spec §7e, 2026-08-23): a gap straddling midnight
+      // Day boundary (spec §7e): a gap straddling midnight
       // collapses to DAY_DIVIDER_W and carries the following day's label —
       // the one deliberate exception to the absence-proportional rule above,
       // confined to this boundary. No hour ticks inside: they would be
@@ -522,9 +481,8 @@ import {
         const span = e.endTime - e.startTime;
         let prevRight = -Infinity;
         for (const k of e.children) {
-          // Contained LOW sticks are retired (spec §6, 2026-08-07 second
-          // pass): every child — LOW included — gets proportional
-          // block width now, no stick floor.
+          // Every child — LOW included — gets proportional block width
+          // (spec §6). No stick floor.
           const kw = Math.max(MIN_W, (k.durMs / 1000) * PX_PER_SEC);
           let kx = span > 0 ? ((k.startTime - e.startTime) / span) * w : 0;
           if (kx < prevRight + GAP) kx = prevRight + GAP;
@@ -550,7 +508,7 @@ import {
           parent: e,
           // Capped at MEDIUM: containment frames — never confers,
           // never destroys. Structurally unreachable since the
-          // tree-blind covered-HIGH guard (2026-07-24) — kept as a
+          // tree-blind covered-HIGH guard — kept as a
           // defensive invariant.
           band: kid.k.band === "high" ? "medium" : kid.k.band,
           w: kid.kw,
@@ -566,16 +524,14 @@ import {
 
   // Ribbon X is NOT linear time (widths are floored), so each whole hour is
   // placed at the time-interpolated X within whichever block was active
-  // then. Hours that fell between blocks already own uniform gap slots from
-  // layout — the old clamp-to-edge case (which shingled labels when a
-  // multi-hour absence stacked its hours on one x) no longer exists.
-  // Now placed via layout()'s own coordinate system (axisOf) rather than a
-  // duplicate interpolation of its own. Deliberately still SKIPS any hour
-  // with no drawn geometry: an hour inside a band-dropped stretch or between
-  // spans has no honest x, and inventing one would put a tick where nothing
-  // is rendered. Hence the containment test rather than a bare timeToX call
-  // (timeToX clamps to the nearest edge, which is right for anchoring and
-  // wrong for tick placement).
+  // then, via layout()'s own coordinate system (axisOf) — never a duplicate
+  // interpolation. Hours between blocks own uniform gap slots from layout.
+  //
+  // Deliberately SKIPS any hour with no drawn geometry: an hour inside a
+  // band-dropped stretch or between spans has no honest x, and inventing
+  // one puts a tick where nothing is rendered. That is why this does a
+  // containment test rather than calling timeToX bare — timeToX clamps to
+  // the nearest edge, which is right for anchoring and wrong here.
   function hourMarks(segs, gaps, laid) {
     if (!segs.length) return [];
     const first = segs[0];
@@ -606,7 +562,7 @@ import {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    // Escape releases the lock (2026-08-25) — the card view already
+    // Escape releases the lock — the card view already
     // taught Escape as a dismissal for a "committed-to" state.
     unlockTip();
   });
@@ -657,7 +613,7 @@ import {
   // dismissed tooltip or paint into a newer one.
   let tipSeq = 0;
 
-  // --- Lock (2026-08-25). Clicking a block's lock icon pins the hover card
+  // --- Lock. Clicking a block's lock icon pins the hover card
   // so it can be interacted with (it is pointer-transparent otherwise).
   //
   // Once locked, the card is deliberately INDEPENDENT OF CURSOR POSITION.
@@ -766,7 +722,7 @@ import {
   {
     const ribbonEl = qs("ribbon");
     ribbonEl.addEventListener("pointerover", (ev) => {
-      // While locked, plain hover is suppressed entirely (2026-08-25): two
+      // While locked, plain hover is suppressed entirely: two
       // cards competing for the one parked slot would thrash, and a card
       // that swapped to whatever block the cursor grazed would not be
       // locked in any sense the user would recognize. Ordinary hover
@@ -783,7 +739,7 @@ import {
         if (to && to === from) return;
       }
       hideTip();
-      // Panning suppresses hover UI entirely (spec §7h, 2026-08-24):
+      // Panning suppresses hover UI entirely (spec §7h):
       // navigation and inspection are not simultaneous intents. The blocks
       // sliding past under a travelling cursor fire pointerover constantly;
       // without this they would each arm a tooltip for a block that is
@@ -791,7 +747,7 @@ import {
       if (ribbonEl.classList.contains("panning")) return;
       const el = ev.target.closest("[data-tip]");
       if (!el) return;
-      // Anchored to the BLOCK, not the cursor (2026-08-25): captured here
+      // Anchored to the BLOCK, not the cursor: captured here
       // at hover time, read after the awaits below. Using the element's own
       // viewport rect sidesteps the scroll-content-vs-viewport conversion
       // entirely (blocks live in #ribbon-wrap's scrolled space; #tip is
@@ -827,7 +783,7 @@ import {
         tip.style.left = "0px";
         tip.style.top = "0px";
         tip.hidden = false;
-        // Measure after content is set, then park it (2026-08-25): left edge
+        // Measure after content is set, then park it: left edge
         // flush with the block's, top a fixed lane below the axis strip so it
         // can never cover the hour ticks/labels. Only the right edge is
         // clamped — a block near the viewport's right would otherwise push
@@ -849,16 +805,15 @@ import {
       }, TIP_DELAY_MS);
     });
     ribbonEl.addEventListener("pointerout", (ev) => {
-      // Crossing onto a child of the SAME hover target is not an exit
-      // (2026-08-25). pointerout/pointerover are delegated on #ribbon and
-      // bubble, so moving from a block onto its own lock icon fires a
-      // matched out/over pair even though the cursor never visually left
-      // the block. Unguarded, that tore the card (and the icon with it)
-      // down the instant the cursor reached the icon — making the lock
-      // literally unclickable — and the re-entering pointerover restarted
-      // the tip timer, which together with the icon's own cursor:pointer
-      // read as an arrow/hand flicker. relatedTarget is where the cursor
-      // WENT; if that's still inside the same [data-tip], ignore it.
+      // Crossing onto a child of the SAME hover target is not an exit.
+      // pointerout/pointerover are delegated on #ribbon and bubble, so
+      // moving from a block onto its own lock icon fires a matched
+      // out/over pair even though the cursor never visually left the block.
+      // Unguarded, that tears the card (and the icon with it) down the
+      // instant the cursor reaches the icon — making the lock literally
+      // unclickable — and the re-entering pointerover restarts the tip
+      // timer, reading as an arrow/hand flicker. relatedTarget is where the
+      // cursor WENT; if that is still inside the same [data-tip], ignore.
       const from = ev.target.closest && ev.target.closest("[data-tip]");
       const to = ev.relatedTarget && ev.relatedTarget.closest
         ? ev.relatedTarget.closest("[data-tip]")
@@ -871,7 +826,7 @@ import {
     });
   }
 
-  // Horizontal zoom (spec §6, 2026-08-08): vertical wheel/trackpad motion
+  // Horizontal zoom (spec §6): vertical wheel/trackpad motion
   // over the ribbon zooms (deltaY), horizontal motion pans (deltaX) via the
   // wrap's native scrollLeft — a diagonal trackpad gesture decomposes into
   // both at once. The ribbon claims ALL wheel input while the cursor is
@@ -902,7 +857,7 @@ import {
     let idleTimer = null;
     const applyZoom = () => {
       rafId = null;
-      // Zoom invalidates the lock's anchor (2026-08-25): the card is pinned
+      // Zoom invalidates the lock's anchor: the card is pinned
       // to a block's left edge, and zooming moves and rescales every block.
       unlockTip();
       const rect = wrap.getBoundingClientRect();
@@ -910,10 +865,9 @@ import {
       // the width change, so the timestamp under the cursor stays under it
       // (both time scales zoom by the same factor — a proportional-position
       // anchor tracks the same instant a true timestamp anchor would).
-      // Left-justified at rest, by construction (spec §6, 2026-08-08 zoom
-      // retry — a permanent left spacer was tried and reverted, see
-      // index.html): the target scrollLeft computed below can go negative
-      // when zooming very close to the left edge; assigning it is simply
+      // Left-justified at rest, by construction (spec §6): the target
+      // scrollLeft computed below can go negative when zooming very close
+      // to the left edge; assigning it is simply
       // clamped to 0 by the platform, so the left edge always wins with no
       // special-casing — the anchor point drifts slightly under the cursor
       // only in that edge case, self-correcting on the next tick.
@@ -958,7 +912,7 @@ import {
       // paint(), which is where the real laid-out total is known.
       captureFromRight(wrap);
     };
-    // ---- Panning: edge-proximity pump (spec §7h, 2026-08-24) ----
+    // ---- Panning: edge-proximity pump (spec §7h) ----
     //
     // No targetable affordances. The ribbon pans by where the cursor RESTS: a
     // dead zone in the middle, then travel toward the nearer edge, faster the
@@ -966,8 +920,7 @@ import {
     // gesture — the cursor can be still while the view moves, hence the pump.
     //
     // PROVISIONAL knobs, to be play-tested — turn ONE at a time.
-    // Middle 66.7%: no panning (0.5 → 0.667, 2026-08-25 — spec §7h,
-    // decisions/tabmanager.md "First turn of the dead-zone knob").
+    // Middle 66.7%: no panning (spec §7h).
     const PAN_DEAD_FRAC = 0.667;
     // Curve exponent. 1 = linear; higher keeps the ramp gentle across most of
     // the band and concentrates speed at the very edge. Replaces a three-zone
@@ -1011,14 +964,14 @@ import {
     // touched anything, reading as the ribbon moving on its own.
     let panArmed = false;
 
-    // Hover suppression is owned by MOTION, not cursor position (spec §7h,
-    // corrected 2026-08-25 — resting in the ramp is not panning). Called
-    // from panTick's first whole-pixel frame; cleared by stopPan.
+    // Hover suppression is owned by MOTION, not cursor position (spec §7h):
+    // resting in the ramp is not panning. Called from panTick's first
+    // whole-pixel frame; cleared by stopPan.
     const markPanningMoved = () => {
       pannedMoved = true; // §7h load arm: real motion, not mere cursor entry
       if (ribbonEl.classList.contains("panning")) return;
       ribbonEl.classList.add("panning");
-      unlockTip(); // pan invalidates the anchor (2026-08-25); plain hideTip is a no-op while locked
+      unlockTip(); // pan invalidates the anchor; plain hideTip is a no-op while locked
       hideTip();
     };
 
@@ -1154,12 +1107,12 @@ import {
       stopPan();
     });
 
-    // Panning moves the anchor, and as of §7h (2026-08-24) it ALSO reaches
+    // Panning moves the anchor, and as of §7h it ALSO reaches
     // history: paint()'s load check now has a proximity arm alongside §7e's
     // capacity arm. The gesture itself still knows nothing about loading —
     // paint() decides, exactly as it does for zoom.
     wrap.addEventListener("scroll", () => {
-      // Panning invalidates the lock's anchor (2026-08-25), same reasoning
+      // Panning invalidates the lock's anchor, same reasoning
       // as the zoom hook. Hooked HERE rather than in the pan pump because
       // every pan path lands in scrollLeft — edge-pan (panTick), trackpad
       // deltaX, and keyboard/programmatic alike — so one listener catches
@@ -1196,21 +1149,14 @@ import {
   // an actual reason (new data, day paging).
   let lastAssembly = null; // { hostNames, events }
 
-  // Ribbon default resting window (spec §7c, 2026-08-22; corrected same
-  // day — the first cut computed zoom from a pure TIME-span estimate,
-  // which ZOOM_MAX clamping and min-width-floor/gap error could silently
-  // blow past, showing far more than DEFAULT_WINDOW_BLOCKS (caught via a
-  // real specimen: 22 blocks shown instead of 12). This version uses
-  // layout()'s REAL pixel output directly — two layout() passes (initial
-  // probe, then one at the solved zoom), both O(n), no search/iteration —
-  // so "the 12th-from-last block's left edge sits at the viewport's left
-  // edge" is exact, not approximated, and the scroll position is set
-  // explicitly to that edge rather than relying on a coincidental
-  // right-justify (render()'s own scrollLeft reset showed whatever fit at
-  // whatever zoom resulted, not necessarily this window). Still a
-  // deliberately simple heuristic otherwise — no
-  // secondary adjustment (decisions/tabmanager.md "Strip ordering
-  // rethink").
+  // Ribbon default resting window (spec §7c). Solved from layout()'s REAL
+  // pixel output — two layout() passes (probe, then one at the solved
+  // zoom), both O(n), no search — so "the Nth-from-last block's left edge
+  // sits at the viewport's left edge" is exact.
+  //
+  // Do NOT estimate this from a TIME span instead: ZOOM_MAX clamping and
+  // min-width-floor/gap error let a time estimate silently overshoot and
+  // show far more than DEFAULT_WINDOW_BLOCKS.
   const DEFAULT_WINDOW_BLOCKS = 12;
   // Applied once per page lifetime, not on every render — recomputing it
   // on every new event/tick would fight a user's own manual zoom/scroll,
@@ -1230,9 +1176,8 @@ import {
     return layout(sorted).timeToX(windowStartTime);
   }
   // Sets zoom (once per page lifetime) so DEFAULT_WINDOW_BLOCKS fill the
-  // viewport. Since 2026-08-23 (spec §7d) render() right-pins unconditionally,
-  // so this no longer needs a scrollLeft of its own — the pin at this zoom IS
-  // the default window.
+  // viewport. render() right-pins unconditionally (spec §7d), so this needs
+  // no scrollLeft of its own — the pin at this zoom IS the default window.
   function applyDefaultZoomWindow(events, wrap) {
     if (defaultZoomApplied || !events.length || !wrap) return;
     defaultZoomApplied = true;
@@ -1254,9 +1199,8 @@ import {
 
   function render(sessions) {
     lastSessions = sessions;
-    // On-block labels are retired in favor of favicons (spec §6,
-    // 2026-08-07) — computeHostNames now serves the tooltip's site name
-    // only; the label-rendering pass itself is gone.
+    // Favicons carry identity, not on-block labels (spec §6), so
+    // computeHostNames serves only the tooltip's site name here.
     const hostNames = computeHostNames(sessions, isTransit);
     // windowStart spans multiple days in the overlay (spec §7e); it equals
     // viewDayStart everywhere else, so this is the historical single-day call.
@@ -1275,12 +1219,11 @@ import {
     paint(events, hostNames);
     // A real render (new data, day paging — never a zoom relayout, which
     // calls paint() directly) always resets to the resting edge: the ribbon
-    // RIGHT-pins to "now" (spec §7d, 2026-08-23) on every render, first
+    // RIGHT-pins to "now" (spec §7d) on every render, first
     // included — applyDefaultZoomWindow sets the zoom, the pin shows it, so
     // it no longer needs a scrollLeft of its own. Zoom LEVEL is never reset
     // here, so re-renders don't fight a manual zoom. Right-pinning became
-    // unconditional 2026-08-25 when anchorMode was removed; the
-    // left-justified arm served the deleted standalone/overlay split.
+    // unconditional — there is no left-justified arm.
     if (wrap) {
       // Skipped while a zoom gesture owns positioning (pendingAnchor set): a
       // day loaded mid-zoom would otherwise be positioned here by fromRight
@@ -1294,7 +1237,7 @@ import {
     }
   }
 
-  // The paint-only path (spec §6, 2026-08-08 zoom): layout + DOM diff on an
+  // The paint-only path (spec §6): layout + DOM diff on an
   // already-assembled event list — no thread/container/label work. Shared
   // by render() (fresh assembly) and relayout() (zoom, same assembly).
   function paint(events, hostNames) {
@@ -1308,7 +1251,7 @@ import {
     const ribbon = qs("ribbon");
     const bandBottom = TITLE_AREA + BAND_H;
     ribbon.style.width = total + "px";
-    // Right-pin underflow pad (spec §7d, 2026-08-23): holds the right edge
+    // Right-pin underflow pad (spec §7d): holds the right edge
     // when content is too narrow to scroll. 0 whenever it overflows, so the
     // scrollable regime is untouched. Overlay + tiered only — same gate as
     // render()'s scroll reset.
@@ -1349,7 +1292,7 @@ import {
     const seen = new Set();
     for (const s of segs) {
       // Contained children sit at one uniform height regardless of band
-      // (spec §6, 2026-08-07) — containment frames, never confers stature;
+      // (spec §6) — containment frames, never confers stature;
       // standalone blocks keep the three-way tier heights.
       seen.add(s.key);
       let el = blockEls.get(s.key);
@@ -1361,11 +1304,10 @@ import {
       }
       const h =
         s.contained ? CONTAIN_CHILD_H : TIER_H[s.band];
-      // Importance, not identity, drives fill/border now (spec §6,
-      // 2026-08-07; three-step ladder restored 2026-08-08): each tier gets
-      // its own luminance step (TIER_FILL/TIER_RIM) — MEDIUM and LOW no
-      // longer share one "dim" pair, they were running together visually.
-      // Hue is retired; favicons carry identity instead.
+      // Importance, not identity, drives fill/border (spec §6). Each tier
+      // gets its OWN luminance step (TIER_FILL/TIER_RIM) — do not collapse
+      // MEDIUM and LOW back into one "dim" pair, they run together
+      // visually. Hue is retired; favicons carry identity.
       const fill = TIER_FILL[s.band];
       // Children draw on top of their container; persistent els can be in
       // any DOM order, so z-index does it (cleared when not contained).
@@ -1384,13 +1326,13 @@ import {
       el.classList.toggle("inert", s.w < MIN_W);
       el.style.top = bandBottom - h + topInset + "px";
       el.style.height = h - topInset - bottomInset + "px";
-      // Containers paint like any other solid block (spec §6, 2026-07-17 —
-      // wash retired); contained children are cut out of the interior by a
+      // Containers paint like any other solid block (spec §6); contained
+      // children are cut out of the interior by a
       // page-background seam (.cut CSS carries the width) and inset off the
-      // container's top/bottom edges (spec §6, 2026-08-02).
+      // container's top/bottom edges (spec §6).
       el.classList.toggle("cut", !!s.contained);
       el.style.background = fill;
-      // Earned-HIGH border (spec §6, 2026-08-07): the container/block
+      // Earned-HIGH border (spec §6): the container/block
       // itself, never its contained children — this marks how the THREAD
       // reached HIGH, a fact about the frame, not about any one interior
       // moment (which already has its own display treatment). Gold
@@ -1427,7 +1369,7 @@ import {
       el.style.pointerEvents = s.w < MIN_W ? "none" : "auto";
       el.onclick = () => chrome.tabs.create({ url: s.e.url });
 
-      // Lock affordance (2026-08-25). Created lazily per block and kept on
+      // Lock affordance. Created lazily per block and kept on
       // the element; shown only while this block's card is up (see the
       // pointerover/pointerout wiring). Suppressed below LOCK_MIN_BLOCK_W,
       // where the icon would overflow onto neighbors.
@@ -1478,7 +1420,7 @@ import {
     // Invisible hover plate over each gap region: the exact away-span, same
     // tooltip-as-ground-truth convention as blocks. Not clickable.
     //
-    // ONLY departures get a plate (spec §6, 2026-07-28): AWAY_PLATE_GAP_MS
+    // ONLY departures get a plate (spec §6): AWAY_PLATE_GAP_MS
     // gates the tooltip — under it a break the timeline doesn't annotate,
     // over it a departure that earns "away 12:04 – 1:38". Sub-threshold gaps
     // were tedious hover targets whose duration the width already implies.
@@ -1496,7 +1438,7 @@ import {
       ribbon.appendChild(el);
     }
 
-    // Day dividers (spec §7e, 2026-08-23): fixed-width break carrying a
+    // Day dividers (spec §7e): fixed-width break carrying a
     // rotated day name. Full ribbon height — it separates days, it isn't an
     // event in a band.
     for (const d of dividers) {
@@ -1529,7 +1471,7 @@ import {
       ribbon.appendChild(tick);
       const label = document.createElement("div");
       label.className = "hlabel transient";
-      // Centered under the tick (2026-07-17): tick row on top, label row
+      // Centered under the tick: tick row on top, label row
       // below — each label owns its full inter-mark column instead of
       // racing the next tick in the same lane.
       label.style.top = bandBottom + TICK_TOP + TICK_H + 2 + "px";
@@ -1560,10 +1502,10 @@ import {
       else lastLabelRight = m.x + w / 2;
     }
 
-    // Favicons (spec §6, 2026-08-07; always-color/always-attempt experiment
-    // 2026-08-07): every real block attempts a favicon, always full color —
-    // grayscale dimming made them unreadable and didn't help identify the
-    // visit. On a block too narrow/short to fit the full 16px icon, the
+    // Favicons (spec §6): every real block attempts a favicon, always full
+    // color — grayscale dimming makes them unreadable without helping
+    // identify the visit. On a block too narrow/short to fit the 16px icon,
+    // the
     // icon still renders at its native top-left anchor and is CLIPPED by
     // the block's own edge (.blk's overflow:hidden) rather than withheld —
     // a partial icon beats none.
@@ -1588,7 +1530,7 @@ import {
       if (el._favEl.src !== src) el._favEl.src = src;
     }
 
-    // Block label (spec §7b, 2026-08-21): always-on, clipped domain/site-name
+    // Block label (spec §7b): always-on, clipped domain/site-name
     // label on every real block — the same short name the tooltip already
     // shows (hostNames + labelKeyOf, computeHostNames' established idiom
     // throughout this file), not the raw host.
@@ -1612,7 +1554,7 @@ import {
       if (el._labelEl.textContent !== text) el._labelEl.textContent = text;
     }
 
-    // On-block snapshots (2026-08-25): MEDIUM/HIGH only, width-fitted, lazy
+    // On-block snapshots: MEDIUM/HIGH only, width-fitted, lazy
     // and viewport-culled — a pan must not fetch every picture it crosses.
     // Rules: spec/display.md "On-block snapshots",
     // decisions/snapshot_implementation.md.
@@ -1698,7 +1640,7 @@ import {
     maybeLoadOlderDay(total);
   }
 
-  // Zoom relayout (spec §6, 2026-08-08): re-paints from the CACHED
+  // Zoom relayout (spec §6): re-paints from the CACHED
   // assembly — no thread/container work — so a scroll-wheel zoom stays
   // cheap enough to run every frame. No-op before the first real render.
   function relayout() {

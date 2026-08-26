@@ -3,7 +3,7 @@
 // §6 snapshot unification). Loaded by BOTH contexts:
 //   - dashboard/index.html <script>s it before timeline.js (display filter),
 //     which reads it off globalThis.FS_TRANSIT (no module loading there)
-//   - background.js, a module worker (2026-08-21), imports it directly —
+//   - background.js, a module worker, imports it directly —
 //     see the named exports below. globalThis.FS_TRANSIT is also still set
 //     for the plain-<script> dashboard path.
 //
@@ -16,7 +16,7 @@
 // purpose: sessions stay in storage + Score table so the rule can be
 // audited (only the snapshot is deleted for rejected sessions).
 export const TRANSIT_MS = 10_000;
-// Terminal-keystroke discount (spec §3, 2026-07-24): the keystroke that
+// Terminal-keystroke discount (spec §3): the keystroke that
 // killed the session — a close chord landing within TERMINAL_KEY_MS of
 // the hide — is how you LEAVE a page, the keyboard form of the click
 // rule. Discounts exactly ONE keystroke, so typing before a close chord

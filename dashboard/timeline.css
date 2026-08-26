@@ -1,5 +1,5 @@
 /* FocusStream dashboard/ribbon styling — extracted from index.html's inline
-   <style> (Active Tab Manager Phase 2, spec §7b, 2026-08-21) so it has one
+   <style> (Active Tab Manager Phase 2, spec §7b) so it has one
    source of truth reachable from two places: the standalone dashboard page
    (index.html links this file normally) and switcher.js's overlay
    overlay (fetches this file's text and injects it into its shadow root's
@@ -22,14 +22,14 @@
       position: sticky;
       top: 0;
       /* Own stacking context, so the search dropdown paints above the
-         ribbon below it (2026-08-06). */
+         ribbon below it. */
       z-index: 5;
     }
     /* Title left; search + session count + debug buttons cluster right. */
     h1 { font-size: 16px; margin: 0; flex: 1; }
     header .note { color: #888; font-size: 12px; }
     button { font-size: 12px; }
-    /* Search (2026-08-06): title/url substring search over the full stored
+    /* Search: title/url substring search over the full stored
        week, independent of day paging and the ribbon — a "find and go"
        tool, not a ribbon filter (see decisions/ for the rejected ribbon-highlight
        alternatives). Dropdown is positioned relative to this wrapper. */
@@ -73,15 +73,15 @@
     }
     .sr-meta { font-size: 11px; color: #9aa1ab; margin-top: 1px; }
     .sr-empty { padding: 8px 10px; font-size: 12px; color: #878d97; }
-    /* Week strip (spec §6, 2026-07-17): one skyline cell per stored day —
+    /* Week strip (spec §6): one skyline cell per stored day —
        the ribbon's importance contour on linear time. Bars paint by
-       importance, not identity (spec §6, 2026-08-07): unimportant/important
+       importance, not identity (spec §6): unimportant/important
        luminance pair by band, gold border on earned-HIGH. Click a cell to
        jump day paging there. */
     /* Horizontal timeline ribbon (spec §6): dark holodeck panel — no grid,
        a uniform grid would imply a uniform time scale.
        Width = time, height = tier, luminance = importance, favicon = identity
-       (2026-08-07 monochrome pass — hue identity retired). */
+. */
     #ribbon-wrap {
       background: #14161a;
       overflow-x: auto;
@@ -93,7 +93,7 @@
          — `hidden` is a belt-and-suspenders guarantee, not a real clip. */
       overflow-y: hidden;
       padding: 8px 16px;
-      /* Scrollbar hidden (2026-08-11): panning is drag/wheel-driven, not
+      /* Scrollbar hidden: panning is drag/wheel-driven, not
          scrollbar-driven, and the bar added visual noise without helping
          navigation. Scrolling itself is untouched — only the bar's paint
          is suppressed. Chrome-only property is fine; this ships as an
@@ -101,21 +101,19 @@
       scrollbar-width: none;
     }
     #ribbon-wrap::-webkit-scrollbar { display: none; }
-    /* The expanded OVERLAY ribbon inverts this — right-pinned to "now" (spec
-       §7d, 2026-08-23, timeline.js). The rule below still governs the
-       standalone dashboard and the collapsed strip verbatim.
+    /* The expanded OVERLAY ribbon inverts this — right-pinned to "now"
+       (spec §7d, timeline.js). The rule below governs the standalone
+       dashboard and the collapsed strip verbatim.
 
-       Left-justified, clamped at rest (spec §6, 2026-08-08 zoom retry): the
-       first event's left edge sits at the viewport's left edge and stays
-       there under panning — the browser's own scrollLeft clamp (never
-       negative) gives this for free with no spacer needed, AS LONG AS
-       #ribbon is the wrap's only scrollable content (a permanent lead
-       spacer was tried and reverted the same day — it made scrollLeft:0
-       show blank space instead of the day's start, reading as the ribbon
-       "centering" itself and drifting under panning, exactly what this
-       rule forbids). Zoom's cursor-anchor math (timeline.js) computes a
-       target scrollLeft that can go negative when zooming very close to
-       the left edge; assigning a negative value is simply clamped to 0 by
+       Left-justified, clamped at rest (spec §6): the first event's left
+       edge sits at the viewport's left edge and stays there under panning.
+       The browser's own scrollLeft clamp (never negative) gives this for
+       free with no spacer, AS LONG AS #ribbon is the wrap's only
+       scrollable content — do NOT add a permanent lead spacer, which makes
+       scrollLeft:0 show blank space instead of the day's start and reads as
+       the ribbon centering itself. Zoom's cursor-anchor math (timeline.js)
+       computes a target scrollLeft that can go negative when zooming very
+       close to the left edge; assigning a negative value is clamped to 0 by
        the platform — the left edge always wins, by construction, no
        special-casing required. */
     #ribbon { position: relative; }
@@ -126,18 +124,18 @@
       border: 1px solid;
       border-radius: 2px;
       cursor: pointer;
-      /* Clips the favicon on blocks too narrow/short to fit it (spec §6,
-         2026-08-07 always-attempt experiment) — a partial icon beats none. */
+      /* Clips the favicon on blocks too narrow/short to fit it (spec §6) —
+         a partial icon beats none. */
       overflow: hidden;
       transition: left 0.3s, width 0.3s, top 0.3s, height 0.3s;
     }
-    /* Zoom (spec §6, 2026-08-08): the day-paging transition
+    /* Zoom (spec §6): the day-paging transition
        above is wrong for a continuous 60fps zoom gesture (blocks would
        perpetually chase a moving target through a 300ms ease, reading as
        laggy smear instead of a crisp real-time zoom) — #ribbon.zooming
        (toggled in JS for the gesture's duration) suspends it. */
     #ribbon.zooming .blk { transition: none; }
-    /* Panning (spec §7h, 2026-08-24): same reasoning as .zooming above, and
+    /* Panning (spec §7h): same reasoning as .zooming above, and
        panning additionally suppresses hover UI — navigation and inspection
        are not simultaneous intents. The JS handler returns early while
        .panning; this only stops the CSS :hover treatments. */
@@ -151,7 +149,7 @@
     /* Sub-MIN_W LOW blocks at low zoom (spec §7e): present so nothing ever
        silently vanishes, but too narrow to be a real hover target. */
     .blk.inert { pointer-events: none; }
-    /* Lock affordance (2026-08-25): pins the hover card so it can be
+    /* Lock affordance: pins the hover card so it can be
        interacted with. Lives INSIDE the block, near its bottom edge — the
        part nearest the parked card, so the reach is short and the cursor
        never leaves the block on the way (leaving it would fire pointerout
@@ -184,47 +182,38 @@
        independent once locked, so this pairing is the only thing tying the
        two together on screen. */
     #ribbon .blk.locked { box-shadow: 0 0 0 2px #7d8794; }
-    /* Currently-open tabs (spec §7f, 2026-08-23): marked by SHAPE — rounded
-       top corners, square bottom, so the block reads as a tab. Shape because
-       the other channels are taken: fill/rim luminance carry importance (§6),
-       and a second COLOUR was tried for exactly this kind of orthogonal fact
-       (earned-HIGH's gold rim, 2026-08-08) and reverted as "an unexplained
-       extra difference". Shape composes with any fill/rim a block already
-       has, so open + important + earned-HIGH can all show at once. Persists
-       at every zoom, which is the actual requirement — it replaces the
-       retired per-item strip→ribbon animation rather than compensating for
-       it (an animation fires once; this survives zoom, scroll, day loading).
+    /* Currently-open tabs (spec §7f): marked by SHAPE — rounded top
+       corners, square bottom, so the block reads as a tab. Shape because
+       the other channels are taken: fill/rim luminance carries importance
+       (§6), and a second COLOUR for an orthogonal fact reads as an
+       unexplained extra difference. Shape composes with any fill/rim a
+       block already has, so open + important + earned-HIGH can all show at
+       once, and it persists at every zoom — which an animation cannot.
        Sits in both states: strip tiles ARE tabs, ribbon blocks show which
-       history is still open.
-
-       The rim is set here with !important because paint() inline-writes
-       borderColor from TIER_RIM every repaint, and the tier rims for LOW/
-       MEDIUM sit so close to their own fills that a rounded edge had nothing
-       visible to round (first cut shipped shape alone and was invisible in
-       both views). Shape still does the identifying; this just gives the
-       shape an edge to be seen against. */
+       history is still open. */
     .blk.open-tab {
       border-radius: 6px 6px 0 0;
     }
     /* Open-tab rim (§7f): an edge for the tab shape to be seen against,
        since the LOW/MEDIUM rims sit too close to their own fills for a
-       rounded corner to show. Nothing sets .open-tab since §8 Phase 1
-       removed open-tab tagging (2026-08-25); kept for when it returns. */
+       rounded corner to show. !important because paint() inline-writes
+       borderColor from TIER_RIM every repaint. Nothing sets .open-tab
+       today (§8 Phase 1 removed the tagging); kept for when it returns. */
     #ribbon .blk.open-tab {
       border-color: rgba(255,255,255,0.85) !important;
       border-bottom-color: transparent !important;
     }
-    /* Contained children (spec §6, 2026-07-17): cut out of the container's
+    /* Contained children (spec §6): cut out of the container's
        solid interior by a page-background seam — the container itself paints
-       like any other HIGH block. Border narrowed 2px -> 1px (2026-08-02) to
+       like any other HIGH block. Border narrowed 2px -> 1px to
        cut a less heavy seam. */
     .blk.cut { border-width: 1px; }
-    /* Earned-HIGH (spec §6, 2026-08-07): a container/block whose OWN thread
+    /* Earned-HIGH (spec §6): a container/block whose OWN thread
        reached HIGH via one individually-HIGH fragment, not by summing
        lesser ones — the gold accent border color (EARNED_RIM) is set
        directly in JS; the .earned-high class is kept as a hook for the
        hover/hit-testing code even though no rule targets it here. */
-    /* On-block snapshot (2026-08-25): fits the block's WIDTH, min-width
+    /* On-block snapshot: fits the block's WIDTH, min-width
        flooring the scale so a narrow block clips rather than smearing; cover
        (not fill) so a constrained image crops instead of distorting; left/top
        so the image's left edge is the session's start. The two rejected
@@ -256,9 +245,9 @@
          scrim (1), favicon + label (2). */
       z-index: 1;
     }
-    /* Favicon (spec §6, 2026-08-07; always-color/always-attempt experiment
-       same day): drawn on every real block, always full color — grayscale
-       dimming made them unreadable and didn't help identify the visit.
+    /* Favicon (spec §6): drawn on every real block, always full color —
+       grayscale dimming makes them unreadable without helping identify the
+       visit.
        Anchored top-left and left un-shrunk; .blk's own overflow:hidden
        clips it on blocks too narrow/short to fit the full 16px icon, so a
        partial icon beats none. Experimental: may look bad on very thin
@@ -272,9 +261,9 @@
       height: 16px;
       pointer-events: none;
     }
-    /* Block label (Active Tab Manager Phase 2, spec §7b, 2026-08-21;
-       repositioned 2026-08-22 to stay favicon-adjacent in BOTH heights):
-       always-on site-name label, clipped by .blk's own overflow:hidden the
+    /* Block label (spec §7b): always-on site-name label, positioned to stay
+       favicon-adjacent in BOTH block heights, and clipped by .blk's own
+       overflow:hidden the
        same way the favicon is — a partial label on a narrow block beats
        none, matching the favicon rule's own reasoning. white-space+
        text-overflow only matter once .blk grows wide enough to need them;
@@ -308,10 +297,10 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      /* Inverted (2026-08-23): the first cut used a dim tint + faint text and
-         read as just another block. A day boundary is a different KIND of
-         thing from an event, so it gets the one inverted treatment in the
-         ribbon rather than another shade of the block palette. */
+      /* Inverted: a day boundary is a different KIND of thing from an
+         event, so it gets the one inverted treatment in the ribbon rather
+         than another shade of the block palette (a dim tint reads as just
+         another block). */
       background: rgba(255,255,255,0.82);
     }
     .dayline span {
@@ -336,10 +325,10 @@
        can never steal the hover that opened it — lifted only in .locked
        below, which is the whole point of locking.
 
-       Parked position (2026-08-25): no longer follows the cursor. Left-
-       aligned to the hovered block, at a fixed y below the axis strip, so
-       the card is already sitting where a click would "expand" it to — the
-       reason no expand animation is needed at all. */
+       Parked position: the card does not follow the cursor. Left-aligned
+       to the hovered block, at a fixed y below the axis strip, so it
+       already sits where a click would "expand" it to — which is why no
+       expand animation is needed. */
     #tip {
       position: fixed;
       z-index: 10;
@@ -356,7 +345,7 @@
       pointer-events: none;
       box-shadow: 0 4px 16px rgba(0,0,0,0.5);
     }
-    /* Locked (2026-08-25): the card is pinned and becomes INTERACTIVE —
+    /* Locked: the card is pinned and becomes INTERACTIVE —
        pointer-events flipping to auto is the functional half of the lock,
        and the brighter rim/shadow is the visual half announcing it. Both
        land in the same instant deliberately, so the appearance change and
@@ -401,7 +390,7 @@
       border-radius: 3px;
       margin-bottom: 6px;
     }
-    /* Two-section tooltip (spec §6, 2026-07-18): bold site name, muted
+    /* Two-section tooltip (spec §6): bold site name, muted
        meta, pages sorted by score with LOW pages dimmed (the ribbon's
        brightness-equals-tier vocabulary); everything mechanical sits in
        .tip-debug — smaller, grayer, ruled off, gated by TIP_DEBUG. */

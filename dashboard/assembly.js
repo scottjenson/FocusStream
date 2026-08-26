@@ -1,13 +1,11 @@
-// FocusStream session parsing + thread assembly (spec §3/§6) — split out of
-// timeline.js (2026-08-15, file-size pass, 2026-08-15). Owns the
+// FocusStream session parsing + thread assembly (spec §3/§6). Owns the
 // sessions-in → threads-out pipeline: admission filtering, visit merging,
 // container detection, thread assembly, and the site-name/label-key
-// machinery threads are displayed under. Imported by timeline.js, which
-// still owns layout/paint/interaction and calls these as a straight
-// pipeline. `openerEdges` stays private here — it's write/read only between
-// treeRootsOf and detectContainers, never touched outside this module.
+// machinery. timeline.js owns layout/paint/interaction and calls these as a
+// straight pipeline. `openerEdges` stays private here — write/read only
+// between treeRootsOf and detectContainers.
 //
-// FS_TRANSIT (shared/transit.js) is loaded before this module as a plain
+// FS_TRANSIT (shared/transit.js) loads before this module as a plain
 // <script> and hangs off globalThis by design (service workers have no
 // window) — referenced directly, not re-imported.
 
@@ -32,31 +30,23 @@ const { isTransit } = FS_TRANSIT;
 // Visit-merge gap limit: a brief tab-away stays the same visit; coming
 // back after minutes of absence is a NEW visit (interruption-by-absence).
 export const VISIT_GAP_MS = 5 * 60 * 1000;
-// Container chains bridge longer gaps on gap-audio testimony (revised
-// 2026-07-24; was audible-dominated bookends): the resuming fragment's
-// audibleSinceTs must predate the gap — the tab's own audio testifies
-// the context never ended while the user was off on a whiteboard
-// (spec §6 containers).
-// Currently equals AWAY_PLATE_GAP_MS (timeline.js) by coincidence, not by
-// reference (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"):
-// this is a fact about the TAB (its audio never stopped); the away-plate
-// constant is a fact about the USER (how long a break reads as leaving
-// the machine). Keep them independently tunable — retune one without
-// assuming the other should follow.
+// Container chains bridge longer gaps on gap-audio testimony (spec §6): the
+// resuming fragment's audibleSinceTs must predate the gap — the tab's own
+// audio testifies the context never ended.
+// Equals AWAY_PLATE_GAP_MS (timeline.js) by coincidence, NOT by reference:
+// this is a fact about the TAB (its audio never stopped), that one about the
+// USER (how long a break reads as leaving). Keep them independently
+// tunable — do not collapse them into one constant.
 const AUDIO_BOOKEND_GAP_MS = 30 * 60 * 1000;
-// Adjacent-container chaining (spec §6, 2026-08-02): detectContainers only
-// ever chains RAW fragments — two already-assembled same-host containers
-// (or a container and a leftover merged visit) sitting a few minutes
-// apart never get a second look, so a returning-to-LinkedIn pattern with
-// brief step-aways reads as unrelated blocks. Looser than VISIT_GAP_MS
-// (chaining assembled threads is a coarser claim than chaining raw
-// fragments) but tighter than AUDIO_BOOKEND_GAP_MS (no audio evidence
-// requirement at this level) — no natural cliff in a week's gap
-// distribution (9s–29min, smooth), so this is a judgment call pending
-// more data (story: decisions/timeline_design.md).
+// Adjacent-container chaining (spec §6): the gap for the SECOND pass, which
+// chains already-assembled containers/visits. Deliberately between
+// VISIT_GAP_MS (chaining assembled threads is a coarser claim than chaining
+// raw fragments) and AUDIO_BOOKEND_GAP_MS (no audio evidence required at
+// this level). A judgment call, not a measured cliff — the week's gap
+// distribution is smooth. Story: decisions/timeline_design.md.
 const CONTAINER_CHAIN_GAP_MS = 10 * 60 * 1000;
 
-// Two-section tooltip data (spec §6, 2026-07-18): a user section (bold
+// Two-section tooltip data (spec §6): a user section (bold
 // site name, start + duration, member pages sorted by score) and a debug
 // section gated by TIP_DEBUG (timeline.js's fillTip — the gating and the
 // TIP_TITLES_MAX display cap live there, since both are display concerns;
@@ -128,7 +118,7 @@ export function tipDataOf(e, siteName, ctx) {
   };
 }
 
-// Day window (spec §6, 2026-07-16): the ribbon shows ONE local calendar
+// Day window (spec §6): the ribbon shows ONE local calendar
 // day. A session belongs to the day it ENDS in — midnight-straddlers are
 // rare and short, since tab switches finalize. setHours (not epoch math)
 // keeps midnights honest across DST.
@@ -148,17 +138,15 @@ export function prevDayStart(t) {
   return d.getTime();
 }
 
-// Tab trees (spec §3/§6, 2026-07-19): capture stores the raw opener edge
+// Tab trees (spec §3/§6): capture stores the raw opener edge
 // (session.openerTabId); display resolves each tab to its tree ROOT and
-// threads chain per tree — "one tab and its spawn" (the feed pattern:
-// videos middle-clicked into their own tabs are one journey). Edges are
-// read from ALL stored sessions — an edge is a fact about the tab, not
-// the day, and transit-filtered sessions still testify (a filtered hop
-// can be the link between a grandchild and the root). An edgeless tab is
-// a tree of one, so cold tabs and pre-opener data stay flat.
-// Raw edges kept for the spawn-edge dominance discount (spec §6,
-// 2026-07-25): the discount walks the opener PATH, not the resolved
-// root — same-tree via a common ancestor is not spawn testimony.
+// threads chain per tree — "one tab and its spawn". Edges are read from ALL
+// stored sessions, not just the day's: an edge is a fact about the tab, and
+// transit-filtered sessions still testify (a filtered hop can be the only
+// link between a grandchild and the root). An edgeless tab is a tree of one.
+// Raw edges are kept because the spawn-edge dominance discount walks the
+// opener PATH, not the resolved root — same-tree via a common ancestor is
+// not spawn testimony.
 let openerEdges = new Map();
 export function treeRootsOf(sessions) {
   const opener = new Map();
@@ -185,9 +173,9 @@ export function treeRootsOf(sessions) {
 // in rather than closed over here, so this module has no mutable state of
 // its own beyond openerEdges above.
 //
-// windowStart (optional, spec §7e, 2026-08-23) widens the window backward to
-// span multiple days: [windowStart, nextDayStart(viewDayStart)). Omitted, the
-// window is the single day viewDayStart names — every pre-existing caller.
+// windowStart (optional, spec §7e) widens the window backward to span
+// multiple days: [windowStart, nextDayStart(viewDayStart)). Omitted, the
+// window is the single day viewDayStart names.
 export function parseSessions(sessions, viewDayStart, windowStart) {
   const from = windowStart != null ? windowStart : viewDayStart;
   const to = nextDayStart(viewDayStart);
@@ -195,18 +183,14 @@ export function parseSessions(sessions, viewDayStart, windowStart) {
   const inDay = sessions.filter((s) => s.endTime >= from && s.endTime < to && s.url);
   const transits = inDay.filter(isTransit);
   if (transits.length) log(`transit filter dropped ${transits.length} sessions`);
-  // Exit inheritance (spec §6, 2026-07-24): dropping a transit stub must
-  // not drop its boundary testimony. A stub that would have machinery-
-  // joined its same-tab SAME-HOST predecessor is that run's true TAIL —
-  // and a visit's exit is its last member's exit — so the predecessor
-  // inherits the stub's endReason (overlay only; stored sessions stay
-  // untouched). The host test carries the full join conditions: a
-  // foreign-host stub (a link-out bounce) was never a would-be member
-  // and must not manufacture succession licenses or departure testimony.
-  // Without this a 3s next-video stub carries the run's tab_closed away
-  // with it and the next queued tab can't succession-join (the Castella
-  // specimen, plans); a stub ending tab_hidden likewise bequeaths honest
-  // departure testimony for container guard 1.
+  // Exit inheritance (spec §6): dropping a transit stub must not drop its
+  // boundary testimony. A stub that would have machinery-joined its same-tab
+  // SAME-HOST predecessor is that run's true TAIL — and a visit's exit is
+  // its last member's exit — so the predecessor inherits the stub's
+  // endReason (overlay only; stored sessions stay untouched). The host test
+  // is load-bearing: a foreign-host stub (a link-out bounce) was never a
+  // would-be member and must not manufacture succession licenses or
+  // departure testimony.
   const inheritedExit = new Map(); // kept session id -> exit from dropped tail stubs
   const runTail = new Map(); // tabId -> { keeperId, end, reason, host } of the tab's live run
   for (const s of [...inDay].sort((a, b) => a.startTime - b.startTime)) {
@@ -249,19 +233,16 @@ export function parseSessions(sessions, viewDayStart, windowStart) {
 
 // Same-host visit merging (spec §6): three merge licenses, all strict-
 // adjacency (nothing between members to hide):
-//   1. LOW rule (2026-07-15): consecutive same-host LOW events with gaps
-//      < VISIT_GAP_MS merge — a fragmented-but-engaged session (Maps
-//      pans, Gmail puttering) earns its combined stature.
-//   2. Continuation rule (2026-07-18): same-tab same-host fragments whose
-//      boundary is navigation machinery (spa_navigation/navigated —
-//      attention never left the tab) merge REGARDLESS of band. Three
-//      back-to-back YouTube videos are one watch, not three slivers.
-//   3. Succession rule (2026-07-24): same-TREE same-host fragments whose
-//      boundary is tab_closed merge REGARDLESS of band — closing a
-//      finished tab to land on the next queued same-host tab is
-//      cross-tab machinery, not departure (the middle-click batch
-//      pattern: one session across the tabs it spawned; the tree key is
-//      the intent test).
+//   1. LOW rule: consecutive same-host LOW events with gaps < VISIT_GAP_MS
+//      merge — a fragmented-but-engaged session (Maps pans, Gmail
+//      puttering) earns its combined stature.
+//   2. Continuation rule: same-tab same-host fragments whose boundary is
+//      navigation machinery (spa_navigation/navigated — attention never
+//      left the tab) merge REGARDLESS of band.
+//   3. Succession rule: same-TREE same-host fragments whose boundary is
+//      tab_closed merge REGARDLESS of band — closing a finished tab to land
+//      on the next queued same-host tab is cross-tab machinery, not
+//      departure. The tree key is the intent test.
 // Individually-HIGH events never merge — they split the run and stand
 // alone (a block that's HIGH by itself owns its story). tab_hidden
 // boundaries never merge under rules 2/3: the user actually left, which
@@ -292,17 +273,16 @@ export function mergeVisits(events) {
       const merged = {
         id: "v" + run[0].id,
         url: top.url, // click target: the visit's top-scoring page
-        favIconUrl: top.favIconUrl, // same member as the click target (spec §6, 2026-08-07)
+        favIconUrl: top.favIconUrl, // same member as the click target (spec §6)
         // Snapshot candidates in score order (spec §6): the tooltip shows
-        // the best member that HAS a picture — sub-10s stubs can win the
-        // top score (flush-inflated attended) yet are never photographed.
+        // the best member that HAS a picture — sub-10s stubs can win the top
+        // score (flush-inflated attended) yet are never photographed.
         snapIds: [...run].sort((a, b) => b.score - a.score).map((m) => m.id),
         title: top.title,
         host: run[0].host,
-        // Containers chain by tab TREE (2026-07-19; was tabId); a merged
-        // visit keeps an identity only if unambiguous across members —
-        // notably a cross-tab LOW merge within one tree stays
-        // chain-eligible now (the feed pattern's glue used to strip it).
+        // Containers chain by tab TREE; a merged visit keeps an identity
+        // only if unambiguous across members, so a cross-tab LOW merge
+        // within one tree stays chain-eligible.
         tabId: run.every((m) => m.tabId === run[0].tabId) ? run[0].tabId : undefined,
         treeId: run.every((m) => m.treeId === run[0].treeId) ? run[0].treeId : undefined,
         // The LAST member's exit is the visit's exit — container guard 1
@@ -322,9 +302,8 @@ export function mergeVisits(events) {
         ...(run[0].audibleSinceTs != null ? { audibleSinceTs: run[0].audibleSinceTs } : {}),
         members: run,
       };
-      // Merged totals + the traversal term: every join — machinery
-      // navigation or absence-bridge return — is a committed page view
-      // the per-signal totals can't see (spec §6 Score v1, 2026-07-24).
+      // Merged totals + the traversal term: every join is a committed page
+      // view the per-signal totals can't see (spec §6).
       merged.score = scoreSession(merged) + W_NAV * (run.length - 1);
       merged.band = bandFor(merged.score);
       out.push(merged);
@@ -347,31 +326,21 @@ export function mergeVisits(events) {
       prev.tabId === e.tabId &&
       MACHINERY_BOUNDARY.has(prev.endReason) &&
       e.startTime - prev.endTime < CONTINUATION_GAP_MS;
-    // Same-tab HIGH pass-through (2026-08-06; incoming edge fixed
-    // 2026-08-07): a HIGH fragment joined to its same-tab same-host
-    // neighbor(s) by machinery (spa_navigation/navigated) never left the
-    // tab — the boundary is page turnover, not departure, so it's exactly
-    // the continuation join's territory (spec §6). Guard 1 says a HIGH
-    // "owns its story against foreign frames", not against its own tab's
-    // continuation run: the neighbor is already the same host by
-    // construction. Either edge being machinery is enough, but the two
-    // edges need different handling because `run` can already hold an
-    // unrelated leftover event (often on a different tab/host) by the
-    // time we reach here:
-    //   - INCOMING edge (prev navigated/spa_navigated into this HIGH):
-    //     prev is the run's own tail, already correctly placed — the HIGH
-    //     simply joins as the run's next member (`continuation`, no
-    //     flush). A HIGH reached by machinery but ending in tab_hidden
-    //     (read closely, then switched tabs) used to split from its
-    //     predecessor here; it no longer does.
-    //   - OUTGOING edge only (this HIGH opens a fresh tab, or its
-    //     predecessor isn't a same-tab/host match, then it spa_navigates
-    //     onward): `run` may hold garbage, so the HIGH must FLUSH first
-    //     and then lead a fresh run (`highLeadsRun`) rather than join
-    //     blind. The 7:25/7:41 YouTube specimen: a HIGH video opened a
-    //     fresh tab (no incoming edge) and spa_navigated into a shorts
-    //     binge — outgoing edge alone lets it lead the run instead of
-    //     splitting it.
+    // Same-tab HIGH pass-through (spec §6): a HIGH fragment joined to its
+    // same-tab same-host neighbor(s) by machinery never left the tab — the
+    // boundary is page turnover, not departure, so it is the continuation
+    // join's territory. Guard 1 says a HIGH owns its story against FOREIGN
+    // frames, not against its own tab's continuation run.
+    //
+    // Either edge is enough, but the two edges need DIFFERENT handling —
+    // do not collapse these branches. By the time we get here `run` may
+    // already hold an unrelated leftover event on another tab/host:
+    //   - INCOMING (prev machinery-joined into this HIGH): prev is the
+    //     run's own tail, already correctly placed, so the HIGH just joins
+    //     as the next member — no flush.
+    //   - OUTGOING only (this HIGH opens a fresh tab, then navigates
+    //     onward): `run` may hold garbage, so the HIGH must FLUSH first and
+    //     lead a fresh run rather than join blind.
     // A HIGH with no machinery edge at all still stands alone.
     const next = events[i + 1];
     const machineryOut =
@@ -397,19 +366,11 @@ export function mergeVisits(events) {
       prev.treeId === e.treeId &&
       prev.endReason === "tab_closed" &&
       e.startTime - prev.endTime < CONTINUATION_GAP_MS;
-    // Same-tree HIGH pass-through (2026-08-07; mirrors the 2026-08-06
-    // machinery-join fix): succession is cross-tab machinery, same
-    // category as the machinery join's page-turnover exception — closing
-    // a finished tab to land on the next queued same-host tab is a
-    // "binge" pattern regardless of which fragment happens to be HIGH.
-    // Same incoming/outgoing split as machineryIn/machineryOut, and for
-    // the same reason (`run` may hold an unrelated leftover fragment):
-    //   - INCOMING edge (prev was tab_closed, e lands on the queued
-    //     tab): prev is already the run's tail — e joins directly via
-    //     successionIn, HIGH or not.
-    //   - OUTGOING edge only (e itself is HIGH, e's OWN tab is about to
-    //     tab_close, and the successor hasn't arrived yet to test): e
-    //     must flush and lead a fresh run rather than join blind.
+    // Same-tree HIGH pass-through: succession is cross-tab machinery, the
+    // same category as the machinery join above — closing a finished tab to
+    // land on the next queued same-host tab is a binge, regardless of which
+    // fragment happens to be HIGH. Same incoming/outgoing split as
+    // machineryIn/machineryOut, and for the same reason.
     const successionOut =
       next &&
       next.host === e.host &&
@@ -432,48 +393,36 @@ export function mergeVisits(events) {
   return out;
 }
 
-// Container events (spec §6): a tab the user keeps RETURNING to is a
-// journey context — returning is the strongest intent signal we have.
-// Same-TREE fragments chain (2026-07-19; was same-tabId — treeId is the
-// opener-resolved root, a tab tree being "one tab and its spawn") when
-// the excursion returns within
-// VISIT_GAP_MS, or within AUDIO_BOOKEND_GAP_MS on gap-audio testimony
-// (the tab stayed audible through the gap — 2026-07-24, see the bridge
-// test below). A chain whose SUMMED score reaches MEDIUM (lowered
-// from HIGH, 2026-07-18 — containers map the journey's shape, tier maps
-// importance) becomes a container: fragments merge into the anchor
-// (width = wall-clock span), foreign events inside the span become
-// contained children. Guards so the big-email case can never trigger
-// this: foreign interruptions are REQUIRED (≥1 child), and a HIGH event
-// never joins a FOREIGN-host chain — and no chain whose span would cover
-// a HIGH non-member survives qualification (tree-blind, 2026-07-24).
-// Since 2026-07-19 a HIGH MAY seed or join its own
-// host's chain in its own tab: excluding the anchor's HIGHs decapitated
-// the true anchor in territory contests (the bsky/gemini ping-pong —
-// the rump bsky chain summed 455 against gemini's 924 while the bsky
-// thread's two HIGHs held 2315 inadmissible points, so the tool framed
-// the work; replay evidence in plans). Sub-HIGH chains additionally
-// require ANCHOR DOMINANCE (anchor sum > children sum; spawn-edge
-// discount 2026-07-25 — see the guard below) — a weak anchor
-// framing stronger children is a launcher, and the children are the
-// story (validated 2026-07-18: dominance rejected all five launcher
-// patterns in a week's replay, e.g. interleaved shop/pay ping-pong
-// where two sites each tried to containerize the other). The HIGH path
-// keeps its original guards; dominance is deliberately not applied there.
+// Container events (spec §6): a tab the user keeps RETURNING to is a journey
+// context — returning is the strongest intent signal we have. Same-TREE
+// fragments chain when the excursion returns within VISIT_GAP_MS, or within
+// AUDIO_BOOKEND_GAP_MS on gap-audio testimony. A chain whose SUMMED score
+// reaches MEDIUM becomes a container: fragments merge into the anchor
+// (width = wall-clock span), foreign events inside the span become contained
+// children.
+//
+// Four guards, each blocking a different false container:
+//   - Foreign interruptions REQUIRED (≥1 child) — otherwise the big-email
+//     case containerizes itself.
+//   - A HIGH never joins a FOREIGN-host chain (it owns its story), but it
+//     MAY seed or join its OWN host's chain in its own tab — excluding the
+//     anchor's own HIGHs decapitates the true anchor in territory contests.
+//   - No chain whose span would cover a HIGH non-member survives
+//     qualification (tree-blind).
+//   - Sub-HIGH chains additionally require ANCHOR DOMINANCE (anchor sum >
+//     children sum, with the spawn-edge discount below) — a weak anchor
+//     framing stronger children is a launcher, and the children are the
+//     story. Deliberately NOT applied to the HIGH path.
 export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
-  // Chains key on the (tree, host) PAIR (2026-07-19): a thread is a
-  // same-host chain in one tab tree, so each host runs its own chain per
-  // tree — a spawned foreign-host read neither joins nor breaks its
-  // parent's chain (it becomes a child by falling inside the span), and
-  // two hosts ping-ponging inside one tree each keep their own thread.
-  // The pair key also makes relaxed guard 1 structural: a HIGH can only
-  // ever extend its own host's thread; any HIGH non-member a chain's
-  // span would cover is handled by the tree-blind covered-HIGH
-  // rejection below (2026-07-24).
-  // chainGapMs (2026-08-02): the bridging gap is a parameter, not always
-  // VISIT_GAP_MS — assembleThreads calls this fn a second time at
-  // CONTAINER_CHAIN_GAP_MS to chain already-assembled containers/visits
-  // (adjacent-container chaining, below).
+  // Chains key on the (tree, host) PAIR: a thread is a same-host chain in
+  // one tab tree, so each host runs its own chain per tree — a spawned
+  // foreign-host read neither joins nor breaks its parent's chain, and two
+  // hosts ping-ponging inside one tree each keep their own thread. The pair
+  // key also makes the HIGH guard structural: a HIGH can only ever extend
+  // its own host's thread.
+  // chainGapMs is a parameter, not always VISIT_GAP_MS — assembleThreads
+  // calls this a second time at CONTAINER_CHAIN_GAP_MS to chain
+  // already-assembled containers/visits.
   const open = new Map(); // treeId|host -> fragments of the open chain
   const chains = [];
   const close = (frags) => {
@@ -486,62 +435,46 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     if (frags) {
       const last = frags[frags.length - 1];
       const gap = e.startTime - last.endTime;
-      // Gap-audio testimony (spec §6, 2026-07-24): a long gap bridges
-      // only when the resuming fragment's unbroken audible stretch began
-      // BEFORE the previous fragment ended — the tab demonstrably kept
-      // playing the whole time the user was away (a meeting talks
-      // through its whiteboard gap; a paused video cannot testify).
-      // Replaces the audible-dominated bookend proxy, which the fused
-      // YouTube binge defeated (plans). Old sessions lack the stamp and
-      // never long-bridge — fails closed.
-      // Earned-HIGH atomicity in pass two (spec §6, 2026-08-07): an
-      // already-assembled container that earned HIGH from one
-      // individually-HIGH member (a real, concentrated moment — not
-      // summed via revisits) is a resolved, standalone event. Pass two
-      // exists to credit returning to UNFINISHED business (the LinkedIn
-      // out-and-back pattern); bridging two resolved events doesn't
-      // complete a story, it erases the boundary between two stories
-      // (two same-tree back-to-back Meet calls specimen). Applies to
-      // EITHER side, not just when both are earned-HIGH — the same
-      // dilution happens if a lesser neighbor absorbs an earned-HIGH one.
-      // Pass-two only: raw fragments in pass one haven't been
-      // individually qualified as containers yet, so hasEarnedHigh isn't
-      // the right test there (existing raw-fragment Atomicity covers it).
-      // Extended to pass one on URL change (spec §6, 2026-08-24): the same
-      // "a resolved standalone event is not dissolved into the next thing
-      // on the same host" principle, one layer down. Pass one gets it ONLY
-      // across a same-host URL change — a stable URL across a return (the
-      // ordinary revisit) chains exactly as before, so this is not the
-      // universally-URL-keyed chaining rejected 2026-08-07. Specimen: four
-      // back-to-back Meet calls in ONE reused tab, the 7:32 seam only 16s
-      // wide (far too short for gap-audio) — pass two never saw them.
+      // Gap-audio testimony (spec §6): a long gap bridges only when the
+      // resuming fragment's unbroken audible stretch began BEFORE the
+      // previous fragment ended — the tab demonstrably kept playing the
+      // whole time the user was away (a meeting talks through its
+      // whiteboard gap; a paused video cannot testify). Old sessions lack
+      // the stamp and never long-bridge, so this fails closed.
+      //
+      // Earned-HIGH atomicity (spec §6): an event that earned HIGH from one
+      // individually-HIGH member is a resolved, standalone event. Chaining
+      // exists to credit returning to UNFINISHED business; bridging two
+      // resolved events erases the boundary between two stories. Applies to
+      // EITHER side — a lesser neighbor absorbing an earned-HIGH one
+      // dilutes just the same.
+      //
+      // The two-part condition is deliberate, not redundant. Pass two
+      // (chainGapMs === CONTAINER_CHAIN_GAP_MS) applies it always; pass one
+      // ONLY across a same-host URL CHANGE, because a stable URL across a
+      // return is the ordinary revisit and must chain as before. Widening
+      // pass one to all URLs is universally-URL-keyed chaining, which was
+      // rejected — see decisions/timeline_design.md.
       const earnedHighAtomic =
         (chainGapMs === CONTAINER_CHAIN_GAP_MS || last.url !== e.url) &&
         (hasEarnedHigh(last) || hasEarnedHigh(e));
-      // Weak-bridge guard (spec §6, 2026-08-14): a bridge needs real
-      // intent on at least ONE side, but ONLY when something else
-      // actually filled the gap — an empty pause between a weak opener
-      // and a strong return is still one thread with a break in it
-      // (returning is the strongest intent signal there is; a weak
-      // opener shouldn't forfeit that). What the guard actually refuses
-      // is a chain's LATER strength retroactively legitimizing an
-      // UNRELATED excursion it never earned: a brief glance, a real
-      // excursion onto other hosts/tabs, a brief glance back — the
-      // excursion becomes contained children of an anchor that was never
-      // strong at either edge touching it (specimen: three sub-15s Figma
-      // glances framing a 6-minute speed-test/Gemini/Keep/Calendar
-      // excursion). Deliberately per-bridge, not whole-chain: only one
-      // endpoint needs to clear LOW, not both, and an EMPTY gap never
-      // trips the guard regardless of both endpoints' bands (2026-08-14
-      // same-day fix: a lone LOW glance directly preceding a genuinely
-      // strong same-host return, no excursion in between, is exactly the
-      // "quick check, then substantial return" pattern the guard must
-      // NOT block — caught live when pass two re-attached an isolated
-      // 11:31 AM glance onto the now-fixed 11:37 AM container). Tests
-      // edgeBand, not last.band/e.band directly: in pass two, `e`/`last`
-      // can themselves BE already-assembled containers, and a
-      // container's own .band is its summed strength, not the strength
-      // of the one fragment actually touching this gap.
+      // Weak-bridge guard (spec §6): a bridge needs real intent on at least
+      // ONE side, but ONLY when something else actually filled the gap.
+      // What it refuses is a chain's LATER strength retroactively
+      // legitimizing an UNRELATED excursion it never earned: a brief
+      // glance, a real excursion onto other hosts, a brief glance back —
+      // and the excursion becomes contained children of an anchor that was
+      // never strong at either edge touching it.
+      //
+      // Three parts of this condition are each load-bearing:
+      //   - excursionFilledGap: an EMPTY pause never trips the guard, no
+      //     matter how weak both endpoints are. A weak glance then a strong
+      //     same-host return is "quick check, then real work" — one thread
+      //     with a break in it, which must still chain.
+      //   - AND, not OR: only ONE endpoint needs to clear LOW.
+      //   - edgeBand, not .band: in pass two these can BE containers, whose
+      //     own band is summed strength, not the strength of the one
+      //     fragment actually touching this gap.
       const excursionFilledGap = events.some(
         (o) =>
           o !== last &&
@@ -559,14 +492,13 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
           (gap < AUDIO_BOOKEND_GAP_MS &&
             e.audibleSinceTs != null &&
             e.audibleSinceTs <= last.endTime &&
-            // URL continuity (spec §6, 2026-08-24): the tab's audio proves
-            // THE TAB never went silent, never that the same ACTIVITY
-            // continued. A same-host page change across the gap (leaving
-            // one video call and joining another via the host's landing
-            // page) breaks testimony — that audio is the host's UI. The
-            // excursion case the rule exists for is untouched: a foreign
-            // host is never a chain member, so the fragments bracketing a
-            // Figma side trip are the same room at the same URL.
+            // URL continuity (spec §6): the tab's audio proves THE TAB
+            // never went silent, never that the same ACTIVITY continued. A
+            // same-host page change across the gap (leaving one video call
+            // and joining another via the host's landing page) breaks
+            // testimony — that audio is the host's UI. The excursion case
+            // is untouched: a foreign host is never a chain member, so the
+            // fragments bracketing a side trip share one URL.
             last.url === e.url));
       if (bridged) {
         frags.push(e);
@@ -579,11 +511,10 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
   }
   for (const frags of open.values()) close(frags);
 
-  // Summed fragment scores + the traversal term for returns (spec §6
-  // Score v1, 2026-07-24): fragment scores already carry their internal
-  // join bonuses, so the chain adds only its own returns. Flows into
-  // qualification (sum ≥ MEDIUM) and anchor dominance — returning
-  // strengthens the anchor's claim, which is the point.
+  // Summed fragment scores + the traversal term for returns (spec §6):
+  // fragment scores already carry their internal join bonuses, so the chain
+  // adds only its own returns. Flows into qualification (sum ≥ MEDIUM) and
+  // anchor dominance — returning strengthens the anchor's claim.
   const chainScore = (frags) =>
     frags.reduce((t, f) => t + f.score, 0) + W_NAV * (frags.length - 1);
   const queue = chains
@@ -597,16 +528,14 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     const c = queue.shift();
     const from = c.frags[0].startTime;
     const to = c.frags[c.frags.length - 1].endTime;
-    // Overlap contest (trim-and-retest, 2026-07-19): the higher sum wins
-    // the contested span, but the loser is trimmed, not discarded — a
-    // handoff between two interleaved threads must not shatter the
-    // loser's uncontested run (the 07-18 specimen: bsky's 13-minute
-    // chain lost wholesale over a 4-minute seam). Fragments overlapping
-    // an accepted container drop out (span-covered ones become its
-    // children); the rest re-enter the contest as runs, split wherever
-    // an accepted container sits between consecutive fragments,
-    // re-summed and re-inserted in score order. Every trimmed piece is
-    // strictly smaller than its chain, so the worklist terminates.
+    // Overlap contest (trim-and-retest, spec §6): the higher sum wins the
+    // contested span, but the loser is TRIMMED, not discarded — a handoff
+    // between two interleaved threads must not shatter the loser's
+    // uncontested run. Fragments overlapping an accepted container drop out
+    // (span-covered ones become its children); the rest re-enter the
+    // contest as runs, split wherever an accepted container sits between
+    // consecutive fragments, re-summed and re-inserted in score order.
+    // Termination: every trimmed piece is strictly smaller than its chain.
     if (containers.some((k) => from < k.endTime && to > k.startTime)) {
       const kept = c.frags.filter(
         (f) => !containers.some((k) => f.startTime < k.endTime && f.endTime > k.startTime)
@@ -638,7 +567,7 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     const children = events.filter(
       (e) => !fragSet.has(e) && e.startTime >= from && e.endTime <= to
     );
-    // Guard 1 (spec §6, revised 2026-07-16): interruptions are required,
+    // Guard 1 (spec §6): interruptions are required,
     // but a departure-boundary counts — a non-final fragment that ended
     // tab_hidden means the user left and RETURNED, even when the
     // destination is invisible by design (another app, a browser-internal
@@ -650,7 +579,7 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       (f, i) => i < c.frags.length - 1 && f.endReason === "tab_hidden"
     ).length;
     if (!children.length && !departures) continue; // no interruptions at all
-    // Covered-HIGH guard, tree-blind (spec §6 atomicity, 2026-07-24):
+    // Covered-HIGH guard, tree-blind (spec §6 atomicity):
     // containment is a demotion and must be earned by evidence, never
     // inferred from time-overlap — ANY individually-HIGH non-member
     // inside the span rejects the chain. Members are exempt by
@@ -659,7 +588,7 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     if (children.some((e) => e.band === "high")) continue;
     // Anchor dominance (sub-HIGH only): the anchor must outscore its
     // children, or it's a launcher and the children are the story.
-    // Spawn-edge discount (spec §6, 2026-07-25): a child whose tab's
+    // Spawn-edge discount (spec §6): a child whose tab's
     // stored opener path reaches a member tab (≥1 edge — the anchor's
     // own tab never counts, so same-tab redirect interleaves keep full
     // weight) is the anchor's own dispatch and leaves the denominator;
@@ -702,7 +631,7 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
     containers.push({
       id: "k" + c.frags[0].id,
       url: top.url, // click target: the anchor's top-scoring fragment
-      favIconUrl: top.favIconUrl, // same member as the click target (spec §6, 2026-08-07)
+      favIconUrl: top.favIconUrl, // same member as the click target (spec §6)
       // Snapshot candidates in score order (spec §6). A fragment can
       // itself be a merged visit whose synthetic "v…" id has no snapshot —
       // flatten through ITS snapIds to the underlying raw sessions.
@@ -712,10 +641,9 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       title: top.title,
       host: c.frags[0].host,
       tabId: c.frags[0].tabId,
-      // treeId (2026-08-02): needed so a container can itself become a
-      // fragment on assembleThreads' second, looser chaining pass
-      // (adjacent-container chaining, below) — without it a container
-      // silently can't ever be chained again.
+      // Needed so a container can itself become a fragment on
+      // assembleThreads' second, looser chaining pass — without it a
+      // container silently can't ever be chained again.
       treeId: c.frags[0].treeId,
       startTime: from,
       endTime: to,
@@ -726,10 +654,9 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
       scrollable: c.frags.some((f) => f.scrollable),
       score: c.score, // summed fragment scores + returns traversal term: add up, then judge
       band: bandFor(c.score),
-      // The LAST fragment's exit is the container's exit (2026-08-02,
-      // same principle as mergeVisits): needed so a container can
-      // testify as a departure boundary if it becomes a non-final
-      // fragment on the second, adjacent-container chaining pass.
+      // The LAST fragment's exit is the container's exit (same principle
+      // as mergeVisits): needed so a container can testify as a departure
+      // boundary if it becomes a non-final fragment on the second pass.
       endReason: c.frags[c.frags.length - 1].endReason,
       members: c.frags,
       children,
@@ -749,27 +676,23 @@ export function detectContainers(events, quiet, chainGapMs = VISIT_GAP_MS) {
   return out;
 }
 
-// Thread assembly (spec §6 aggregation, restructured 2026-07-18): the
-// display atom is the THREAD — merge across machinery boundaries, then
-// frame departures as containers. One name for the rulebook's central
-// operation; every consumer (ribbon, week strip, color anchoring) goes
-// through here.
+// Thread assembly (spec §6 aggregation): the display atom is the THREAD —
+// merge across machinery boundaries, then frame departures as containers.
+// Every consumer (ribbon, week strip, color anchoring) goes through here.
 export function assembleThreads(events, quiet) {
-  // Adjacent-container chaining (spec §6, 2026-08-02): the first pass
-  // chains raw fragments at VISIT_GAP_MS; a second pass re-runs the exact
-  // same chain-building + qualification on ITS OWN output (containers and
-  // leftover merged visits alike), at the looser CONTAINER_CHAIN_GAP_MS —
-  // an already-assembled same-host container/visit is a coarser claim
-  // than a raw fragment, so it earns a longer bridge. Idempotent when
-  // nothing chains (detectContainers returns its input unchanged).
+  // Adjacent-container chaining (spec §6): the first pass chains raw
+  // fragments at VISIT_GAP_MS; the second re-runs the same chain-building +
+  // qualification on ITS OWN output at the looser CONTAINER_CHAIN_GAP_MS —
+  // an already-assembled container/visit is a coarser claim than a raw
+  // fragment, so it earns a longer bridge. Idempotent when nothing chains.
   return detectContainers(detectContainers(mergeVisits(events), quiet), quiet, CONTAINER_CHAIN_GAP_MS);
 }
 
-// siteNameOf/computeHostNames/labelKeyOf moved to shared/utility.js
-// (2026-08-21) — the live tab strip (background.js) needed the same
-// "given raw session data, name this site" logic this module owned, so
-// it's promoted to the cross-boundary tier rather than forked. Re-exported
-// here so timeline.js's existing `import { computeHostNames, labelKeyOf }
+// siteNameOf/computeHostNames/labelKeyOf live in shared/utility.js — the
+// live tab strip (background.js) needs the same "given raw session data,
+// name this site" logic, so it sits in the cross-boundary tier rather than
+// being forked. Re-exported here so timeline.js's existing
+// `import { computeHostNames, labelKeyOf }
 // from "./assembly.js"` keeps working unchanged.
 export { siteNameOf, computeHostNames, labelKeyOf } from "../shared/utility.js";
 

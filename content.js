@@ -30,17 +30,17 @@
   // Same "one heartbeat window" concept as shared/transit.js's TRANSIT_MS
   // and background.js's HB_WINDOW_MS — kept as its own constant because
   // this isolated content-script world has no access to shared/transit.js
-  // (rules audit, 2026-08-06). If it ever needs to change, change it there
+  // (rules audit). If it ever needs to change, change it there
   // too — the three currently agree by convention, not by reference.
   const HEARTBEAT_MS = 10_000;
   const RELAY_MS = 1_000;
 
-  // Pure-modifier keydowns don't count (spec §3, 2026-07-24): a lone
+  // Pure-modifier keydowns don't count (spec §3): a lone
   // modifier press is half a chord, not typing — the chord's action key
   // still counts, so Cmd+W is exactly one keystroke, not two.
   const MODIFIER_KEYS = new Set(["Meta", "Control", "Alt", "Shift"]);
 
-  // Iframe relay (spec §3, 2026-07-18): input events never cross frame
+  // Iframe relay (spec §3): input events never cross frame
   // boundaries, and app plumbing lives in same-origin subframes (Google
   // Docs types into a hidden about:blank iframe; Slides presents in one).
   // A subframe instance counts its own input and forwards batched totals
@@ -127,13 +127,13 @@
   // capture:true so we still see events that page code stops from bubbling,
   // and so scroll events on inner containers (which don't bubble) reach us.
   const opts = { capture: true, passive: true, signal: ctrl.signal };
-  // Terminal-keystroke evidence (spec §3, 2026-07-24): remember WHEN the
+  // Terminal-keystroke evidence (spec §3): remember WHEN the
   // last counted keydown landed, so flush-on-hidden can report how close
   // it sat to the session's death. Evidence only — the judgment (transit
   // filter's terminal discount) is display-side.
   let lastKeyTs = 0;
 
-  // Snapshot cue (spec §6 snapshot unification, 2026-07-24): the moment a
+  // Snapshot cue (spec §6 snapshot unification): the moment a
   // transit-qualifying signal lands (keyboard/cut/copy/paste — the
   // shared/transit.js list; downloads are background-observed), tell the
   // background to capture NOW, while this tab is still on glass — sub-10s
@@ -141,21 +141,18 @@
   // per heartbeat window (re-armed on each send, so a fresh session on
   // this same page — SPA nav, idle split — can cue again); the background
   // dedupes with the session's `snapped` flag.
-  // Page text (stage 1, 2026-08-07 — search prototype, plain text, no
-  // privacy hardening yet; see decisions/). Extracted at most once per session,
-  // on the same trigger as the snapshot (first qualifying heartbeat/cue) so
-  // it rides along on a message we're already sending — no extra round
-  // trip. Runs Readability against a CLONE of the document (the library
-  // mutates whatever it's given — see vendor/Readability.js) so the live
-  // page is never touched. Top frame only: no cross-frame stitching yet.
-  // Gmail-shaped bug fixed 2026-08-07: this content-script instance persists
-  // across SPA navigations (Gmail inbox -> email is one page, one injected
-  // copy), but each nav is its own FocusStream session (background.js's
-  // SPA-debounce split). A closure flag alone stayed true forever after the
-  // first extraction, silently skipping every email opened after the first.
-  // Tracking last-seen location.href and resetting on change re-arms
-  // extraction per navigation, checked at the same 10s cadence as
-  // checkMedia() — no new listener needed.
+  // Page text (stage 1 — search prototype, plain text, no privacy hardening
+  // yet; see decisions/capture_design.md). Extracted at most once per
+  // session, on the same trigger as the snapshot, so it rides a message we
+  // are already sending. Runs Readability against a CLONE of the document
+  // (the library mutates whatever it is given) so the live page is never
+  // touched. Top frame only: no cross-frame stitching yet.
+  //
+  // Re-armed per navigation by tracking last-seen location.href, NOT by a
+  // closure flag alone: this content-script instance survives SPA
+  // navigations, but each nav is its own session (background.js's
+  // SPA-debounce split), so a bare flag stays true forever and silently
+  // skips every page after the first.
   const PAGE_TEXT_CAP = 5000;
   let textExtracted = false;
   let lastTextUrl = location.href;
@@ -198,7 +195,7 @@
     }
   }
 
-  // Click cue (spec §3 download presence gate, 2026-07-26): a real-time
+  // Click cue (spec §3 download presence gate): a real-time
   // proof-of-presence signal for the background's download gate. Separate
   // from cueSnapshot — clicks are deliberately excluded there as too noisy
   // for screenshot timing, but here a click IS the bar (Rung 1: one click OR

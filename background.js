@@ -9,11 +9,9 @@ const log = (...args) => console.log("[FS bg]", ...args);
 
 // shared/transit.js is the single source of truth for the admission
 // predicate (spec §3 rung 2) AND for TRANSIT_MS, the "one heartbeat window"
-// constant reused below instead of a second local copy (rules audit,
-// 2026-08-06 — WATCHLIST.md `threshold-sprawl`). background.js is a
-// module worker ("type": "module", manifest.json, 2026-08-21), so this is a
-// real static import, not importScripts(). shared/utility.js went with the
-// tab strip in §8 Phase 1 (spec/parkinglot.md).
+// constant — do not make a second local copy (WATCHLIST.md
+// `threshold-sprawl`). background.js is a module worker ("type": "module",
+// manifest.json), so this is a real static import, not importScripts().
 import { isTransit, TRANSIT_MS } from "./shared/transit.js";
 
 // SPA URL changes arriving faster than this are view-state churn (map pans,
@@ -24,23 +22,21 @@ const SPA_DEBOUNCE_MS = 15_000;
 // (redirect hops, instant bounces), not user activity — discarded at finalize.
 const BLIP_MS = 2_000;
 
-// chrome.tabs.audible can blip false for ~1s during a live WebRTC call
-// (Meet, observed 2026-08-14 investigating a 90-minute meeting that
-// fractured into 3 containers) with no real interruption — the call kept
-// running, Chrome's own detector just misfired momentarily. A false that
-// self-corrects within this window is noise, not a real drop; only a false
-// that persists past it (or the tab closes first) counts as audio actually
-// stopping. 3x the ~1s observed blip width — see decisions/capture_design.md.
+// chrome.tabs.audible can blip false for ~1s during a live WebRTC call with
+// no real interruption — Chrome's own detector misfires momentarily. A false
+// that self-corrects within this window is noise; only one that persists
+// past it (or the tab closing first) counts as audio actually stopping.
+// 3x the observed ~1s blip width — see decisions/capture_design.md.
 const AUDIBLE_FLICKER_MS = 3_000;
 
 // Finalized blocks older than this are pruned at finalize: the sessions
 // array is rewritten in full on every finalize, so unbounded growth makes
 // every tab switch serialize the entire history (and walks toward the
-// storage.local quota). Day paging (live 2026-07-16) reaches exactly this
-// window — the week strip always has a cell for every retained day.
+// storage.local quota). Day paging reaches exactly this window — the week
+// strip always has a cell for every retained day.
 const RETENTION_MS = 7 * 24 * 3600 * 1000;
 
-// Idle split (spec §3, 2026-07-24): a focused-but-idle tab must render as
+// Idle split (spec §3): a focused-but-idle tab must render as
 // absence, not presence — width IS duration, so no display rule can fix it.
 // A heartbeat arriving more than this after lastActiveTs splits the session
 // retroactively (no polling, no alarms, no chrome.idle permission — the
@@ -48,12 +44,11 @@ const RETENTION_MS = 7 * 24 * 3600 * 1000;
 const IDLE_SPLIT_MS = 5 * 60_000;
 // One heartbeat window: the idle clamp honors the last window's trailing
 // edge. Reuses TRANSIT_MS (shared/transit.js) rather than a
-// second local 10s constant (rules audit, 2026-08-06) — same concept, one
-// definition. (content.js's own HEARTBEAT_MS stays separate: it runs in an
+// second local 10s constant — same concept, one definition. (content.js's own HEARTBEAT_MS stays separate: it runs in an
 // isolated content-script world with no access to shared/transit.js.)
 const HB_WINDOW_MS = TRANSIT_MS;
 
-// Lock intervals (spec §3, 2026-08-08): the one signal outside browser
+// Lock intervals (spec §3): the one signal outside browser
 // activity this extension captures — deliberately narrow to chrome.idle's
 // "locked" state alone (an OS screen lock is machine-state ground truth,
 // unlike "idle"/"active", which are just the same ambiguous no-activity
@@ -62,25 +57,17 @@ const HB_WINDOW_MS = TRANSIT_MS;
 // rendered, never a presence log. Event-driven (onStateChanged), no polling.
 const lockState = { since: null }; // in-worker only; a mid-lock worker restart just loses that one interval's start, fails closed
 
-// Snapshot previews (spec §6, unified with the transit filter 2026-07-24):
+// Snapshot previews (spec §6, unified with the transit filter):
 // one screenshot per session, taken the moment it first QUALIFIES to display
 // — first interval heartbeat or first transit-qualifying signal cue,
 // whichever wins — downscaled here in the worker, stored as a data: URL
 // under snap:<sessionId> (never inside SessionBlocks — those are read in
 // full on every render). Finalize deletes the picture of any session the
 // shared transit predicate rejects.
-// 640 -> 1280 (2026-08-11): the original value was tuned for a ~480px-wide
-// tooltip preview, and a source that small was visibly upscaled/blurred
-// wherever a snapshot is painted larger than that — confirmed by measuring
-// layout-box physical px against naturalWidth, not a CSS/rendering bug
-// (Scott's catch). 1280 covers the common 2x-DPI case; a 3x display (e.g.
-// this 4K/300ppi one) still slightly upscales, accepted as a middle ground
-// against the ~4x disk-cost increase. The card deck that originally forced
-// this (full-card-face display) was deleted 2026-08-25, but the width
-// stays: on-block snapshots and the parked #tip card are both still shown
-// well above 640 physical px. Existing already-stored snapshots are NOT
-// retroactively affected — only captures from now on use the new width.
-const SNAP_WIDTH = 1280; // fixed target width: was 640 (~20-40KB); now ~80-160KB, sized for 2x-DPI display
+// Sized for the common 2x-DPI case: snapshots paint well above tooltip size
+// on blocks and the #tip card, and a smaller source visibly upscales.
+// Story + the disk-cost trade: decisions/snapshot_implementation.md.
+const SNAP_WIDTH = 1280; // ~80-160KB per snapshot at SNAP_QUALITY
 const SNAP_QUALITY = 0.6; // JPEG quality; tune by eye against disk cost
 
 log("service worker starting up");
@@ -88,7 +75,7 @@ log("service worker starting up");
 // All event handlers run through this queue so async storage reads/writes
 // from overlapping Chrome events can't interleave and corrupt state.
 // Returns the chained promise (added for FS_FLUSH_CURRENT, spec §7c
-// strip-open flush, 2026-08-22) so a caller that genuinely needs to know
+// strip-open flush) so a caller that genuinely needs to know
 // "has my enqueued work finished" (a message handler that must reply only
 // after a flush completes) can await it — every existing call site still
 // ignores the return value, so this is additive, not a behavior change
@@ -127,7 +114,7 @@ async function startSession(tab) {
     log("startSession: skipping non-web page", url || "(no url)");
     return;
   }
-  // Opener edge (spec §3, 2026-07-19): the onCreated map is authoritative;
+  // Opener edge (spec §3): the onCreated map is authoritative;
   // tab.openerTabId is the fallback for tabs created before this listener
   // shipped (or an extension reload wiping storage.session mid-run).
   const { openerEdges = {}, audibleContinuity = {} } = await chrome.storage.session.get([
@@ -157,7 +144,7 @@ async function startSession(tab) {
     // bookkeeping for an open interval, folded in at finalize.
     audibleMs: 0,
     ...(tab.audible ? { audibleSince: Date.now() } : {}),
-    // Gap-audio testimony (spec §3, 2026-07-24): when this tab's unbroken
+    // Gap-audio testimony (spec §3): when this tab's unbroken
     // audible stretch began. Stored (survives finalize) — display bridges
     // a long container gap only if it predates the previous fragment's
     // end (§6). Fallback to now covers a missed transition: continuity
@@ -175,19 +162,15 @@ async function startSession(tab) {
   };
   await setCurrent(session);
   log("session START tab", tab.id, session.url);
-  // Age trigger (spec §6 snapshot unification, third arm — 2026-07-24):
-  // the transit filter's DURATION rung qualifies a session with zero
-  // signals (hands-off cross-origin embeds, motionless reading), so no
-  // heartbeat, cue, or download may ever fire — capture at the session's
-  // TRANSIT_MS birthday if nothing beat us to it. Not the rejected
-  // capture-at-start shape: by then the glass has shown this session's own
-  // page for 10 continuous seconds (current ⇒ on-glass since start), and
-  // fast tab-cycling never reaches the timer. Armed inside a live event
-  // and workers idle-kill at ~30s, so the timer virtually always fires;
-  // if the worker dies anyway, any later trigger still captures
-  // (best-effort, like all of capture). No await needed at the fire site:
-  // a 10s-old session has out-aged the filter, so finalize's transit
-  // deletion can never race this store.
+  // Age trigger (spec §6 snapshot unification, third arm): the transit
+  // filter's DURATION rung qualifies a session with zero signals (hands-off
+  // cross-origin embeds, motionless reading), so no heartbeat, cue, or
+  // download may ever fire — capture at the session's TRANSIT_MS birthday
+  // if nothing beat us to it. NOT capture-at-start: by then the glass has
+  // shown this session's own page for 10 continuous seconds, and fast
+  // tab-cycling never reaches the timer. No await needed here — a 10s-old
+  // session has out-aged the filter, so finalize's transit deletion cannot
+  // race this store.
   const agedId = session.id;
   setTimeout(() => {
     enqueue("snapshot-age", async () => {
@@ -226,7 +209,7 @@ async function finalizeCurrent(endReason) {
   delete session.audibleSince; // live-session bookkeeping, not part of the stored schema
   delete session.lastUrlChange;
   delete session.lastActiveTs;
-  // Snapshot unification (spec §6, 2026-07-24): capture fires eagerly on the
+  // Snapshot unification (spec §6): capture fires eagerly on the
   // first qualifying signal, so judge NOW with full evidence (final duration,
   // lastKeyGapMs) — a session the dashboard will reject keeps no picture.
   // The session itself stays stored for audit; only its snapshot artifacts go.
@@ -235,7 +218,7 @@ async function finalizeCurrent(endReason) {
     log("transit session, snapshot deleted", session.url);
   }
   delete session.snapped; // live-session bookkeeping; snap:<id> existence is the record
-  // Page text (stage 1, 2026-08-07): stored inline on the session (unlike
+  // Page text (stage 1): stored inline on the session (unlike
   // snapshots, no separate key/tooltip-avoidance reason to segregate it), so
   // a transit-rejected session just drops the field before it's ever stored.
   if (session.pageText && isTransit(session)) {
@@ -266,7 +249,7 @@ async function finalizeCurrent(endReason) {
     );
     log(`pruned ${dropped.length} sessions older than 7 days (+ their snapshots)`);
   }
-  // Lock intervals (spec §3, 2026-08-08): pruned in the same pass, same
+  // Lock intervals (spec §3): pruned in the same pass, same
   // cutoff — no reason for lock evidence to outlive the sessions it informs.
   const { lockIntervals = [] } = await chrome.storage.local.get("lockIntervals");
   const keptLocks = lockIntervals.filter((iv) => iv.end >= cutoff);
@@ -282,13 +265,10 @@ async function finalizeCurrent(endReason) {
     session.url,
     `(${kept.length} total stored)`
   );
-  // Debug dual-write to the native app's SQLite store (2026-08-13,
-  // temporary — see decisions/capture_design.md, "Native Messaging debug
-  // bridge"). chrome.storage.local above is still the real, load-bearing
-  // write; this was best-effort and never blocked or reshaped it.
-  // Paused 2026-08-21 (NATIVE_BRIDGE_ENABLED, below) — web-only pivot,
-  // native-capture project not being validated against right now. Code
-  // kept in place, not deleted, in case that project resumes.
+  // Debug dual-write to the native app's SQLite store — temporary, and
+  // currently PAUSED (NATIVE_BRIDGE_ENABLED, below). chrome.storage.local
+  // above is the real, load-bearing write; this is best-effort and must
+  // never block or reshape it. See decisions/capture_design.md.
   if (NATIVE_BRIDGE_ENABLED) relayToNativeHost(session);
 }
 
@@ -340,7 +320,7 @@ async function captureSnapshot(sessionId, windowId) {
   } catch (e) {
     // Minimized window, locked screen, DRM-black frames, file:// without the
     // toggle — all soft-fail: the tooltip just lacks an image (spec §6).
-    // Breadcrumb to storage (2026-07-16): the worker console rarely survives
+    // Breadcrumb to storage: the worker console rarely survives
     // long enough to be read (workers die ~30s idle), so missing-screenshot
     // diagnosis needs the reason on disk. Same lifecycle as snap: keys.
     log("snapshot skipped:", e.message);
@@ -351,20 +331,16 @@ async function captureSnapshot(sessionId, windowId) {
 }
 
 // ---------------------------------------------------------------------------
-// Native Messaging debug bridge (2026-08-13, temporary — Phase 2 of the
-// native-capture project's PHASES.md; see decisions/capture_design.md,
-// "Native Messaging debug bridge" for why this skipped the usual
-// spec-first rule). Dual-write only:
-// chrome.storage.local above stays the extension's real, load-bearing
-// store — this just also relays the same finalized session to the native
-// app's SQLite store so its Swift side has real data to validate against.
-// Entirely best-effort/soft-fail, same contract as snapshot capture: any
-// failure here must never affect the extension's own behavior.
+// Native Messaging debug bridge — temporary, dual-write only.
+// chrome.storage.local stays the extension's real, load-bearing store; this
+// also relays each finalized session to the native app's SQLite store so its
+// Swift side has real data to validate against. Best-effort/soft-fail, same
+// contract as snapshot capture: any failure here must never affect the
+// extension's own behavior. See decisions/capture_design.md.
 // ---------------------------------------------------------------------------
 
-// Paused 2026-08-21 — see decisions/capture_design.md, "Native Messaging
-// debug bridge" pause entry. Flip back to true to resume the dual-write;
-// nothing else in this section changes.
+// Paused — see decisions/capture_design.md, "Native Messaging debug bridge".
+// Flip back to true to resume the dual-write; nothing else changes.
 const NATIVE_BRIDGE_ENABLED = false;
 
 const NATIVE_HOST_NAME = "com.jenson.focusstream2.nativemessaging";
@@ -402,18 +378,14 @@ async function relayToNativeHost(session) {
     snapshotDataUrl,
   };
 
-  // Ack-driven disconnect, not a guessed timeout (2026-08-13, replaces an
-  // earlier setTimeout(500) version — see decisions/capture_design.md).
-  // chrome.runtime.Port.postMessage() has no delivery callback of its own
-  // (confirmed against Chrome's own API docs: it's fire-and-forget by
-  // design, returning only means "enqueued," not "delivered"), so a fixed
-  // delay was a guess that could race a slow host launch. The host
-  // (NativeMessagingHost/main.swift) now sends a small framed JSON ack
-  // back over the same port after it finishes handling each message —
-  // onMessage below is what actually tells us it's safe to disconnect, no
-  // guessing involved. A safety-net timeout still guards against an ack
-  // that never arrives (host hung, or an old host build predating acks),
-  // so a stuck port can't accumulate forever.
+  // Ack-driven disconnect, NOT a timeout. chrome.runtime.Port.postMessage()
+  // is fire-and-forget by design — returning means "enqueued", not
+  // "delivered" — so any fixed delay is a guess that can race a slow host
+  // launch. The host (NativeMessagingHost/main.swift) sends a framed JSON
+  // ack over the same port once it finishes each message; onMessage below
+  // is what tells us it is safe to disconnect. The safety-net timeout only
+  // guards an ack that never arrives (host hung, or a build predating
+  // acks), so a stuck port can't accumulate forever.
   try {
     const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
     let settled = false;
@@ -532,7 +504,7 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
-// Opener edges (spec §3, 2026-07-19): record which tab SPAWNED which, at
+// Opener edges (spec §3): record which tab SPAWNED which, at
 // creation — Chrome drops openerTabId from the Tab object once the opener
 // closes, so onCreated is the one reliable capture point. The map lives in
 // chrome.storage.session (worker-death-proof, and it empties on browser
@@ -548,7 +520,7 @@ chrome.tabs.onCreated.addListener((tab) => {
   });
 });
 
-// Lock intervals (spec §3, 2026-08-08): only "locked" transitions are
+// Lock intervals (spec §3): only "locked" transitions are
 // captured. On lock, stamp the start; on the matching unlock, close the
 // interval and append it to storage.local (survives restarts, unlike
 // openerEdges/audibleContinuity — this is historical fact for display-time
@@ -604,7 +576,7 @@ chrome.webNavigation.onCommitted.addListener((details) => {
   log("event: onCommitted tab", details.tabId, details.url);
   enqueue("onCommitted", async () => {
     const current = await getCurrent();
-    // Adoption (spec §3, 2026-07-18): a commit while NOTHING is tracked, in
+    // Adoption (spec §3): a commit while NOTHING is tracked, in
     // the active tab of the focused window, starts a session. A fresh tab is
     // born chrome://newtab (filtered, so no session exists), and without
     // adoption its first real navigation fell into the non-tracked guard —
@@ -683,25 +655,21 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.audible === undefined) return;
   log("event: audible", changeInfo.audible, "tab", tabId);
   enqueue("audible", async () => {
-    // Audible continuity, all tabs (spec §3, 2026-07-24): one timestamp
-    // per tab — when its current unbroken audible stretch began. Written
-    // only on transitions, so a meeting talking through a 20-minute gap
-    // costs zero writes. startSession stamps it as audibleSinceTs; display
-    // bridges a long container gap only when the audio predates the gap
-    // (§6 gap-audio testimony).
+    // Audible continuity, all tabs (spec §3): one timestamp per tab — when
+    // its current unbroken audible stretch began. Written only on
+    // transitions, so a meeting talking through a 20-minute gap costs zero
+    // writes. startSession stamps it as audibleSinceTs; display bridges a
+    // long container gap only when the audio predates the gap (§6).
     //
-    // Flicker tolerance (2026-08-14): chrome.tabs.audible can blip false
-    // for ~1s mid-call with no real interruption (specimen: a live Meet
-    // call, tab never switched, flipped false then true again inside a
-    // second). A bare false must not be trusted immediately — it's held as
-    // "pending" (audiblePending) and only committed once it's proven
-    // itself real, either by outlasting AUDIBLE_FLICKER_MS before the next
-    // true arrives, or by the tab closing outright (onRemoved) with
-    // nothing left to wait for. A true that arrives while a pending false
-    // is still within the window is the flicker resolving itself: the
-    // pending false is simply discarded, and — since audibleContinuity/
-    // current.audibleSince were never touched while pending — the original
-    // interval is already exactly as if the blip never happened.
+    // Flicker tolerance: chrome.tabs.audible blips false for ~1s mid-call
+    // with no real interruption, so a bare false is NOT trusted
+    // immediately. It is held as "pending" (audiblePending) and committed
+    // only once proven real — by outlasting AUDIBLE_FLICKER_MS before the
+    // next true, or by the tab closing outright with nothing left to wait
+    // for. A true arriving inside the window is the flicker resolving: the
+    // pending false is discarded, and because audibleContinuity /
+    // current.audibleSince are never touched while pending, the interval is
+    // already exactly as if the blip never happened.
     const { audibleContinuity = {}, audiblePending = {} } = await chrome.storage.session.get([
       "audibleContinuity",
       "audiblePending",
@@ -761,7 +729,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     // The closed tab can never start another session; drop its opener edge.
     // Edges pointing AT it stay — they remain valid tree keys (spec §3).
     // Its audible-continuity entry dies with it too — including any
-    // still-pending false (2026-08-14): the tab's gone, so there's no
+    // still-pending false: the tab's gone, so there's no
     // future true left to corroborate or refute it either way.
     const {
       openerEdges = {},
@@ -813,30 +781,27 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // counts and add; continuous signals arrive as booleans and count the
     // window (+1). Unknown keys flow through, so new signals need no change.
     current.heartbeats = (current.heartbeats || 0) + 1;
-    // Snapshot on the first qualifying heartbeat (spec §6 unification):
-    // guarded by the explicit `snapped` flag, never the heartbeat count —
-    // a flush beat would consume slot #1 while being barred from capture
-    // (it fires exactly while the NEXT tab becomes visible, and
-    // captureVisibleTab would photograph the wrong page). AWAITED like the
-    // cue/download paths (2026-07-24; was fire-and-forget): a sub-10s
-    // SPA-born session can heartbeat mid-window then die as transit, and
-    // an unawaited store could land AFTER finalize's snapshot deletion —
-    // and a rejected session stays stored for audit, so the leaked snap:
-    // key would never read as an orphan. ~100ms once per session against
-    // a 10s cadence.
+    // Snapshot on the first qualifying heartbeat (spec §6 unification).
+    // Guarded by the explicit `snapped` flag, NEVER the heartbeat count — a
+    // flush beat would consume slot #1 while being barred from capture (it
+    // fires exactly while the NEXT tab becomes visible, so
+    // captureVisibleTab would photograph the wrong page). AWAITED, like the
+    // cue/download paths: a sub-10s SPA-born session can heartbeat
+    // mid-window then die as transit, and an unawaited store could land
+    // AFTER finalize's snapshot deletion — leaking a snap: key that would
+    // never read as an orphan. ~100ms once per session against a 10s
+    // cadence.
     if (!current.snapped && msg.reason !== "flush-on-hidden") {
       current.snapped = true;
       await captureSnapshot(current.id, sender.tab.windowId);
     }
-    // Opportunistic re-capture (2026-08-14, spec §6): the first capture is
-    // often too early — slow-loading pages (Google Meet's join/lobby flow,
-    // the specimen that surfaced this) haven't painted real content yet by
+    // Opportunistic re-capture (spec §6): the first capture is often too
+    // early — slow-loading pages haven't painted real content by
     // TRANSIT_MS. Rather than delay every session's first capture, sessions
-    // that prove they're not a quick bounce (3rd real heartbeat) get one
-    // free do-over that overwrites snap:<sessionId>. No new flag needed —
-    // heartbeats is monotonic, so === 3 can only ever match once. Deliberately
-    // not hardened: a nice-to-have, not a second admission rung. Best-effort,
-    // same soft-fail contract as the first capture.
+    // that prove they aren't a quick bounce (3rd real heartbeat) get one
+    // free do-over overwriting snap:<sessionId>. No flag needed —
+    // heartbeats is monotonic, so === 3 matches exactly once. Deliberately
+    // not hardened: a nice-to-have, not a second admission rung.
     if (current.heartbeats === 3 && msg.reason !== "flush-on-hidden") {
       await captureSnapshot(current.id, sender.tab.windowId);
     }
@@ -849,7 +814,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     // Terminal-keystroke evidence (spec §3): only flush-on-hidden carries it,
     // and the flush is the session's last word — stamp, don't judge.
     if (typeof msg.lastKeyGapMs === "number") current.lastKeyGapMs = msg.lastKeyGapMs;
-    // Page text (stage 1, 2026-08-07): content.js extracts at most once per
+    // Page text (stage 1): content.js extracts at most once per
     // page life, so first-write-wins is enough — no separate one-shot flag
     // needed here (contrast `snapped`, which gates an action, not a value).
     if (typeof msg.pageText === "string" && !current.pageText) current.pageText = msg.pageText;
@@ -862,7 +827,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   });
 });
 
-// Snapshot cue (spec §6 snapshot unification, 2026-07-24): the content
+// Snapshot cue (spec §6 snapshot unification): the content
 // script saw the first transit-qualifying signal — capture NOW, while the
 // tab is still on glass, because a sub-10s engaged session dies before its
 // first interval heartbeat. AWAITED, unlike the heartbeat path: a close
@@ -885,7 +850,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   });
 });
 
-// Click cue (spec §3 download presence gate, 2026-07-26): a real-time
+// Click cue (spec §3 download presence gate): a real-time
 // proof-of-presence signal, separate from the batched heartbeat activity
 // counts, so it's visible in storage the instant a click happens — needed
 // because a click-triggered download can fire within the same 10s window,
@@ -917,7 +882,7 @@ chrome.downloads.onCreated.addListener((item) => {
       log("download with no current session, dropped");
       return;
     }
-    // Presence gate (spec §3, 2026-07-26): a download only counts as intent
+    // Presence gate (spec §3): a download only counts as intent
     // if the session already has proof the user was there — a heartbeat or
     // a click (Rung 1's bar, checked in real time). Without this, apps that
     // programmatically replay download history on tab load/reconnect (seen:

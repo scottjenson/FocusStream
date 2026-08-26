@@ -1,8 +1,7 @@
 // FocusStream dashboard shell — loads sessions, hands them to the timeline
-// renderer, and hosts the debug tools (Score table, Clear). The per-session
-// debug list was removed 2026-07-17 (spec §6): raw inspection lives in the
-// worker-console dump, tuning in the Score table, per-block detail in the
-// ribbon tooltips.
+// renderer, and hosts the debug tools (Score table, Clear). There is no
+// per-session debug list: raw inspection lives in the worker-console dump,
+// tuning in the Score table, per-block detail in the ribbon tooltips.
 
 const log = (...args) => console.log("[FS dash]", ...args);
 
@@ -21,14 +20,13 @@ async function render() {
   await renderCount();
 }
 
-// Search (2026-08-06): plain case-insensitive substring match over title +
-// url/host, across every stored session regardless of day — a "find and go"
-// tool, independent of the ribbon's single-day view and thread-assembly
-// (results are raw sessions, not display atoms; see decisions/ for the
-// ribbon-highlight alternatives this rejected). Multi-word queries require
-// every word present (AND), each word matched against title OR url OR
-// pageText (stage-1 Readability extraction, 2026-08-07 — plain text, search
-// only, never shown in the results row; see decisions/).
+// Search: plain case-insensitive substring match over title + url/host,
+// across every stored session regardless of day — a "find and go" tool,
+// independent of the ribbon's single-day view and thread assembly (results
+// are raw sessions, not display atoms). Multi-word queries require every
+// word present (AND), each matched against title OR url OR pageText
+// (stage-1 Readability text, search only, never shown in the results row).
+// Rejected alternatives: decisions/timeline_design.md.
 {
   const input = document.getElementById("search");
   const resultsEl = document.getElementById("search-results");
@@ -148,26 +146,26 @@ document.getElementById("scores").addEventListener("click", async () => {
         cut: a.cut || 0,
         paste: a.paste || 0,
         dl: a.download || 0,
-        // Terminal-keystroke evidence (2026-07-24): audit column for the
-        // transit filter's terminal discount — blank means no flush or no
-        // keydown ever (pre-2026-07-24 data included).
+        // Terminal-keystroke evidence: audit column for the transit
+        // filter's terminal discount — blank means no flush or no keydown
+        // ever (older data included).
         keyGap: s.lastKeyGapMs ?? "",
-        // Continuous signals + scrollable (added 2026-07-15): needed to
-        // evaluate scroll-weight candidates offline — scroll counts active
-        // windows, and a scroll term would be gated on scrollable=y.
+        // Continuous signals + scrollable: needed to evaluate scroll-weight
+        // candidates offline — scroll counts active windows, and the scroll
+        // term is gated on scrollable=y.
         click: a.click || 0,
         mouse: a.mouse || 0,
         scroll: a.scroll || 0,
         scr: s.scrollable === undefined ? "?" : s.scrollable ? "y" : "n",
         score: Math.round(score),
         band: S.bandFor(score),
-        // Chain-analysis columns (added 2026-07-15): same-URL return
-        // containers are detected via tabId + URL + timing + endReason, so
-        // candidate rules need them replayable offline. start is epoch ms —
-        // exact gaps matter more than readability here.
+        // Chain-analysis columns: same-URL return containers are detected
+        // via tabId + URL + timing + endReason, so candidate rules need
+        // them replayable offline. start is epoch ms — exact gaps matter
+        // more than readability here.
         tabId: s.tabId,
-        // Opener edge (2026-07-19): audit column for tab-tree chaining —
-        // blank means cold tab / pre-opener data (flat behavior).
+        // Opener edge: audit column for tab-tree chaining — blank means
+        // cold tab / pre-opener data (flat behavior).
         opener: s.openerTabId ?? "",
         start: s.startTime,
         reason: s.endReason,
@@ -197,11 +195,10 @@ document.getElementById("scores").addEventListener("click", async () => {
 document.getElementById("clear").addEventListener("click", async () => {
   if (!confirm("Delete all recorded sessions?")) return;
   // hostColorOrder is a leftover key from the retired hue-identity registry
-  // (spec §6, 2026-08-07) — removing it is a harmless no-op now that
-  // nothing writes it, kept so a pre-redesign install's stale key doesn't
-  // linger after a Clear. Snapshots (spec §6): clear means clear —
-  // enumerate names with getKeys(), never get(null), which would
-  // deserialize every stored image.
+  // (spec §6) — removing it is a harmless no-op now that nothing writes it,
+  // kept so a pre-redesign install's stale key doesn't linger after a
+  // Clear. Snapshots (spec §6): clear means clear — enumerate names with
+  // getKeys(), never get(null), which would deserialize every stored image.
   const keys = await chrome.storage.local.getKeys();
   const snapKeys = keys.filter((k) => k.startsWith("snap:") || k.startsWith("snapErr:"));
   await chrome.storage.local.remove(["sessions", "hostColorOrder", ...snapKeys]);
