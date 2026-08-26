@@ -72,6 +72,15 @@ lines duplicating it; see `decisions/timeline_design.md`).
   proceed without further confirmation.
 - **Score weights are provisional** (Desktop4-inherited) — keep them named
   constants, turn one knob at a time.
+- **Code comments say what the code does, never what it used to do**
+  (2026-08-25). A comment carries NO dates, no "revised/replaced/superseded/
+  first cut", no rejected alternatives, no specimens — that is a log, and
+  logs live in `decisions/`. Two kinds earn their length: the CURRENT rule,
+  and the anti-footgun ("why this is not the obvious simpler thing"), which
+  stays in the code because a pointer costs a file-open at exactly the moment
+  someone is about to break it. Everything else is one line naming the md
+  file that holds the why. Applies to `.js` and `.css` alike. Enforced at
+  close-out by `/updatedocs`, cleaned up in bulk by `/docaudit`.
 
 ## Stack & debugging
 - Vanilla JS, no build step, no framework, no dependencies. Load unpacked via

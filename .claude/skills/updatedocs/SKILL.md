@@ -63,7 +63,7 @@ denser prose to sneak past.
 | `SPEC.md`, `spec/*.md` | 2-4 sentences + date tag |
 | `decisions/*.md` | **15 lines**, hard |
 | `WATCHLIST.md` | entry shape in that file's header |
-| Code comments | 1-2 lines + a pointer to the md file |
+| Code comments (`.js`, `.css`) | current rule only — no dates, no history |
 
 15 lines for `decisions/` is deliberately aggressive: that directory is
 ~16:1 against the spec it explains and recent entries ran 60-200 lines. If a
@@ -107,8 +107,20 @@ subsystem with no home is how drift starts.
    whose truth-value changed, the relevant `decisions/` log for the why.
    There is no changelog to update — `git log` is the change history. Touch
    `decisions/README.md` ONLY if you created or retired a decision log.
-4. **Trim the code comments you wrote this session** to the budget above.
-   The comment says what; the md file says why; the comment names which file.
+4. **Strip the history out of the code comments you wrote this session.**
+   Not a length judgment — a content check, which is why it can be applied
+   honestly an hour after writing the comment. Delete from every comment you
+   touched: dates, "revised/replaced/superseded/first cut/used to", rejected
+   alternatives, and specimens. Those are a LOG; logs live in `decisions/`,
+   and the comment names that file instead.
+
+   What stays: the rule as it now stands, and the anti-footgun — why this is
+   not the obvious simpler thing. That one keeps its length; a pointer costs
+   a file-open at exactly the moment someone is about to break it.
+
+   Do not date-stamp a comment. The spec dates its rules because it states
+   what is true *now* and needs to show when that changed; a comment has
+   `git blame` and no such obligation.
 5. **Check tense.** An amended rule must not leave older text reading as
    current. Fix the old passage or date-stamp it.
 6. **Check your OWN edit for rot** — did it layer, fuse, or overrun a

@@ -1,6 +1,6 @@
 ---
 name: docaudit
-description: Occasional deep audit of the whole doc corpus — layered corrections, fused bullets, misfiled content, stale facts, and resolved watch items that should have been deleted. Use when the user asks to audit or clean up the documentation, check whether the docs have drifted, or asks for a docs pass. Deletes and restructures; not for recording a session's work (that is /updatedocs). Does not commit.
+description: Occasional deep audit of the whole doc corpus — layered corrections, fused bullets, misfiled content, stale facts, resolved watch items that should have been deleted, and code comments that have turned into logs. Use when the user asks to audit or clean up the documentation, check whether the docs have drifted, or asks for a docs pass. Deletes and restructures; not for recording a session's work (that is /updatedocs). Does not commit.
 ---
 
 # Docaudit
@@ -19,6 +19,10 @@ correct addition — aware of history, but it does not act on it. This skill
 is the opposite: existing text IS the subject, across every doc at once, and
 finding nothing wrong is a valid result to report.
 
+**The corpus includes code comments** (`.js`, `.css`), not only md. They rot
+the same way and nothing else audits them — `/updatedocs` only trims what the
+current session wrote.
+
 Invoked deliberately and occasionally — never as a step inside a closeout.
 If a session's `/updatedocs` reported drift it left alone, that report is
 the natural input here.
@@ -29,7 +33,7 @@ of mine were caught only by running it.
 
 ## What drift looks like
 
-Four diseases plus an index check. Each has its own detector, except stale
+Five diseases plus an index check. Each has its own detector, except stale
 watch items, which must be read. They do not overlap, and a
 detector for one is silent on the others.
 
@@ -118,7 +122,59 @@ way on 2026-08-25.
 is the only record of a doubt; if you cannot confirm it resolved, say so in
 the report and leave it.
 
-### 5. Index drift
+### 5. Code comments that became logs (`.js`, `.css`)
+
+A comment that narrates its own edit history instead of stating what the
+code does. The reader reconstructs the current rule by replaying superseded
+versions — layering (disease 1), one layer down in a file no md detector
+looks at.
+
+It rots harder than the spec does, and for a structural reason worth knowing
+before you cut: editing `spec/display.md` puts the old text right in front of
+you, so replacing it is natural. Changing a line of code leaves the comment
+above it as a separate thing you must CHOOSE to rewrite, and appending
+"(revised 2026-08-24)" always feels safer than deleting a careful paragraph.
+
+Two shapes, two detectors — a file can have either:
+
+    # narrative blocks (the .js shape)
+    awk 'BEGIN{n=0}/^[ \t]*(\/\/|\/\*|\*)/{if(n==0)start=NR;n++;next} \
+         {if(n>=8)print n" lines  "FILENAME":"start;n=0}' FILE
+
+    # dated one-liners (the .css shape — no big blocks, history scattered)
+    grep -nE '20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]|revised|superseded|replaces|first cut|used to' FILE
+
+**Neither is a finding — both nominate a site to read.** Long is not rotten:
+a 10-line block stating one intricate current rule is healthy. The question
+is never length, it is **does this comment have a timeline.**
+
+Three verdicts per site, not the four md outcomes:
+
+| Verdict | What it is | Action |
+|---|---|---|
+| **Current rule** | States what the code does now | Keep. Strip dates and revision framing only |
+| **Anti-footgun** | Why this is NOT the obvious simpler thing | **Keep at length.** Cut it and the next reader "simplifies" the code and breaks it |
+| **Log** | Dated story, rejected alternative, specimen | Delete — after confirming it is in `decisions/` |
+
+The anti-footgun verdict is the one to get right. `assembly.js` explains why
+the incoming and outgoing edges are handled differently AT the line where
+that asymmetry lives; reduced to a pointer, the two branches read as
+duplication begging to be merged.
+
+**Per-story `decisions/` check applies here with more force than in `spec/`.**
+Spec text is usually a duplicate of an archived story. A code comment is
+often the ONLY place a story was ever written — nothing routed it to
+`decisions/`. Grep before every cut; write the missing story first.
+
+Verify after cutting the same way as md: identifier diff. Then, because this
+is executable, confirm you changed no code —
+
+    git diff -U0 FILE | grep -E '^[+-]' | grep -vE '^[+-][ \t]*(//|/\*|\*)' | grep -vE '^(\+\+\+|---)$'
+
+Anything printed is a code change and must be reverted. A comment pass
+touches comments only.
+
+### 6. Index drift
 
 `decisions/README.md` indexes the decision logs. Cheap to verify, and nobody
 else checks it:
@@ -137,9 +193,11 @@ runaways, and the longest is two rejected designs with the reason each lost.
 That is exactly its job. Do not "clean" it. Its only real failure mode is a
 story that was never written down at all (see Verifying).
 
-## The four outcomes
+## The four outcomes (md sites)
 
-For each site found, exactly one of:
+For each md site found, exactly one of. **Code comment sites use the three
+verdicts in disease 5 instead** — there is no "split" for a comment, and
+"delete" is the common case there rather than the rare one:
 
 | Outcome | When |
 |---|---|
@@ -180,8 +238,9 @@ would have edited the wrong bullet.
 
 ## Steps
 
-1. **Run the automated detectors** (1-3, plus 5) across `SPEC.md`,
-   `spec/*.md`, `WATCHLIST.md`, `decisions/README.md`.
+1. **Run the automated detectors** (1-3, plus 6) across `SPEC.md`,
+   `spec/*.md`, `WATCHLIST.md`, `decisions/README.md`, **and detector 5
+   across the source** (`*.js`, `*.css`; skip `testing/node_modules`).
    Report the sites found, worst first, before changing anything. This report
    is a survey, not a work order — its line numbers go stale on the first
    edit.
@@ -190,11 +249,15 @@ would have edited the wrong bullet.
    deleted on resolution. Do this every pass, not just when a detector fires.
 3. **Pick the worst one or two** of the drift sites. Do not attempt the whole
    corpus in a pass — each needs real reading, and a rushed deletion is the
-   failure mode.
-4. **For each: re-run the fusion detector to re-locate the site**, then read
-   it fully and **classify** into one of the four outcomes.
+   failure mode. Prefer not to mix md and code sites in one pass: they verify
+   differently, and a diff spanning both is harder to review.
+4. **For each: re-run the detector to re-locate the site**, then read it
+   fully and **classify** — one of the four outcomes for md, one of the three
+   verdicts for a code comment.
 5. **Check `decisions/` per story.** Write any missing reasoning first.
-6. **Make the change**, then verify by identifier diff.
+6. **Make the change**, then verify by identifier diff. For a code site,
+   also run the no-code-changed diff (detector 5) — a comment pass that
+   touched a line of code is a bug, not a cleanup.
 7. **Check for stale facts while you are in there.** Layering goes stale:
    retrofits found five spec facts silently overtaken by a later section —
    old constant values, a retired function still named as current. A reader
