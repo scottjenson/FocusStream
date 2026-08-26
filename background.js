@@ -58,7 +58,7 @@ const HB_WINDOW_MS = TRANSIT_MS;
 // "locked" state alone (an OS screen lock is machine-state ground truth,
 // unlike "idle"/"active", which are just the same ambiguous no-activity
 // inference this extension already makes from a different angle). Consumed
-// only by display-time gap classification (fence merge gap, SPEC §6) — never
+// only by display-time gap classification (SPEC §6) — never
 // rendered, never a presence log. Event-driven (onStateChanged), no polling.
 const lockState = { since: null }; // in-worker only; a mid-lock worker restart just loses that one interval's start, fails closed
 

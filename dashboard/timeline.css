@@ -295,11 +295,6 @@
       text-overflow: ellipsis;
       pointer-events: none;
     }
-    /* Collapsed-fence hit plate (spec §6 hover fences, 2026-08-08): hovering
-       expands, so this is purely a mouseenter target now — no click, no
-       :active state to imply. */
-    .plate { position: absolute; cursor: default; }
-    .plate:hover { background: rgba(255,255,255,0.08); }
     /* Gap region (spec §6 gap hours): hover reveals the away-span tooltip;
        a whisper of background so the hover feels acknowledged. */
     .gap { position: absolute; }

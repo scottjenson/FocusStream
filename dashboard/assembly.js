@@ -39,7 +39,7 @@ export const VISIT_GAP_MS = 5 * 60 * 1000;
 // (spec §6 containers).
 // Currently equals FENCE_BRIDGE_GAP_MS (timeline.js) by coincidence, not by
 // reference (rules audit, 2026-08-06 — WATCHLIST.md "Time-threshold sprawl"):
-// this is a fact about the TAB (its audio never stopped); the fence
+// this is a fact about the TAB (its audio never stopped); the away-plate
 // constant is a fact about the USER (how long a break reads as leaving
 // the machine). Keep them independently tunable — retune one without
 // assuming the other should follow.
@@ -857,7 +857,3 @@ export function threadsByDay(sessions) {
 // from "./assembly.js"` keeps working unchanged.
 export { siteNameOf, computeHostNames, labelKeyOf } from "../shared/utility.js";
 
-// Runs of MIN_RUN+ consecutive LOW events fence; everything else lays out
-// as a plain block. This machinery (gapIsLockBounded/clusterEvents) stays
-// in timeline.js — it's the events->items step immediately feeding layout,
-// grouped with the rest of the layout pipeline rather than assembly.

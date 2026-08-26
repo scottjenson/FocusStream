@@ -36,8 +36,10 @@ length is a live progress indicator.
 is real design work, not a filing error — resolving it is Track B:
 * §6 says gaps render proportional to absence; §7e collapses overnight gaps
   to a fixed-width divider.
-* §6 says LOW blocks fence to slivers but stay present; §7e's band ladders
-  DROP them entirely at zoom-out. `eviction-fallback-tedium` and
+* §6 said LOW blocks fence to slivers but stay present; §7e's band ladders
+  DROP them entirely at zoom-out. Fencing was deleted 2026-08-25, so this
+  conflict is now half-resolved — LOW blocks render at the `MIN_W` floor
+  until a ladder drops them. `eviction-fallback-tedium` and
   `band-drop-absence` both bear on this, and `decisions/timeline_design.md`
   ("The history view's mandate got clearer") argues for presence over
   disappearance.
@@ -67,12 +69,10 @@ estimate — `ZOOM_MAX` clamping and min-width/gap error can silently blow past
 one. Fires once per page lifetime; later renders right-justify
 normally so a manual zoom is never fought.
 
-**Fences are retired entirely in this view** (`clusterEvents`, gated on
-`anchorMode !== "right"`) — for real closed history as well as open tabs,
-matching the card view's own fence retirement (that view was deleted
-2026-08-25; see `decisions/timeline_design.md`).
-Since 2026-08-25 the dashboard IS this view, so §6's fencing is dormant
-everywhere; the code path remains.
+**Fences are gone** — retired in this view first (gated on `anchorMode !==
+"right"`), then deleted outright on 2026-08-25 once the dashboard became
+this view and no fence rendered anywhere. The code path is gone too; §6's
+fence entry records what it was.
 
 ## 7d. Ribbon zoom anchors right (built 2026-08-23)
 

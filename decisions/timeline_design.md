@@ -3206,4 +3206,63 @@ consumer — the on-block snapshot path fits width and does not need the
 native ratio as a constant — so it was deleted rather than renamed to
 `SNAP_ASPECT`.
 
+## Deleting the fence: unreachable code, but a real product decision (2026-08-25)
+
+Picket fencing — runs of LOW events collapsing to 3px sticks under a
+hover-to-expand plate — is gone. `clusterEvents`, `gapIsLockBounded`,
+`MIN_RUN`, `STICK_W`/`STICK_GAP`/`STICK_FILL`, `FENCE_IMPLIED_BREAK_MS`, the
+entire expand/collapse interaction (`expandedKey`, `expandedBox`,
+`expandFence`/`collapseFence`, the open/close debounce timers and their
+mousemove listener) and `.plate` CSS all came out. ~320 lines from
+`timeline.js`.
+
+**It had already stopped rendering.** Run-building was gated on
+`anchorMode !== "right"`, and `anchorMode` became permanently `"right"` when
+§8 Phase 1 deleted `switcher.js` earlier the same day — nothing sets
+`window.__fsTimelineAnchor` any more. No stick or plate had painted since.
+So this changed nothing visible; it removed code that could not run.
+
+**But it was still a decision, not a tidy-up**, and was taken as one: the
+alternative was leaving it dormant against a possible return to fencing.
+Dormancy was rejected because the code was not sitting in a corner —
+`s.collapsed` was read at ~18 sites *inside* `paint()`, interleaved with
+live logic for favicons, snapshots, labels, locking and hit-testing. Every
+future change to those paths would have had to reason around a branch that
+never executes. A revert now means re-implementing against the current
+`paint()`, and that was accepted explicitly rather than by default.
+
+**The structural win:** with clusters gone there is no items/wrapper layer
+at all. `clusterEvents` used to map `events[] -> items[]` tagged
+`{kind:"event"}` or `{kind:"cluster"}`; `layout()` now takes plain events
+and returns `{segs, gaps, dividers, total}`. `plates` and `bars` are gone
+from its output — `bars` was fence-owned despite sitting next to `gaps` and
+`dividers`, which survive.
+
+**What deliberately survived, and why it looks like it shouldn't have.**
+`FENCE_BRIDGE_GAP_MS` (30 min) reads as fence machinery and is not: since
+2026-08-08 its only job is gating which gaps earn an `away 12:04 – 1:38`
+plate. That loop is live, user-visible behaviour and was never behind the
+dead gate. It stays, along with the `.gap` CSS, and its comments were
+rewritten to explain the threshold on its own terms rather than by
+reference to the bridging it no longer gates. A rename to
+`AWAY_PLATE_GAP_MS` is pending as a separate pass. Contained-child
+treatment (`CUT_SEAM`, `.cut`, `s.contained`) also survives — unrelated
+despite the shared "cut"/"seam" vocabulary.
+
+**This was NOT the `anchorMode` decision.** `anchorMode` is merely the flag
+that happened to be gating fencing; fencing worked in both anchor modes
+historically. That question is still open and is tracked separately
+(`ANCHORMODE_REMOVAL.md`). Fences went first precisely because the two
+tasks overlapped on one line — `clusterEvents`' run gate — and removing
+`anchorMode` first would have dropped that gate's conjunct and made fencing
+*live again* rather than dead.
+
+**Verification.** Display-side only, so `replay-rules.mjs` had to report
+*identical* counts: 394 blocks / 187 containers over 8 days, unchanged —
+the same standing acceptance test the card deletion used. `node --check`
+alone was not sufficient here (it cannot catch a call to a deleted
+function), so a scripted sweep for every removed identifier outside
+comments backed it up; it caught two live `clusterEvents(...)` call sites in
+the zoom-window probe path that the syntax check had passed.
+
 ---

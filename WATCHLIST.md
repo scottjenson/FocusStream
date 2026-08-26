@@ -62,7 +62,7 @@ grouping, evidence trimmed to pointers).
 bsky-scroll-premium, and w-nav-single-day were struck 2026-08-09 —
 settled-by-silence/superseded, no specimen in weeks of real use.)
 
-### Assembly (merging, containers, fences)
+### Assembly (merging, containers)
 - **earned-high-pass-one-reach (2026-08-24):** extending earned-HIGH
   atomicity to the raw-fragment pass (gated on URL change) is a real
   widening of a guard, adopted on ONE specimen day — four back-to-back Meet
@@ -139,18 +139,14 @@ containers" and "Continuation merge + MEDIUM containers".)
   `fence-bridge-threshold`):** `FENCE_BRIDGE_GAP_MS` = 30 min is provisional
   — chosen mid-dead-zone of one cleanly bimodal morning (grazing gaps < 8
   min, step-aways at 19–21 min, nothing between), so any value ~22–40 min was
-  equivalent on that day. **The fence half of this entry is dead:** the
-  constant stopped gating fence bridging on 2026-08-08 (that is
-  `FENCE_IMPLIED_BREAK_MS` now), and fencing itself no longer renders at all
-  — `clusterEvents`' run-building sits behind `anchorMode !== "right"`, which
-  is permanently false since the overlay was deleted, so no stick or plate is
-  ever painted. **Still open, narrower:** the constant is live and does
+  equivalent on that day. The constant is live and does
   exactly one job — deciding which gaps earn an "away 12:04 – 1:38" plate —
   and that threshold has never been judged against a real walk-away. Watch
   for: a gap that felt like leaving getting no plate, or a plate on a gap
   that was just a pause. Histogram + method note:
   `decisions/timeline_design.md`, "Fences bridge breaks, split at
-  departures"; the one-job reassignment is in the same file.
+  departures"; the one-job reassignment is in the same file. (Fencing itself
+  was deleted 2026-08-25; a rename to `AWAY_PLATE_GAP_MS` is pending.)
 
 ### Layout, labels, visuals
 (gap-loudness and week-strip-legibility were struck 2026-08-09 —
@@ -160,8 +156,8 @@ no specimen.)
   `MIN_W` and `GAP` don't scale with `PX_PER_SEC`, so floored blocks
   (anything under ~3m33s) claim a larger share of the ribbon — busy sections
   shrink sublinearly. Live and load-bearing: 87% of blocks sit on the `MIN_W`
-  floor. (`STICK_W` was named here too, but fence sticks no longer render —
-  see `away-plate-threshold`.) If dense stretches still read too wide, tune
+  floor. (`STICK_W` was named here too; it was deleted with the fence on
+  2026-08-25.) If dense stretches still read too wide, tune
   the overhead constants, not the scale.
 - **container-interior-dilation:** a container renders its SPAN at presence
   scale, so interior time covered by neither fragments nor children is
